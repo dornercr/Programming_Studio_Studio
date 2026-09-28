@@ -1,0 +1,107 @@
+{
+  "chapter": 14,
+  "source": "examples/ch14/main.cpp",
+  "overview": {
+    "kind": "class",
+    "title": "A queue owns requests; requests borrow the marker",
+    "nodes": [
+      {
+        "id": "Q",
+        "label": "Invoker: queue loops",
+        "code": [
+          "std::vector<std::unique_ptr<Command>> queue;"
+        ]
+      },
+      {
+        "id": "C",
+        "label": "Command interface",
+        "code": [
+          "virtual void execute() = 0;"
+        ]
+      },
+      {
+        "id": "M",
+        "label": "Concrete command: Move",
+        "code": [
+          "Marker& marker_;"
+        ]
+      },
+      {
+        "id": "R",
+        "label": "Receiver: Marker",
+        "code": [
+          "int position_ = 0;"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "C",
+        "kind": "ownership",
+        "label": "unique_ptr owns each command",
+        "from": "Q"
+      },
+      {
+        "to": "C",
+        "kind": "inheritance",
+        "label": "Move implements Command",
+        "from": "M"
+      },
+      {
+        "to": "R",
+        "kind": "dependency",
+        "label": "borrows receiver; no ownership",
+        "from": "M"
+      }
+    ],
+    "explanation": "The ownership edge ends at Command because that is the queue element type. Actual owned objects are Move instances. The inheritance arrow points from Move toward its base. The dependency arrow is a borrowed reference: deleting a command must never delete the marker. The invoker role belongs to the execution loops over queue, not to std::vector itself; main also performs the separate client role when constructing commands."
+  },
+  "extra_overviews": [],
+  "focus": [
+    {
+      "title": "Record success only after the receiver accepts",
+      "start": "void execute() override {",
+      "end": "} // execute",
+      "what": "This method changes intent into a completed marker move.",
+      "where": "The queue calls it through Command during execution.",
+      "why": "Saving the old value at execution time gives correct undo information for delayed requests.",
+      "invariant": "A failed setter must leave applied_ false and the marker unchanged.",
+      "risk": "Saving too early or committing the flag too early creates a false history.",
+      "explain": [
+        "Define the concrete implementation of the interface operation.",
+        "The comment announces the repeated-execution guard.",
+        "Check whether this request is already applied.",
+        "Throw a logic error rather than silently applying twice.",
+        "Close the guard branch.",
+        "Read the receiver position immediately before changing it.",
+        "Ask the receiver to validate and apply the target.",
+        "Record success only after set has returned normally.",
+        "Close execute; the comment labels the boundary."
+      ],
+      "resolved_start": 31,
+      "resolved_end": 39
+    },
+    {
+      "title": "Undo only a completed move",
+      "start": "void undo() override {",
+      "end": "} // undo",
+      "what": "This method restores the position captured by a successful execute.",
+      "where": "The client visits queued commands in reverse order.",
+      "why": "A completion flag distinguishes valid history from a request that never took effect.",
+      "invariant": "Each applied move can be undone once before another execution.",
+      "risk": "Restoring in forward order loses the original state; outside edits also invalidate the assumption.",
+      "explain": [
+        "Define the concrete reverse operation.",
+        "The comment states that only completed work can be undone.",
+        "Test for the absence of an applied change.",
+        "Reject undo when there is nothing valid to reverse.",
+        "Close the invalid-state branch.",
+        "Restore the saved receiver value, which was previously valid.",
+        "Mark this command as no longer applied.",
+        "Close undo and label its source boundary."
+      ],
+      "resolved_start": 40,
+      "resolved_end": 47
+    }
+  ]
+}

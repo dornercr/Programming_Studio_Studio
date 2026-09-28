@@ -1,0 +1,91 @@
+{
+  "chapter": 18,
+  "source": "examples/ch18/main.cpp",
+  "overview": {
+    "kind": "sequence",
+    "title": "Observer delivery: one publisher, registered listeners",
+    "nodes": [
+      {
+        "id": "F",
+        "label": "Publisher: Feed",
+        "code": [
+          "Reset reset{notifying_};"
+        ]
+      },
+      {
+        "id": "W",
+        "label": "Registration",
+        "code": [
+          "if (auto live = weak.lock()) {"
+        ]
+      },
+      {
+        "id": "L",
+        "label": "Observer: Total",
+        "code": [
+          "live->update(value);"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "W",
+        "kind": "call",
+        "label": "try to acquire temporary ownership",
+        "from": "F"
+      },
+      {
+        "to": "L",
+        "kind": "call",
+        "label": "only if listener is still alive",
+        "from": "W"
+      }
+    ],
+    "explanation": "The call arrows show one listener delivery, repeated in registration order. A successful weak lock creates temporary shared ownership; it is not an inheritance relationship. Expired entries produce no call. The scope guard covers the whole publication and clears the flag if this call throws."
+  },
+  "extra_overviews": [],
+  "focus": [
+    {
+      "title": "Hold each listener through its callback",
+      "start": "// Clear the flag on every exit.",
+      "end": "} // publish",
+      "what": "This guarded loop delivers values only to live listeners.",
+      "where": "It follows range checking and rejection of a nested publication.",
+      "why": "Temporary shared ownership keeps a listener alive during its own update call.",
+      "invariant": "The registration vector stays unchanged and the flag is cleared on every exit.",
+      "risk": "A callback can throw after partial delivery; this loop does not undo prior listener effects.",
+      "explain": [
+        "The comment explains the cleanup requirement.",
+        "Mark publication as in progress.",
+        "Construct a scope guard that will reset the flag.",
+        "Visit each weak registration without changing the vector.",
+        "Try to acquire a live shared pointer and enter only if it succeeds.",
+        "Call the listener through the temporary owner.",
+        "Close the live-listener branch and release that temporary owner.",
+        "Close the registration loop.",
+        "Close publish; the local Reset now clears the flag."
+      ],
+      "resolved_start": 36,
+      "resolved_end": 44
+    },
+    {
+      "title": "A listener may have effects before it throws",
+      "start": "void update(int value) override {",
+      "end": "if (after) { after(); }",
+      "what": "This concrete listener adds a reading, then optionally runs a test callback.",
+      "where": "Feed invokes it through the Listener interface.",
+      "why": "The hook makes reentrancy and exception policies observable in deterministic tests.",
+      "invariant": "For the tested small sequence, the accumulated total includes each accepted delivery exactly once.",
+      "risk": "An exception from after happens after sum changes; delivery is not rolled back.",
+      "explain": [
+        "Define the listener implementation of update.",
+        "The comment fixes the order of the observable effects.",
+        "Add the delivered value to this listener running total.",
+        "The comment warns that a later exception does not reverse this sum.",
+        "Invoke the optional callback only if the function wrapper is nonempty."
+      ],
+      "resolved_start": 50,
+      "resolved_end": 54
+    }
+  ]
+}

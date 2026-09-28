@@ -1,0 +1,394 @@
+{
+  "number": 1,
+  "title": "Factory Method",
+  "part": "I - Creational design patterns",
+  "topics": [
+    "Factory Method",
+    "creator and product",
+    "virtual creation hook",
+    "simple factory"
+  ],
+  "objectives": [
+    "Identify the workflow that benefits from a creation hook.",
+    "Follow product ownership across a factory return.",
+    "Distinguish Factory Method from an ordinary factory function."
+  ],
+  "sections": [
+    {
+      "heading": "The archive workflow already knows too much",
+      "paragraphs": [
+        "An archive tool accepts a nonempty text label of at most 20 bytes. It produces a demonstration receipt, either stored text:sample or stored [sample]. No file is written: stored is a message describing the workflow result. This boundary keeps the example deterministic and avoids pretending that a string return is a durable archive transaction.",
+        "The first version constructs TextRecord directly inside the job. That is the simplest sensible design for one format. Validation and the receipt prefix belong to the job. Formatting belongs to the record. These are already separate duties, but the job still names the one concrete record it can create."
+      ],
+      "code": "TextRecord record;\nreturn \"stored \" + record.format(text);",
+      "code_label": "Excerpt — simplest approach before the redesign"
+    },
+    {
+      "heading": "The change should affect construction, not the workflow",
+      "paragraphs": [
+        "A second integration needs bracketed records. Copying the whole job would copy validation and the stored prefix too. Adding a format switch works for a small closed choice set, but an extensible job family already uses derived types for integration-specific behavior. We want the common job to request a record without deciding its concrete class.",
+        "A product is simply an object made for another part of the program to use. A creator is the object that asks for or makes that product. The Factory Method pattern gives the creator a virtual creation operation. A derived creator decides which concrete product to return. Here ArchiveJob is the creator, Record is the product interface, and make is the creation hook. run still performs useful work; it is not merely a renamed constructor."
+      ]
+    },
+    {
+      "heading": "Two connected type families, one clear handoff",
+      "paragraphs": [
+        "TextJob and BracketJob derive from ArchiveJob. TextRecord and BracketRecord derive from Record. These are separate relationships. A TextJob is a kind of ArchiveJob; it is not a kind of TextRecord. The job creates the record and then uses it through the Record interface. Confusing those relationships leads to misleading class diagrams and often to bad code.",
+        "The protected make declaration returns unique_ptr<Record>. Each override keeps that return type and constructs its concrete class with make_unique. A unique_ptr<TextRecord> can transfer into unique_ptr<Record> when the pointer conversion and deleter requirements are met. This is ownership conversion, not virtual return-type covariance. C++ covariant overrides apply to certain raw pointer and reference return types, not to arbitrary smart-pointer templates.",
+        "run receives the owning handle in a local variable. It checks the non-null postcondition, calls format, builds its result string, and leaves scope. The local handle then destroys the product. Returning the string does not extend the product lifetime because the string owns its own characters. If format throws, cleanup still releases the record. The virtual Record destructor is essential for complete destruction through a base owning handle."
+      ]
+    },
+    {
+      "heading": "Compilation fixes the request; execution chooses the maker",
+      "paragraphs": [
+        "The compiler checks that ArchiveJob declares make and that each override matches it. At execution, the object on which run was called determines which make override runs. Calling run through const ArchiveJob& selected still reaches BracketJob::make when selected refers to the bracket job. A reference changes what operations the caller can name; it does not erase the actual object type.",
+        "The call to make happens after label validation. An empty or oversized label therefore creates no product. Once a product exists, its format method is another virtual call. The sequence is shared validation, virtual creation, virtual formatting, then shared receipt assembly. Factory Method is often one specialized step inside a Template Method-style workflow, but the terms describe different decisions: one concerns object creation; the other concerns algorithm order.",
+        "A null result is a broken creator contract, so the job throws logic_error. EmptyJob exists only to verify that guard. An allocation failure can also occur inside make_unique and propagate as an exception; no successfully constructed handle exists to leak. For a real file-backed product, document whether creation opens a file, delays opening, or can reuse a resource. The pattern alone says nothing about those effects."
+      ]
+    },
+    {
+      "heading": "What does not make a Factory Method",
+      "paragraphs": [
+        "A free function make_record(format) with a switch is commonly called a simple factory. It centralizes construction and may be exactly what a program needs. It is not this pattern’s defining mechanism because no inherited workflow calls an overridable creation hook. A static member named create is not automatically Factory Method either. Names do not decide a design pattern; relationships and control flow do.",
+        "If the caller can supply a ready-made Record, dependency injection is often simpler than subclassing ArchiveJob. If the workflow needs a fresh record for every run, it can accept a callable factory. Factory Method fits best when creator inheritance already has a clear role and subclasses should choose products. Avoid introducing two class hierarchies solely to hide one constructor.",
+        "New product behavior still needs interface-level tests. A new format that silently truncates labels could satisfy the C++ signature and still violate requirements. Likewise, switching the product does not make the stored prefix truthful about persistent storage. Keep the workflow’s externally promised behavior explicit, and test it through the base creator interface so extensions exercise the same path clients will use."
+      ]
+    }
+  ],
+  "example": {
+    "title": "An archive job creates its own record format",
+    "file": "examples/ch01/main.cpp",
+    "requirements": [
+      "Accept label lengths from 1 through 20 bytes.",
+      "Preserve the common stored prefix and validation across product formats.",
+      "Release each created product on success and on exceptions."
+    ],
+    "design": "ArchiveJob owns a useful stable workflow and exposes one protected virtual creation hook. Concrete jobs select products; the workflow sees only Record.",
+    "alternative": "A simple factory function plus an ordinary workflow is smaller for a closed list of formats. Injecting a factory callable avoids creator inheritance when object creation varies independently of job type.",
+    "invariants": [
+      "run validates before it calls make.",
+      "A successful make returns a non-null owning handle.",
+      "The receipt preserves the entire accepted label in the selected format."
+    ],
+    "failures": [
+      {
+        "mistake": "Construct TextRecord directly in ArchiveJob::run.",
+        "consequence": "BracketJob still produces stored text:sample instead of stored [sample].",
+        "reason": "The workflow bypasses the virtual creation hook."
+      },
+      {
+        "mistake": "Return an owning pointer to a local record variable.",
+        "consequence": "The pointer dangles when make returns; later use or deletion is invalid.",
+        "reason": "An automatic local object cannot transfer its lifetime by returning its address."
+      }
+    ],
+    "verification": "main checks both receipt formats through direct and base-reference calls, accepts exactly 20 bytes, rejects 0 and 21 bytes, and checks a null-returning creator. These tests cover the string workflow, not disk persistence or allocation-failure injection.",
+    "maintenance": "A format extension adds a product and a matching creator without copying label checks. Review whether creator inheritance remains useful as integrations grow; a factory callable can become clearer when combinations multiply."
+  },
+  "diagram": {
+    "kind": "class",
+    "title": "Creation varies inside a common workflow",
+    "nodes": [
+      {
+        "id": "J",
+        "label": "Creator\nArchiveJob",
+        "code": [
+          "auto record = make();",
+          "// Workflow requests a product."
+        ]
+      },
+      {
+        "id": "T",
+        "label": "Concrete creator\nTextJob",
+        "code": [
+          "std::make_unique<TextRecord>();",
+          "// Select the concrete product."
+        ]
+      },
+      {
+        "id": "B",
+        "label": "Concrete creator\nBracketJob",
+        "code": [
+          "// Select a BracketRecord."
+        ]
+      },
+      {
+        "id": "R",
+        "label": "Product\nRecord",
+        "code": [
+          "virtual ~Record() = default;",
+          "// Used through one interface."
+        ]
+      },
+      {
+        "id": "P",
+        "label": "Concrete product\nTextRecord",
+        "code": [
+          "return \"text:\" + text;",
+          "// Concrete formatting behavior."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "J",
+        "kind": "inheritance",
+        "label": "inherits workflow",
+        "from": "T"
+      },
+      {
+        "to": "J",
+        "kind": "inheritance",
+        "label": "inherits workflow",
+        "from": "B"
+      },
+      {
+        "to": "R",
+        "kind": "inheritance",
+        "label": "implements product",
+        "from": "P"
+      },
+      {
+        "to": "P",
+        "kind": "dependency",
+        "label": "creates",
+        "from": "T"
+      },
+      {
+        "to": "R",
+        "kind": "dependency",
+        "label": "uses during run",
+        "from": "J"
+      }
+    ],
+    "explanation": "Inheritance arrows point from derived types to their bases. Dashed dependencies mean creates or uses, as labeled. ArchiveJob has no persistent Record member: run owns a local product temporarily. BracketRecord follows the same product relationship but is omitted from this overview to keep it readable; its complete implementation appears in the source listing."
+  },
+  "focus": [
+    {
+      "title": "A virtual creation hook inside real work",
+      "start": "        // Choose the concrete product here.",
+      "end": "            record->format(text);",
+      "what": "The workflow asks its current creator for a product, then uses the product interface.",
+      "where": "ArchiveJob::run, after input validation.",
+      "why": "The common workflow must not hard-code a concrete record.",
+      "invariant": "No product is used until its owning handle has been checked.",
+      "risk": "A null product without this check would be dereferenced.",
+      "explain": [
+        "The comment marks the creation extension point.",
+        "Call the virtual make function and keep the returned owner locally.",
+        "Test whether the creator broke its non-null contract.",
+        "Begin constructing a logic-error exception.",
+        "Supply null record as the message and throw.",
+        "Start constructing the shared receipt prefix.",
+        "Call the product’s virtual formatter and join its owned string result."
+      ]
+    },
+    {
+      "title": "The derived creator makes one product choice",
+      "start": "class TextJob final : public ArchiveJob {",
+      "end": "            std::make_unique<TextRecord>();",
+      "what": "TextJob selects TextRecord while keeping the inherited run algorithm.",
+      "where": "One concrete creator in the ArchiveJob family.",
+      "why": "Construction changes through a small override rather than a copied workflow.",
+      "invariant": "The returned handle owns a complete object implementing Record.",
+      "risk": "Changing the return declaration to unique_ptr<TextRecord> would not be a matching override.",
+      "explain": [
+        "Declare a final creator derived from ArchiveJob.",
+        "The comment explains that the returned interface handle owns the product.",
+        "Declare the owning base-interface return type.",
+        "Override the creation hook with the matching const qualifier.",
+        "Begin returning an owning product handle.",
+        "Allocate and construct a TextRecord, then transfer ownership to the return value."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "selected refers to a BracketJob; text=\"sample\"",
+      "reason": "The base reference exposes the common job API."
+    },
+    {
+      "step": "2",
+      "state": "run validates length=6",
+      "reason": "Validation belongs to ArchiveJob and succeeds."
+    },
+    {
+      "step": "3",
+      "state": "make returns owner of BracketRecord",
+      "reason": "The actual creator type selects the virtual override."
+    },
+    {
+      "step": "4",
+      "state": "format returns \"[sample]\"; run returns \"stored [sample]\"",
+      "reason": "Product behavior and shared workflow combine before local ownership ends."
+    }
+  ],
+  "summary": [
+    "Factory Method varies construction through an inherited virtual hook.",
+    "The creator must have a reason to exist beyond renaming a constructor.",
+    "Product and creator inheritance are separate relationships.",
+    "Return ownership clearly and validate required non-null products.",
+    "A free factory function is often a useful simpler design."
+  ],
+  "exercises": [
+    {
+      "id": "01.1",
+      "level": "Guided modification",
+      "prompt": "Run TextJob and BracketJob with label x. State the exact returned strings.",
+      "hint": "The shared prefix belongs to run.",
+      "answer": "TextJob returns \"stored text:x\". BracketJob returns \"stored [x]\". Both preserve the same validation and the entire label."
+    },
+    {
+      "id": "01.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "A BracketJob is bound to const ArchiveJob& job. The code prints job.run(\"A\"), then job.run(\"\") inside a try block, catching invalid_argument and printing rejected. What lines appear?",
+      "hint": "The second call fails before creating a product.",
+      "answer": "The lines are \"stored [A]\" and \"rejected\". No second receipt is returned, and make is not called for the empty label."
+    },
+    {
+      "id": "01.3",
+      "level": "Diagnose a bug",
+      "prompt": "A programmer changes ArchiveJob::run to create TextRecord directly and leaves both creator subclasses unchanged. What test fails, and why?",
+      "hint": "Find which implementation is selected without make.",
+      "answer": "The selected.run(\"sample\") check expecting \"stored [sample]\" fails. Direct construction binds the workflow to TextRecord and bypasses BracketJob::make, so the actual result is \"stored text:sample\"."
+    },
+    {
+      "id": "01.4",
+      "level": "Choose a design",
+      "prompt": "A program has a switch selecting two record types, with no useful creator inheritance. Should the team add a base creator just to claim Factory Method? Explain a smaller design.",
+      "hint": "A pattern name is not a requirement.",
+      "answer": "Keep a simple factory function returning unique_ptr<Record>, or pass a ready-made record when its lifetime fits. Add inherited creation only when a shared creator workflow genuinely benefits from subclass choices. The smaller design centralizes construction with fewer relationships to maintain."
+    },
+    {
+      "id": "01.5",
+      "level": "Extend without regressions",
+      "prompt": "Add LengthRecord and LengthJob. The format is the label’s byte count, a colon, then the entire label. Preserve the shared workflow. State the receipt for sample.",
+      "hint": "format can use std::to_string(text.size()).",
+      "answer": "The receipt is \"stored 6:sample\". The solution adds one product and one creator, tests through const ArchiveJob&, checks lengths 1 and 20, and verifies that an empty label is still rejected."
+    },
+    {
+      "id": "01.6",
+      "level": "Justify a decision",
+      "prompt": "A reviewer asks why make returns unique_ptr<Record> instead of Record&. Explain the lifetime difference and a valid use for borrowing.",
+      "hint": "Who destroys the created record?",
+      "answer": "The current contract creates a fresh record owned by run, so unique_ptr states who destroys it even when formatting throws. A reference would need a separate owner that outlives the call, such as a cached immutable product stored in the creator. Borrowing is reasonable under that different lifetime contract, but returning a reference to a local record is invalid."
+    }
+  ],
+  "lab": {
+    "starter": "exercises/ch01/main.cpp",
+    "solution": "solutions/ch01/main.cpp",
+    "task": "Add a length-prefixed record product and a LengthJob creator. Do not edit ArchiveJob::run, TextJob, or BracketJob. Keep every original check and add checks through the creator base reference.",
+    "checks": [
+      "sample produces \"stored 6:sample\".",
+      "x produces \"stored 1:x\".",
+      "A 20-byte label is preserved after the 20: prefix.",
+      "An empty label is rejected before formatting."
+    ],
+    "answer": "The new creator returns an owning Record handle containing LengthRecord. The product implements only formatting. Tests through ArchiveJob demonstrate that the shared workflow remains responsible for validation and prefixing. For Unicode labels, text.size() counts bytes, not user-perceived characters; the exercise deliberately uses ASCII labels."
+  },
+  "glossary": [
+    {
+      "term": "Factory Method",
+      "definition": "A virtual creation operation called by a creator’s inherited workflow, with concrete creation supplied by derived creators."
+    },
+    {
+      "term": "Product",
+      "definition": "An object created for another operation to use."
+    },
+    {
+      "term": "Simple factory",
+      "definition": "A function that selects and constructs a product without requiring an overridable creation hook in a creator hierarchy."
+    }
+  ],
+  "pattern": "Factory Method",
+  "problem_title": "Let a workflow choose the object it needs",
+  "attachment_alignment": {
+    "epub_section": "Factory Method — intent, problem, solution, structure, applicability, and relationships to other patterns.",
+    "source_files": [
+      "C++/src/FactoryMethod/Conceptual/main.cc",
+      "C++/src/FactoryMethod/Conceptual/Output.txt"
+    ],
+    "intent": "Factory Method lets a stable operation request an object while a subclass chooses its concrete type. The attached chapter begins with transport choices and later uses dialog buttons. Those settings lead to the same design question: how can a workflow use a product without fixing its concrete class?",
+    "mechanism": "The creator declares a virtual creation operation returning the product interface. Its ordinary workflow calls that operation and then uses the returned product. A concrete creator overrides the creation operation. The important change is the path of the call: existing workflow code reaches the subclass through virtual dispatch. Moving new into a helper with no overridable creation step does not establish this relationship.",
+    "roles": [
+      {
+        "role": "Creator",
+        "attached": "Creator",
+        "example": "ArchiveJob",
+        "responsibility": "Keeps the shared workflow in SomeOperation or run and declares the creation hook."
+      },
+      {
+        "role": "Factory method",
+        "attached": "Creator::FactoryMethod",
+        "example": "ArchiveJob::make",
+        "responsibility": "States what kind of interface construction must return; subclasses supply the actual maker."
+      },
+      {
+        "role": "Concrete creators",
+        "attached": "ConcreteCreator1; ConcreteCreator2",
+        "example": "TextJob; BracketJob",
+        "responsibility": "Select concrete products while inheriting the existing workflow."
+      },
+      {
+        "role": "Product",
+        "attached": "Product",
+        "example": "Record",
+        "responsibility": "Declares the operation the workflow needs, independent of the product variant."
+      },
+      {
+        "role": "Concrete products",
+        "attached": "ConcreteProduct1; ConcreteProduct2",
+        "example": "TextRecord; BracketRecord",
+        "responsibility": "Implement the varying product behavior."
+      },
+      {
+        "role": "Client",
+        "attached": "ClientCode(const Creator&)",
+        "example": "main using const ArchiveJob& selected",
+        "responsibility": "Uses a creator through its common type without rewriting its workflow."
+      }
+    ],
+    "source_walkthrough": "In the supplied C++ program, main creates ConcreteCreator1 and passes it to ClientCode as a Creator reference. ClientCode calls SomeOperation. That inherited operation calls this->FactoryMethod(); virtual dispatch selects ConcreteCreator1::FactoryMethod and allocates ConcreteProduct1. Calling product->Operation() supplies the text {Result of the ConcreteProduct1}. SomeOperation adds its common prefix, deletes the product, and returns the combined string for printing. The second pass changes the creator to ConcreteCreator2. The same call path reaches ConcreteProduct2, and the attached output changes only the selected creator/product names. Finally, main deletes both creators. There are two separate type hierarchies: creator inheritance selects construction; product inheritance supports use.",
+    "adaptation": "The archive example preserves both hierarchies and the creation call inside the inherited workflow. Its useful work is label validation, formatting, and receipt assembly. Record replaces Product; run replaces SomeOperation; make replaces FactoryMethod. The original manually deletes raw pointers. Our unique_ptr return states who owns the product and releases it if formatting throws. We add nonempty/maximum-length requirements and a null-product guard so students can test the contract, rather than only observe class-name strings. The receipt is a string demonstration, not disk storage. We omit transport, button rendering, pools, and caching because none is needed to explain this creation hook. Returning a fresh owner on each run is this example's policy, not a requirement of every Factory Method implementation.",
+    "recognize": "Find the workflow first. Then find its call to a virtual creation operation, the concrete creator override, and the common product interface. If students can point only to a function named create, they have not yet demonstrated Factory Method.",
+    "contrast": [
+      {
+        "pattern": "Simple factory",
+        "distinction": "A function with a switch centralizes construction. Factory Method varies creation through creator inheritance; the switch version may be simpler for a closed set of choices."
+      },
+      {
+        "pattern": "Abstract Factory",
+        "distinction": "Abstract Factory supplies a coordinated family of product roles through a factory object. This chapter varies one product role inside a creator workflow."
+      },
+      {
+        "pattern": "Template Method",
+        "distinction": "Template Method fixes an algorithm's order. A Factory Method can be one creation step in that algorithm, but its focus is choosing the product."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Expose the change",
+        "action": "Start with TextRecord constructed directly in run. Ask learners to add bracket formatting while keeping one validation path."
+      },
+      {
+        "stage": "Name and trace the roles",
+        "action": "Map Creator/Product in the attachment to ArchiveJob/Record; trace the selected base reference through make and format."
+      },
+      {
+        "stage": "Test an extension",
+        "action": "Add a new product and creator. Run existing tests unchanged and explain why run itself needed no new branch."
+      }
+    ],
+    "checks": [
+      {
+        "question": "If BracketJob overrides make but run directly constructs TextRecord, what prints for sample?",
+        "answer": "stored text:sample. The workflow bypasses the hook, so the override cannot select BracketRecord."
+      },
+      {
+        "question": "Does returning unique_ptr<Record> from each override remove Factory Method?",
+        "answer": "No. It changes the ownership contract. Creator inheritance, virtual creation, and product-interface use still define the pattern."
+      }
+    ]
+  }
+}

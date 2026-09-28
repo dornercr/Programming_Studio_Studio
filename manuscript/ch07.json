@@ -1,0 +1,372 @@
+{
+  "number": 7,
+  "title": "Bridge",
+  "part": "II - Structural design patterns",
+  "topics": [
+    "Bridge"
+  ],
+  "objectives": [
+    "Separate two independent reasons a class family changes.",
+    "Trace calls across a report-to-writer bridge.",
+    "Add an output format without changing reporting rules."
+  ],
+  "sections": [
+    {
+      "heading": "Two useful reports, two useful formats",
+      "paragraphs": [
+        "A small inspection tool prints a count and also classifies that count. One screen wants count=6. Another wants [count:6]. The classification report calls counts above five high and all others normal. It must work in either format. Negative counts are invalid. Requirements now vary in two directions: what the report means, and how its fields are written.",
+        "The simplest first version returns a string directly from a function. That is a good solution when there is one meaning and one format. A second function can serve a second fixed report. The difficulty appears when both dimensions grow. If each combination has its own class, two report types and two formats need four combinations. Three types and four formats need twelve. The count is the product of the choices, not automatically an exponential function of one choice. What hurts is repeated policy and repeated formatting."
+      ],
+      "code": "std::string count_report(int n) {\n    return \"count=\" + std::to_string(n);\n}",
+      "code_label": "Excerpt — simplest starting point"
+    },
+    {
+      "heading": "Locate the two decisions before drawing classes",
+      "paragraphs": [
+        "Suppose the warning boundary changes from five to ten. In the combined design, each warning-format class must change. Suppose the bracket screen changes its separator. Every bracket-report class must change. That gives a concrete reason to separate the decisions. The boundary rule belongs with the report; punctuation belongs with the writer. Neither side should inspect the exact type on the other side.",
+        "A bridge is a stable connection between a high-level operation and a lower-level implementation that can vary independently. Here Report supplies the high-level render operation and borrows a Writer. CountReport and WarningReport decide which field name to send. Plain and Brackets implement Writer::field. The bridge is the writer_ reference. The two families can now grow without adding one class for every cross-product combination.",
+        "The pattern's traditional word abstraction means the high-level view offered to the caller. It does not require every high-level class to be an abstract C++ base class. Our Report is abstract because two report meanings already exist and both must be usable through the same contract. A single concrete report with a Writer member would still separate format from meaning when only one report is needed."
+      ]
+    },
+    {
+      "heading": "Trace data and control across the bridge",
+      "paragraphs": [
+        "In main, plain and brackets are created before the report objects that borrow them. cp stores a reference to plain; cb stores a reference to brackets. Calling cb.render(6) enters CountReport. validate first rejects a negative value. The report then sends the label count and integer 6 to writer_.field. Virtual dispatch selects Brackets::field. It creates [count:6] and returns that string by value through the report to main.",
+        "WarningReport follows the same route but chooses its label first. The conditional expression n > 5 ? \"high\" : \"normal\" evaluates the condition, selects exactly one of the two strings, and initializes label. The question mark introduces the true result, and the colon separates it from the false result. This colon is different from the colon that begins a constructor initializer list or a range loop. Syntax takes its meaning from its surrounding statement.",
+        "The returned strings own their character storage. The label passed to field is a const reference, so field borrows the argument during the call. Neither writer keeps that reference afterward. writer_ is a longer-lived borrow stored inside Report. Those are different lifetime obligations: a call parameter need only stay valid for the call, while a stored reference must stay valid for later calls too."
+      ]
+    },
+    {
+      "heading": "What compilation guarantees and what it cannot",
+      "paragraphs": [
+        "The compiler checks public inheritance, virtual signatures, and whether each concrete class implements the required operation. override catches a mismatch. protected makes writer_ and validate available to the derived reports while keeping them out of ordinary client code. The helper is static because it depends only on its argument and needs no Report object. Constructors initialize the reference before any render call can occur.",
+        "The compiler does not verify that a new Writer preserves the label and value faithfully. A writer could accidentally swap field names or drop a minus sign. That would still compile. The shared semantic contract is therefore essential: format the supplied name and integer without changing their meaning. The report checks the domain rule that counts cannot be negative. The generic writer is capable of formatting any integer, which makes it usable in other domains.",
+        "At execution the same report can use either writer selected during construction. Our design does not provide a setter to switch writer_ later; C++ references cannot be rebound. To change format, construct a new report borrowing another writer. This keeps ownership and configuration simple. An application needing live format changes could instead hold a non-owning pointer with an explicit non-null rule or own an interchangeable writer. That requirement has not appeared here, so its extra states are unnecessary."
+      ]
+    },
+    {
+      "heading": "When the split helps, and when it does not",
+      "paragraphs": [
+        "A bridge gives independence only when the interface is stable and truthful. If field lacks data one format needs, reports may begin checking for special writers. That is a warning that the boundary is too narrow or the supposedly independent dimensions are actually linked. Improve the contract using a real use case, or accept a smaller set of supported combinations. Do not promise that every conceivable report will work with every renderer.",
+        "An enum and one formatting function may be smaller when the set of formats is fixed and tiny. A template can select a writer at compilation and may remove virtual calls, but it exposes more implementation to callers and moves the choice from runtime to build time. Neither alternative is inherently inferior. The reason for this bridge is the already demonstrated independent growth in report policy and presentation.",
+        "Bridge and Adapter can produce similar shapes in a diagram. Their motivations differ. An adapter repairs an existing disagreement between interfaces. A bridge deliberately separates dimensions that should evolve independently. When reviewing a change, ask what boundary is being protected. Add tests for each report's meaning and each format's text, plus a few combinations. That protects the separation more effectively than checking only class names."
+      ]
+    }
+  ],
+  "focus": [
+    {
+      "title": "The shared report boundary",
+      "start": "// Borrow the chosen writer.",
+      "end": "// End validation.",
+      "what": "A report borrows one formatting mechanism and protects the count rule.",
+      "where": "These protected members support both concrete report types.",
+      "why": "All formats receive validated report inputs without duplicating the validation.",
+      "invariant": "The writer stays alive and every report rejects negative counts.",
+      "risk": "A report that forgets validate can send invalid domain data onward.",
+      "explain": [
+        "The comment states that the connection is borrowed.",
+        "Store a const reference to the writer interface.",
+        "Declare a helper that needs no object-specific state.",
+        "Open the rejection branch for a negative count.",
+        "Begin throwing an invalid-argument exception.",
+        "Name the invalid input and complete the throw.",
+        "Close the rejection branch.",
+        "Close the shared validation helper."
+      ]
+    },
+    {
+      "title": "Choose meaning, then delegate",
+      "start": "std::string // Count rendering.",
+      "end": "// End count report.",
+      "what": "CountReport decides the field name and asks the writer to display it.",
+      "where": "This is the high-level operation reached by a render call.",
+      "why": "The report should know count semantics without knowing punctuation.",
+      "invariant": "The original count reaches Writer unchanged after validation.",
+      "risk": "Calling a concrete formatter here would tie this report to one format.",
+      "explain": [
+        "Declare a string result for the count operation.",
+        "Implement the const virtual render operation.",
+        "The comment identifies the responsibility of this layer.",
+        "Reject a negative argument using the shared rule.",
+        "Send the count label and value through the Writer contract.",
+        "Close CountReport rendering."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "cb borrows brackets; n = 6",
+      "reason": "main selects the pairing during construction."
+    },
+    {
+      "step": "2",
+      "state": "validate(6) succeeds; label = count",
+      "reason": "The report owns the meaning decision."
+    },
+    {
+      "step": "3",
+      "state": "Brackets::field returns [count:6]",
+      "reason": "The writer owns punctuation."
+    },
+    {
+      "step": "4",
+      "state": "wb.render(5) returns [normal:5]",
+      "reason": "The report threshold is strictly greater than five."
+    }
+  ],
+  "summary": [
+    "Separate decisions that change for independent reasons.",
+    "A bridge is the connection between policy and an interchangeable implementation.",
+    "The number of combined variants grows as a product.",
+    "A borrowed implementation must outlive its users.",
+    "Test both dimensions and meaningful combinations."
+  ],
+  "exercises": [
+    {
+      "id": "07.1",
+      "level": "Guided modification",
+      "prompt": "Change the warning threshold to ten. State the warning outputs for 10 and 11 with Plain.",
+      "hint": "Keep the comparison strict.",
+      "answer": "Use n > 10. The outputs are normal=10 and high=11. No Writer changes because labels and punctuation still follow the same contract."
+    },
+    {
+      "id": "07.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "In the supplied main program, add Plain p; WarningReport r(p); then print r.render(0), r.render(5), and r.render(6), each on a new line. Predict the text.",
+      "hint": "Follow validation, label choice, then Writer::field.",
+      "answer": "The lines are normal=0, normal=5, and high=6. All counts are valid; only six exceeds the threshold."
+    },
+    {
+      "id": "07.3",
+      "level": "Diagnose a bug",
+      "prompt": "A Brackets writer prints name + \":0\" regardless of n and uses static_cast<void>(n) to suppress the unused-parameter warning. Why can the class compile, and which existing checks catch it?",
+      "hint": "Signatures cannot prove meaning.",
+      "answer": "It compiles because the return type and parameter types match. The checks for [count:6] and [high:6] fail. The implementation ignores n, violating the writer contract even though it satisfies the C++ type interface."
+    },
+    {
+      "id": "07.4",
+      "level": "Choose a design",
+      "prompt": "There will always be exactly one report and two formats selected at compile time. Compare a bridge with two formatting helper functions.",
+      "hint": "Look for demonstrated independent growth and selection time.",
+      "answer": "Two helpers may be clearer and avoid inheritance. A bridge becomes attractive when multiple reports and independently added runtime writers appear. A template is another reasonable choice if selection stays at compile time and code size remains acceptable."
+    },
+    {
+      "id": "07.5",
+      "level": "Extend without regressions",
+      "prompt": "Add a Writer that surrounds fields with braces and uses an equals sign, such as {count=6}. Preserve every existing test and add warning tests at five and six.",
+      "hint": "The report family should remain unchanged.",
+      "answer": "Implement field to return \"{\" + name + \"=\" + std::to_string(n) + \"}\". Pair it with both reports. Expected warning text is {normal=5} and {high=6}. Only the new writer and its construction/tests need change."
+    },
+    {
+      "id": "07.6",
+      "level": "Justify a decision",
+      "prompt": "Explain why Writer should not decide whether a count is high. Give one case where a writer may reject an input.",
+      "hint": "Separate domain meaning from representational limits.",
+      "answer": "The threshold belongs to the report and must remain the same across formats. A writer may reject a label it cannot encode, such as unsupported control characters, if its contract documents that restriction. It should not silently change the label or numeric meaning."
+    }
+  ],
+  "glossary": [
+    {
+      "term": "Bridge",
+      "definition": "A connection that lets a high-level operation and its implementation vary independently."
+    },
+    {
+      "term": "Variation dimension",
+      "definition": "One independent kind of change, such as report meaning or output format."
+    },
+    {
+      "term": "Cross-product",
+      "definition": "The set of every pairing from two sets of choices."
+    }
+  ],
+  "example": {
+    "title": "Counts in plain text and brackets",
+    "file": "examples/ch07/main.cpp",
+    "requirements": [
+      "Support count and warning reports in both formats.",
+      "Classify n > 5 as high; zero through five as normal.",
+      "Reject negative counts before formatting."
+    ],
+    "design": "Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.",
+    "alternative": "An enum-based formatter is simpler for a permanently closed set of formats. Templates fit compile-time selection; virtual writers fit objects selected while the program runs.",
+    "invariants": [
+      "Reports never change a writer or own its lifetime.",
+      "Writers preserve the supplied name and numeric value.",
+      "Validation happens before formatting."
+    ],
+    "failures": [
+      {
+        "mistake": "Duplicate the warning threshold in every writer.",
+        "consequence": "One format may print high for 6 while another prints normal.",
+        "reason": "A domain rule has been scattered across format implementations."
+      },
+      {
+        "mistake": "Store a reference to a temporary writer in a report.",
+        "consequence": "Later rendering uses a destroyed object and has undefined behavior.",
+        "reason": "The borrowed writer must outlive the report."
+      },
+      {
+        "mistake": "Use n >= 5 instead of n > 5.",
+        "consequence": "The boundary report becomes [high:5] instead of [normal:5].",
+        "reason": "The code no longer matches the explicit classification rule."
+      }
+    ],
+    "verification": "All four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.",
+    "maintenance": "Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family."
+  },
+  "diagram": {
+    "kind": "class",
+    "title": "Separate meaning from presentation",
+    "nodes": [
+      {
+        "id": "R",
+        "label": "Abstraction: Report",
+        "code": [
+          "const Writer& writer_;"
+        ]
+      },
+      {
+        "id": "C",
+        "label": "Refined: CountReport",
+        "code": [
+          "return writer_.field(\"count\", n);"
+        ]
+      },
+      {
+        "id": "W",
+        "label": "Implementor: Writer",
+        "code": [
+          "virtual ~Writer() = default;"
+        ]
+      },
+      {
+        "id": "B",
+        "label": "Concrete: Brackets",
+        "code": [
+          "// Formats a supplied field."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "C",
+        "to": "R",
+        "kind": "inheritance",
+        "label": "is a report"
+      },
+      {
+        "from": "R",
+        "to": "W",
+        "kind": "dependency",
+        "label": "borrows implementation"
+      },
+      {
+        "from": "B",
+        "to": "W",
+        "kind": "inheritance",
+        "label": "is a writer"
+      }
+    ],
+    "explanation": "The diagram focuses on one pairing; WarningReport also derives from Report and Plain also derives from Writer in the complete listing. Triangles mean inheritance. The Report-to-Writer dependency is the borrowing bridge, not ownership and not a call sequence."
+  },
+  "lab": {
+    "starter": "exercises/ch07/main.cpp",
+    "solution": "solutions/ch07/main.cpp",
+    "task": "Add a Csv writer producing name,value with no spaces or newline. Support the existing fixed labels count, high, and normal. Keep Report and both concrete report classes unchanged. Preserve all original tests.",
+    "checks": [
+      "Count six becomes count,6.",
+      "Warning five becomes normal,5 and warning six becomes high,6.",
+      "Count zero becomes count,0."
+    ],
+    "answer": "The reference solution adds only Csv plus construction and tests. Because the current labels contain no commas or quotes, no escaping is needed for these requirements. A general CSV writer for arbitrary names would need quoting and escaping; the narrow lab contract does not claim to provide that."
+  },
+  "pattern": "Bridge",
+  "problem_title": "Change a report and its format independently",
+  "attachment_alignment": {
+    "epub_section": "Bridge — OEBPS/design-patterns__bridge.xhtml",
+    "source_files": [
+      "C++/src/Bridge/Conceptual/main.cc",
+      "C++/src/Bridge/Conceptual/Output.txt"
+    ],
+    "intent": "Let two related dimensions change independently instead of building a separate subclass for every combination. The attached EPUB uses shapes and colors, then remotes and devices. The point is not simply that one class calls another: each side has its own useful variants, and each valid pairing should work without a new combined class.",
+    "mechanism": "An Abstraction offers the operation the application needs and holds a connection to an Implementation interface. Refined Abstractions change high-level behavior. Concrete Implementations supply lower-level operations. Construction selects the pairing; ordinary calls cross the stored connection. These are pattern roles, not synonyms for the C++ words abstract class and implementation file. The attached Abstraction can be instantiated even though its role is called Abstraction.",
+    "roles": [
+      {
+        "role": "Abstraction",
+        "attached": "Abstraction",
+        "example": "Report",
+        "responsibility": "Define the application-facing operation and retain the implementation connection."
+      },
+      {
+        "role": "Refined Abstraction",
+        "attached": "ExtendedAbstraction",
+        "example": "CountReport / WarningReport",
+        "responsibility": "Choose report meaning while relying only on the implementation interface."
+      },
+      {
+        "role": "Implementation / Implementor",
+        "attached": "Implementation",
+        "example": "Writer",
+        "responsibility": "Declare the lower-level operations every backend must provide."
+      },
+      {
+        "role": "Concrete Implementation",
+        "attached": "ConcreteImplementationA / ConcreteImplementationB",
+        "example": "Plain / Brackets",
+        "responsibility": "Produce the chosen representation without deciding application meaning."
+      },
+      {
+        "role": "Client",
+        "attached": "ClientCode and main",
+        "example": "main",
+        "responsibility": "Select a pairing during setup, then request the high-level operation."
+      }
+    ],
+    "source_walkthrough": "main first creates ConcreteImplementationA and passes its pointer to Abstraction. ClientCode takes an Abstraction reference and calls Operation. That base operation adds its heading and delegates to OperationImplementation, so the output names the base operation and platform A. After deleting that pair, main combines ExtendedAbstraction with ConcreteImplementationB. Virtual dispatch selects ExtendedAbstraction::Operation; its delegation selects implementation B. The second output therefore names the extended operation and platform B. The example runs two pairings, but the interfaces permit the two crossed pairings as well. Neither Abstraction destructor deletes its implementation pointer; main performs both deletions.",
+    "adaptation": "Our two dimensions are report meaning and text format. CountReport always chooses count; WarningReport chooses high or normal from the value. Plain and Brackets format whichever label they receive. We exercise all four pairings, so independence is tested rather than only asserted. The source’s concrete base Abstraction becomes abstract Report because every report must state its meaning. Its implementation pointer becomes a borrowed const Writer reference; writers are local objects created before the reports. Platform messages and manual allocation are omitted because they add no evidence that the dimensions are independent. This is a Bridge even though both sides return strings: Report::render accepts a count, while Writer::field accepts a label and count, so their contracts have different jobs.",
+    "recognize": "Ask which two dimensions would otherwise multiply classes. Then find the object connection that replaces those combinations. Report count times writer count predicts possible pairings; it does not require that many concrete combined types. If only one fixed operation and one backend exist, an ordinary function may be enough.",
+    "contrast": [
+      {
+        "pattern": "Strategy",
+        "distinction": "Strategy varies an algorithm used by a context. Bridge emphasizes two independently extensible families. A similar pointer diagram alone cannot decide between those intentions."
+      },
+      {
+        "pattern": "Adapter",
+        "distinction": "Adapter repairs an interface mismatch. Bridge defines a deliberate division between high-level control and lower-level work."
+      },
+      {
+        "pattern": "Abstract Factory",
+        "distinction": "Abstract Factory can create a compatible family or a configured Bridge, but creation is separate from the ongoing bridge calls."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Make the growth visible",
+        "action": "Draw the four report-format combinations, then ask how many edits a third writer would require if each combination were a subclass."
+      },
+      {
+        "stage": "Name the roles",
+        "action": "Map the supplied Abstraction and Implementation families before discussing C++ inheritance syntax."
+      },
+      {
+        "stage": "Trace two dispatches",
+        "action": "Follow ClientCode into the selected high-level Operation and then into the selected OperationImplementation. Distinguish the two decisions."
+      },
+      {
+        "stage": "Prove independent change",
+        "action": "Run the four report tests, add Csv in the lab, and require that both report classes remain unchanged."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Must the Abstraction and Implementation declare identical operations?",
+        "answer": "No. The abstraction may combine lower-level operations. Report chooses a label; Writer only formats the supplied label and number."
+      },
+      {
+        "question": "What demonstrates Bridge more strongly than merely storing a Writer pointer?",
+        "answer": "Both report meanings work with both formats, and adding a format requires no changes to those report meanings. The independent dimensions are observable."
+      }
+    ]
+  }
+}

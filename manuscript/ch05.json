@@ -1,0 +1,380 @@
+{
+  "number": 5,
+  "title": "Singleton",
+  "part": "I - Creational design patterns",
+  "topics": [
+    "Singleton",
+    "local static initialization",
+    "method synchronization",
+    "dependency injection"
+  ],
+  "objectives": [
+    "Implement one controlled instance with clear lifetime rules.",
+    "Distinguish once-only initialization from safe concurrent mutation.",
+    "Replace hidden global access with an injectable interface for isolated tests."
+  ],
+  "sections": [
+    {
+      "heading": "One dispenser, not one counter per caller",
+      "paragraphs": [
+        "A small demonstration process issues tickets numbered 1, 2, and 3. Different callers must draw from the same sequence. After the third ticket, every request is rejected. Restarting the process starts a new sequence; the program does not store tickets on disk. This is a deliberately small model of a shared service, not a distributed ticket system.",
+        "The simplest good solution is often to create one ordinary dispenser in main and pass a reference to every user. That gives one instance by application arrangement. The excerpt shows a local counter’s core idea, assuming requests are sequential. If separate components each create their own counter, they can both issue ticket 1. Sharing one object is necessary for this requirement; global access is a separate design choice."
+      ],
+      "code": "int next = 1;\nif (next > 3)\n    throw std::out_of_range(\"exhausted\");\nconst int ticket = next++;",
+      "code_label": "Excerpt — simplest approach before the redesign"
+    },
+    {
+      "heading": "What Singleton adds, and what it combines",
+      "paragraphs": [
+        "The Singleton pattern controls construction so callers reach one instance through a shared access operation. TicketDispenser has a private constructor and destructor, deleted copy operations, and a static instance function returning a reference. Ordinary callers cannot create another object or copy the existing one. The function returns a reference because it lends the service; callers must not delete it.",
+        "Singleton combines two ideas: restricting instance count and providing global access. You may need the first without needing the second. Passing one ordinary object from main often expresses sharing more clearly, because function parameters reveal who depends on the service. We implement Singleton here to understand its exact mechanism and costs, then use the lab to remove hidden access from a consumer.",
+        "static on instance means the member function is called on the class rather than on an existing object. There is no this pointer for that call. The local static variable inside it has a different meaning: its storage lasts beyond one function call. It is initialized when execution first reaches its declaration and is reused on later calls. The returned references therefore all name the same completed dispenser in this program."
+      ]
+    },
+    {
+      "heading": "Once-only initialization is not method synchronization",
+      "paragraphs": [
+        "Since C++11, initialization of a function-local static is guarded so concurrent first callers do not each construct the object. One performs initialization while other callers wait for it to complete. If initialization throws, a later call can try again. Re-entering that same local static initialization recursively is not a safe way to resolve dependencies; avoid service constructors that cycle back through one another.",
+        "That guarantee concerns construction only. It does not protect later reads and writes to next_. Two threads incrementing an ordinary shared int without synchronization cause a data race and undefined behavior. It is not accurate to promise merely “one lost ticket”: the C++ program has no defined result for that race. Making the constructor private or the object global does not repair it.",
+        "The take operation uses a mutex, a lock that allows only one participating thread at a time into the protected region. lock_guard acquires gate_ when the guard is constructed and releases it when the guard leaves scope. Both the exhaustion check and the increment occur under that same lock. If the exception is thrown, stack cleanup still releases the lock. The local static guard and this method lock solve different problems and neither replaces the other.",
+        "The expression next_++ returns the old value and then increments the stored integer. The first three successful calls return 1, 2, and 3, leaving next_ equal to 4. Later calls test next_ > 3 and throw before incrementing again. The bounded sequence avoids overflow. Each whole take operation appears indivisible to other calls that use the same mutex. The standard does not promise fairness or which waiting caller gets a particular number."
+      ]
+    },
+    {
+      "heading": "Lifetime and tests reveal the hidden coupling",
+      "paragraphs": [
+        "The instance is destroyed during normal program shutdown if it was successfully initialized. Its private destructor prevents ordinary callers from explicitly destroying the borrowed object. In this single executable the accessor identifies one service. Separate processes have separate address spaces and separate instances; dynamic-library boundaries can also require careful linkage and deployment rules. Singleton is not a machine-wide lock, a distributed coordinator, or a persistence mechanism.",
+        "Shutdown dependencies deserve care. Another static object’s destructor must not use a service whose lifetime has already ended. A main-owned service with explicit lifetime often makes this ordering easier to see. Deliberately leaking a service to avoid shutdown ordering changes resource cleanup behavior and should never be an unexamined default.",
+        "Tests in one process share singleton state. A test that consumes ticket 1 changes what another test sees. Running the second test alone may pass while running the whole suite fails. A reset-for-tests method can hide the problem and may create races if used while work is active. This chapter’s main is a fresh-process demonstration with a known initial state. Its sequential checks verify identity, numbering, and repeated exhaustion; they are not a concurrency stress test.",
+        "The lab introduces TicketSource as the operation a consumer needs. admit accepts TicketSource& rather than finding the singleton itself. The production boundary can pass TicketDispenser::instance(), while each test can create a fresh LocalTickets. That technique is dependency injection: supplying a needed object explicitly. It preserves the option of one production instance while making tests independent."
+      ]
+    },
+    {
+      "heading": "Choosing a shared service deliberately",
+      "paragraphs": [
+        "A singleton can suit a truly process-wide service with a clear lifetime and little need for alternate instances. It is a poor fit when the program may run two independent sessions, load different configurations in tests, or need controlled startup and shutdown. Global access can make dependencies look smaller than they are because every function can silently acquire the service.",
+        "Do not replace every injected reference with a global accessor just to shorten parameter lists. Those parameters explain what the operation needs. Likewise, do not introduce an interface for every tiny value. TicketSource is justified in the lab by a concrete testing requirement: a consumer should work with independent counters as well as the shared production service.",
+        "For concurrency, one mutex protects only the state consistently accessed under it. If a future peek method reads next_ without locking, take’s lock does not make that new read safe. If two operations must form one transaction, locking each separately may still allow interleaving between them. Define the operation boundary first, then choose locking or an atomic design that preserves that boundary. Singleton answers where the object comes from; it does not answer every question about its correct use."
+      ]
+    }
+  ],
+  "example": {
+    "title": "A bounded process-wide ticket dispenser",
+    "file": "examples/ch05/main.cpp",
+    "requirements": [
+      "All accessor calls in this executable refer to one dispenser.",
+      "Issue exactly 1, 2, and 3, then reject every later request.",
+      "Protect the shared check-and-increment operation with one mutex."
+    ],
+    "design": "A private constructor, deleted copying, and a local static instance control access and lifetime. A separate lock_guard protects mutable state during take. A reference lends the service without transferring ownership.",
+    "alternative": "Create one ordinary dispenser in main and pass references to its consumers. That keeps sharing explicit and makes independent instances easy to test. An interface is useful when consumers need both a shared production source and fresh test sources.",
+    "invariants": [
+      "Successful requests return distinct integers from 1 through 3.",
+      "next_ remains 4 after exhaustion; rejection does not consume more state.",
+      "Every mutable counter access in take occurs while gate_ is locked."
+    ],
+    "failures": [
+      {
+        "mistake": "Assume local static initialization also synchronizes next_++.",
+        "consequence": "Concurrent calls without a method lock create a data race and undefined behavior.",
+        "reason": "The once-only initialization guard protects construction, not later member accesses."
+      },
+      {
+        "mistake": "Check the limit under a lock, unlock, then increment later.",
+        "consequence": "Two callers can both pass the same availability check before either reserves a ticket.",
+        "reason": "The check and state change no longer form one protected operation."
+      }
+    ],
+    "verification": "main checks that two references have the same address, checks tickets 1–3, and verifies repeated rejection after exhaustion. The code was compiled and executed with thread support. The supplied demonstration is sequential; it does not claim a stress test, fairness guarantee, or cross-process uniqueness.",
+    "maintenance": "Keep singleton access at a small application boundary. Pass the service or a narrow interface to ordinary code so tests and future multi-session uses can supply independent instances."
+  },
+  "diagram": {
+    "kind": "ownership",
+    "title": "The accessor lends a process-lifetime service",
+    "nodes": [
+      {
+        "id": "S",
+        "label": "Singleton instance\nTicketDispenser",
+        "code": [
+          "static TicketDispenser dispenser;",
+          "// Own the one local static object."
+        ]
+      },
+      {
+        "id": "A",
+        "label": "Client reference\nfirst",
+        "code": [
+          "auto& first = TicketDispenser::instance();",
+          "// Borrow; never delete."
+        ]
+      },
+      {
+        "id": "B",
+        "label": "Client reference\nsecond",
+        "code": [
+          "auto& second = TicketDispenser::instance();",
+          "// Same borrowed object."
+        ]
+      },
+      {
+        "id": "T",
+        "label": "Service operation\nTicketDispenser::take",
+        "code": [
+          "return next_++;",
+          "// Guard check and update together."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "S",
+        "kind": "dependency",
+        "label": "borrows same instance",
+        "from": "A"
+      },
+      {
+        "to": "S",
+        "kind": "dependency",
+        "label": "borrows same instance",
+        "from": "B"
+      },
+      {
+        "to": "T",
+        "kind": "dependency",
+        "label": "offers locked operation",
+        "from": "S"
+      }
+    ],
+    "explanation": "Dashed dependency arrows are borrowed access, not ownership transfer. Neither first nor second owns or deletes the dispenser. The static local object has program-managed lifetime. The take box is an operation view, not another object; its comment explains the separate synchronization rule."
+  },
+  "focus": [
+    {
+      "title": "Construct once, then lend the same object",
+      "start": "    static TicketDispenser& instance() {",
+      "end": "    int take() {",
+      "what": "This accessor creates one local static service and returns a borrowed reference.",
+      "where": "The public access point for the otherwise privately constructed type.",
+      "why": "Callers need one shared instance without becoming its owners.",
+      "invariant": "Every successful accessor return names the same live object in this executable.",
+      "risk": "Once-only initialization does not protect later changes to members.",
+      "explain": [
+        "Declare a class-level function returning a reference to the dispenser.",
+        "The comment identifies initialization on first use.",
+        "Create a local static object once and keep its storage beyond the call.",
+        "Return a borrowed reference to that object.",
+        "Close the accessor.",
+        "Begin the separate ticket operation; its lock is shown in the next block."
+      ]
+    },
+    {
+      "title": "Protect the complete state change",
+      "start": "        // Guard every counter change.",
+      "end": "        return next_++;",
+      "what": "This critical section checks availability and reserves one ticket as one operation.",
+      "where": "Inside TicketDispenser::take.",
+      "why": "A unique instance still needs synchronized mutable access.",
+      "invariant": "No successful call can observe or reserve the same next_ value as another protected call.",
+      "risk": "Moving the increment outside the guarded scope separates checking from reservation.",
+      "explain": [
+        "The comment states the synchronization boundary.",
+        "Declare a scoped mutex guard type.",
+        "Acquire gate_ by constructing the guard named lock.",
+        "Check whether all three tickets have been issued.",
+        "Begin constructing an exhaustion exception.",
+        "Supply its message and throw; guard cleanup will release the lock.",
+        "Return the old counter value and increment it before leaving the guarded scope."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "first and second refer to the same dispenser; next_=1",
+      "reason": "The first accessor call initializes the local static; the second reuses it."
+    },
+    {
+      "step": "2",
+      "state": "take returns 1, then 2, then 3; next_=4",
+      "reason": "Each locked operation reads and increments one shared integer."
+    },
+    {
+      "step": "3",
+      "state": "fourth request throws; next_=4",
+      "reason": "The exhaustion check occurs before incrementing."
+    },
+    {
+      "step": "4",
+      "state": "fifth request also throws; next_=4",
+      "reason": "Rejected operations leave the exhausted state unchanged."
+    }
+  ],
+  "summary": [
+    "One shared object does not require global access; explicit references are often clearer.",
+    "A function-local static provides once-only initialization in C++17.",
+    "Later mutable operations need their own synchronization.",
+    "Singleton lifetime and shared state can make tests and shutdown harder.",
+    "Inject a narrow service interface when callers need independent test instances."
+  ],
+  "exercises": [
+    {
+      "id": "05.1",
+      "level": "Guided modification",
+      "prompt": "Increase the ticket limit from 3 to 4 and add a fourth successful request before the rejection checks. What sequence must be observed, and what internal next_ value marks exhaustion?",
+      "hint": "The check rejects only after the final valid ticket was returned.",
+      "answer": "The successful sequence is 1,2,3,4. next_ then becomes 5, and all later requests throw without changing it. Change the limit and checks together; merely changing the expected text would not extend behavior."
+    },
+    {
+      "id": "05.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "In a fresh process, let a and b both refer to instance(). Call b.take(), a.take(), and b.take(). Then catch the exception from a.take(). List the returned numbers and final next_ value.",
+      "hint": "Reference names do not create independent counters.",
+      "answer": "The numbers are 1,2,3 in call order, and next_ is 4. The final call throws before incrementing. Swapping the names a and b would not change the shared sequence."
+    },
+    {
+      "id": "05.3",
+      "level": "Diagnose a bug",
+      "prompt": "A developer removes lock_guard because instance uses a local static. Explain what guarantee remains and what guarantee is lost.",
+      "hint": "Separate object construction from ordinary member execution.",
+      "answer": "Once-only initialization remains guarded by the C++ language. Concurrent take calls now access and modify next_ without synchronization, causing a data race and undefined behavior. Restore synchronization around both checking and incrementing; making next_ volatile would not make the operation safe."
+    },
+    {
+      "id": "05.4",
+      "level": "Choose a design",
+      "prompt": "A server must support two independent customer sessions in one process, each starting at ticket 1. Choose Singleton or explicitly owned dispensers and explain the deciding requirement.",
+      "hint": "A process-wide instance combines both sessions’ state.",
+      "answer": "Use one explicitly owned dispenser per session. Pass the appropriate reference to each consumer. A singleton would merge counters unless it became a more complex session registry, which is a different responsibility and unnecessary for this requirement."
+    },
+    {
+      "id": "05.5",
+      "level": "Extend without regressions",
+      "prompt": "Refactor a consumer admit so it accepts TicketSource&. Supply a shared production source and two independent LocalTickets test sources. Preserve the limit and repeated-exhaustion behavior.",
+      "hint": "Keep object selection at the caller; admit only asks for a ticket.",
+      "answer": "The reference solution introduces one virtual take operation. The singleton delegates to an owned LocalTickets, and tests construct fresh local sources. One local source returns 1 then 2 while another still returns 1, demonstrating isolation without resetting global state."
+    },
+    {
+      "id": "05.6",
+      "level": "Justify a decision",
+      "prompt": "A reviewer proposes a public reset() solely so tests can reuse the singleton. Explain a concrete risk and a better alternative for ordinary consumer tests.",
+      "hint": "Consider parallel tests or a live request during reset.",
+      "answer": "Reset can make ticket numbers repeat and can race with active requests unless a larger lifecycle policy exists. Fresh injected LocalTickets instances give each test a known starting state without changing production global state. A reset may be valid for a deliberately restartable service, but then it needs real domain semantics, synchronization, and tests rather than a hidden testing exception."
+    }
+  ],
+  "lab": {
+    "starter": "exercises/ch05/main.cpp",
+    "solution": "solutions/ch05/main.cpp",
+    "task": "Introduce TicketSource with virtual take(), an independently constructible LocalTickets, and admit(TicketSource&). Keep TicketDispenser as the shared production adapter. Preserve ticket limits and prior output, then demonstrate two isolated local sources without a global reset method.",
+    "checks": [
+      "The shared service still returns 1,2,3 and rejects two subsequent requests.",
+      "Two references to the shared service still have the same address.",
+      "One local source returns 1 then 2 while a fresh second source returns 1.",
+      "Exhausting the first local source does not exhaust the second."
+    ],
+    "answer": "LocalTickets owns the bounded counter and mutex. TicketDispenser owns one LocalTickets and delegates take. admit depends only on TicketSource. The solution therefore separates lifetime selection from ticket behavior and keeps tests independent. The local tests are sequential; additional concurrent tests could stress scheduling but would not replace the locking argument."
+  },
+  "glossary": [
+    {
+      "term": "Singleton",
+      "definition": "A design that controls access to one instance through a shared accessor."
+    },
+    {
+      "term": "Mutex",
+      "definition": "A synchronization object used to allow one participating thread at a time into a protected region."
+    },
+    {
+      "term": "Critical section",
+      "definition": "Code that accesses shared state while holding the required lock."
+    },
+    {
+      "term": "Data race",
+      "definition": "Unsynchronized conflicting accesses to memory by different threads, with at least one write; in C++ this causes undefined behavior."
+    },
+    {
+      "term": "Dependency injection",
+      "definition": "Supplying an object a component needs through an explicit parameter or constructor instead of locating it globally."
+    }
+  ],
+  "pattern": "Singleton",
+  "problem_title": "Share one service without hiding its costs",
+  "attachment_alignment": {
+    "epub_section": "Singleton — restricted construction, a shared access point, thread concerns, hidden dependencies, and alternatives to global access.",
+    "source_files": [
+      "C++/src/Singleton/Conceptual/NonThreadSafe/main.cc",
+      "C++/src/Singleton/Conceptual/NonThreadSafe/Output.txt",
+      "C++/src/Singleton/Conceptual/ThreadSafe/main.cc",
+      "C++/src/Singleton/Conceptual/ThreadSafe/Output.txt",
+      "C++/src/Singleton/RealWorld/main.cc",
+      "C++/src/Singleton/RealWorld/Output.txt"
+    ],
+    "intent": "Singleton controls access to one instance while offering a shared way to obtain it. The attached chapter explicitly presents these as two linked decisions. A program may need one shared service while still benefiting from passing that service openly through parameters. Teaching this pattern includes recognizing its costs, not recommending it for every shared object.",
+    "mechanism": "Restrict ordinary construction, prevent copying, and expose an accessor that repeatedly returns the same instance. The lifetime and concurrency rules depend on the implementation. Our function-local static is initialized once on first use; that language guarantee does not automatically protect later changes to the service. A separate lock must protect the ticket operation's shared mutable state.",
+    "roles": [
+      {
+        "role": "Singleton class",
+        "attached": "Singleton; Logger",
+        "example": "TicketDispenser",
+        "responsibility": "Controls instance creation and supplies the shared service operations."
+      },
+      {
+        "role": "Shared accessor",
+        "attached": "Singleton::GetInstance; Logger::instance",
+        "example": "TicketDispenser::instance",
+        "responsibility": "Returns the existing instance after first initialization; it does not hand ownership to the caller."
+      },
+      {
+        "role": "Instance storage",
+        "attached": "singleton_; pinstance_; function-local Logger instance",
+        "example": "function-local static dispenser",
+        "responsibility": "Retains the one instance selected by the accessor for this executable."
+      },
+      {
+        "role": "Clients",
+        "attached": "ThreadFoo/ThreadBar; logger thread lambdas",
+        "example": "main using first and second",
+        "responsibility": "Reach the same service from different call sites."
+      },
+      {
+        "role": "Synchronization support",
+        "attached": "mutex_ and lock_guard in the safe samples",
+        "example": "gate_ and lock_guard in take",
+        "responsibility": "Protects the relevant shared operation; locking is support machinery, not the defining Singleton relationship."
+      }
+    ],
+    "source_walkthrough": "In the non-thread-safe conceptual sample, ThreadFoo and ThreadBar call GetInstance with different strings. Its unsynchronized null check and shared-pointer write can race; the supplied BAR/FOO transcript is not guaranteed behavior. In the thread-safe version, GetInstance takes mutex_ before checking pinstance_. The first caller constructs the object; both later read that chosen immutable value. The transcript shows FOO twice, but BAR twice is also possible because thread scheduling chooses the first caller. In the real-world sample, Logger::level(info) first constructs the local-static Logger and sets its threshold. Four threads request logs. The default debug message is rejected; info, warning, and error pass and receive consecutive counts under one lock. Their order can vary. After joins, normal shutdown runs the logger destructor. The real-world Output.txt also differs from main.cc in the opening slash spacing.",
+    "adaptation": "TicketDispenser follows the real-world sample's local-static lifetime mechanism and uses an explicit lock around a meaningful bounded operation. It returns 1, 2, 3, then repeatedly rejects requests. We use sequential calls for a deterministic printed transcript and verify both references identify the same object. This does not constitute a concurrency stress test. The conceptual samples allocate with new and provide no ordinary cleanup path; our local static has normal shutdown destruction. We omit logging levels, thread sleeps, and configuration-by-first-caller because they obscure the identity rule. The extension lab supplies a TicketSource interface to consumers so they can use independent test instances. Neither this singleton nor the attachment's ordinary std::mutex coordinates separate processes; a process-local object is not a distributed service.",
+    "recognize": "Find the blocked construction/copy paths, the accessor, and the single retained instance it returns. A globally visible pointer alone proves none of those guarantees. Separately ask who initializes, who may mutate, and when destruction occurs.",
+    "contrast": [
+      {
+        "pattern": "Dependency injection",
+        "distinction": "One ordinary object can be constructed in main and passed to all consumers. That shares an instance without hiding dependencies behind global access."
+      },
+      {
+        "pattern": "Flyweight",
+        "distinction": "Flyweight shares reusable intrinsic state among many logical objects. Singleton restricts access to one service instance; sharing by itself does not make the designs equivalent."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Separate two requirements",
+        "action": "Have students compare one main-owned dispenser passed by reference with a static accessor. Identify what global access adds beyond shared identity."
+      },
+      {
+        "stage": "Trace three implementations",
+        "action": "Compare the attachment's unsynchronized pointer, locked pointer, and local static. Mark initialization protection separately from operation protection."
+      },
+      {
+        "stage": "Expose test coupling",
+        "action": "Run two consumers against the same dispenser and track the next ticket. Then give each test its own injected source and explain the changed dependency."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Does a function-local static make next_++ thread-safe?",
+        "answer": "No. It protects initial construction, not later state changes. take must lock its exhaustion check and increment together."
+      },
+      {
+        "question": "Why must a test not insist that the safe attached sample always prints FOO twice?",
+        "answer": "Either thread can initialize first. Both values must agree, but the language does not guarantee which input wins the race to acquire the lock."
+      }
+    ]
+  }
+}

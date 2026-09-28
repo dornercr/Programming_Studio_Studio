@@ -1,0 +1,384 @@
+{
+  "number": 11,
+  "title": "Flyweight",
+  "part": "II - Structural design patterns",
+  "topics": [
+    "Flyweight"
+  ],
+  "objectives": [
+    "Separate shared identity from per-use state.",
+    "Use immutable shared objects with a complete lookup key.",
+    "Explain memory tradeoffs and shared lifetime."
+  ],
+  "sections": [
+    {
+      "heading": "Repeated data can outweigh useful differences",
+      "paragraphs": [
+        "A drawing tool places many marks on a page. A mark has a style name, a style size, and a horizontal position. Thousands of marks may use the same style while each position differs. For a few marks, store all three fields directly in every object. That is simple, clear, and often the right answer.",
+        "The limitation appears when the shared portion becomes large. Imagine that a style later contains a loaded shape outline or a rendering table. Copying that payload for every mark may consume far more memory than the positions themselves. Before changing the design, measure the repeated data and the number of uses. Our small program keeps style data intentionally short so the ownership mechanism is visible; it is not evidence that this tiny representation saves memory."
+      ],
+      "code": "struct MarkValue {\n    std::string name;\n    int size;\n    int x;\n};",
+      "code_label": "Excerpt — simplest starting point"
+    },
+    {
+      "heading": "Split stable shared data from each use",
+      "paragraphs": [
+        "Flyweight is a memory-sharing design that stores repeated state once and gives each use a connection to it. The shared state is called intrinsic state. Here name and size identify the style. The state that belongs to a particular use is called extrinsic state. Here x is the mark's position. A Mark holds a shared style owner and its own x value. Two Marks can therefore agree on style without becoming the same mark.",
+        "StylePool looks up a style by a Key containing both name and size. If that key already exists, it returns another shared owner of the same Style object. Otherwise it creates one immutable Style, stores an owner in the map, and returns another owner. Reusing an existing object is often called interning. It is useful only when equality of the chosen key truly means the shared data is interchangeable.",
+        "The key is a std::pair<std::string, int>, not two fields joined into an unstructured string. A pair keeps field boundaries unambiguous. If a later style includes color, color must become part of the key too. A pool keyed only by name would wrongly reuse dot size twelve for a request for dot size twenty. The visible mistake would be a correct position with the wrong style size."
+      ]
+    },
+    {
+      "heading": "Read the shared pointer type carefully",
+      "paragraphs": [
+        "StylePtr is an alias for std::shared_ptr<const Style>. shared_ptr means several owners can keep the same object alive. const Style means the object reached through this owner is read-only. It is not the same as const shared_ptr<Style>, which would prevent reseating that particular pointer variable but would still permit changing the Style through it.",
+        "The pool constructs the object with make_shared<const Style>. The actual allocated Style is const, not merely viewed through one const handle while another mutable handle is retained. Its fields are initialized once and then read. Immutability means the object does not change after construction. That matters because a mutation to one shared style could otherwise change every mark using it. The public fields remain safe to read because access is through a pointer to const; the pool gives out no mutable owner.",
+        "A shared_ptr copy increments a shared ownership count; it does not copy the Style. When one pointer is destroyed, the count decreases. The object remains alive while at least one owner remains. The pool owns styles through its map, and each Mark owns its style through style_. This is shared ownership, so an ownership diagram must not imply that a mark exclusively owns its style. The arrows are labeled shared owner to make that distinction explicit."
+      ]
+    },
+    {
+      "heading": "Trace a lookup and a draw",
+      "paragraphs": [
+        "main requests (dot,12) twice. The first lookup misses, creates one Style, and stores it. The second lookup finds the existing entry and returns found->second, which is the map's shared_ptr value. first and same therefore point to the same object. A request for (dot,20) uses a different key and receives a different object. The pointer equality checks test identity, not merely equal field values.",
+        "Mark left takes an owner of the twelve-size style and stores x = 3. Mark right receives another owner of that same style and stores x = 8. draw reads the shared name and size, then appends its own position. The outputs dot/12@3 and dot/12@8 show the separation directly. Neither draw call changes the style or the other mark.",
+        "In draw, const auto& name borrows the string inside Style while the Mark's owner keeps the Style alive. const auto size copies the small integer. Both are suitable choices: copying an int is cheap; copying the string is unnecessary for this local read. The returned formatted string is a new owned value. It does not expose a reference into shared state and remains valid after the Mark is destroyed. Mark explicitly defaults its copy operations, which suppresses automatic generation of move operations. Constructing from std::move(left) therefore copies the shared owner; both marks stay usable. This value-like policy avoids a moved-from Mark with a null style."
+      ]
+    },
+    {
+      "heading": "Lifetime is independent of the pool scope",
+      "paragraphs": [
+        "The program creates a short-lived StylePool inside a nested scope and saves one returned owner in survivor outside that scope. When the pool is destroyed, its map releases its owner. survivor still owns the Style, so reading survivor->name afterward is valid. This test checks a real advantage of shared ownership: the pool's lifetime need not enclose every use.",
+        "The pool uses strong owners, so it also retains each style until the pool is destroyed or entries are removed. An unused style does not vanish merely because its last Mark disappears. That is a cache-retention policy, not a leak caused by missing delete. A long-running application may require a size limit, explicit clearing, or weak_ptr entries. A weak pointer observes a shared object without keeping it alive, but it requires checking whether the object still exists before reuse. That complexity should be justified by actual retention needs.",
+        "The compiler checks const access and pointer types; it cannot prove that the key includes every meaningful field. At runtime, map lookup compares keys and finds a matching entry. std::map lookup takes logarithmic comparisons in the number of styles. shared_ptr adds a control block and ownership bookkeeping. Neither cost disappears because the design has a name."
+      ]
+    },
+    {
+      "heading": "Calculate the tradeoff before calling it an optimization",
+      "paragraphs": [
+        "Suppose N marks each have U bytes of unique state and would otherwise carry S bytes of shared payload. The direct representation costs roughly N times (U + S), ignoring container and allocation overhead. With K distinct styles and a per-mark handle of H bytes, sharing costs roughly N times (U + H) plus K times S, plus pool and control-block overhead. When K is nearly N or S is tiny, sharing may lose. When S is large and K is much smaller than N, it can win substantially.",
+        "This example does not report exact saved bytes because object layout, string storage, allocator overhead, and platform details matter. Measure the real workload. Also test semantic isolation: changing a mark's position must not change another mark, and equal style keys should share exactly when that is part of the pool contract. Flyweight is a targeted optimization, not a reason to turn every small value into a shared pointer."
+      ]
+    }
+  ],
+  "focus": [
+    {
+      "title": "Reuse by the complete intrinsic key",
+      "start": "// The key covers all shared fields.",
+      "end": "// End reuse path.",
+      "what": "The pool asks whether an exactly matching style already exists.",
+      "where": "This branch occurs after input validation and before allocation.",
+      "why": "A structured complete key prevents accidental sharing of different styles.",
+      "invariant": "Equal keys mean interchangeable immutable style data.",
+      "risk": "Omitting size or another intrinsic field returns the wrong shared object.",
+      "explain": [
+        "The comment states why every shared field is in the key.",
+        "Construct a name-and-size pair without ambiguous concatenation.",
+        "Find that exact pair in the map.",
+        "Check whether a matching entry exists.",
+        "Copy the stored shared owner, not the Style object.",
+        "End the reuse branch; a miss continues to creation."
+      ]
+    },
+    {
+      "title": "Combine shared style with local position",
+      "start": "    std::string draw() const {",
+      "end": "// End drawing.",
+      "what": "A mark formats shared style information together with its own position.",
+      "where": "This read-only operation is the visible use of the flyweight.",
+      "why": "The same Style supports many distinct Mark contexts.",
+      "invariant": "Position stays local and the Style remains immutable.",
+      "risk": "Returning a borrowed local string or mutating shared style would break isolation.",
+      "explain": [
+        "Declare a read-only operation that returns an owned string.",
+        "The comment identifies position as per-use state.",
+        "Borrow the shared name for this call.",
+        "Copy the small shared size value.",
+        "Begin the result with the style name and separator.",
+        "Append the size converted to decimal text.",
+        "Append this Mark position to the result.",
+        "Close drawing; the returned string survives its locals."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "get(dot,12): miss -> one Style",
+      "reason": "The pool has no matching key yet."
+    },
+    {
+      "step": "2",
+      "state": "get(dot,12): hit -> same object",
+      "reason": "The pool copies an existing shared owner."
+    },
+    {
+      "step": "3",
+      "state": "left x=3; right x=8",
+      "reason": "Positions live in separate Mark objects."
+    },
+    {
+      "step": "4",
+      "state": "short-lived pool destroyed; survivor still valid",
+      "reason": "A remaining strong owner keeps the immutable Style alive."
+    }
+  ],
+  "summary": [
+    "Intrinsic state is shared; extrinsic state belongs to each use.",
+    "A complete structured key defines safe sharing.",
+    "shared_ptr<const T> makes the pointee read-only through that owner.",
+    "Strong pool entries retain styles even without current users.",
+    "Measure payload size and reuse before claiming memory savings."
+  ],
+  "exercises": [
+    {
+      "id": "11.1",
+      "level": "Guided modification",
+      "prompt": "Change right from x=8 to x=11. Which output and shared objects should change?",
+      "hint": "Position is extrinsic state.",
+      "answer": "Only right.draw changes to dot/12@11. The shared Style object, first == same, and left.draw remain unchanged."
+    },
+    {
+      "id": "11.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Request (\"dot\",12), then (\"dot\",20), then (\"dot\",12) from a fresh pool. How many entries exist, and which returned pointers compare equal?",
+      "hint": "The complete pair is the key.",
+      "answer": "The pool contains two entries. The first and third pointers are equal; the second points to a different Style. The values of the positions are irrelevant because they are not pool inputs."
+    },
+    {
+      "id": "11.3",
+      "level": "Diagnose a bug",
+      "prompt": "A revised pool concatenates name and size without a delimiter to build its key. Give a collision example and a robust repair.",
+      "hint": "Different field splits can form the same string.",
+      "answer": "Name \"a1\" with size 2 and name \"a\" with size 12 both form \"a12\". Use the existing pair key so name and size remain separate fields. A delimiter alone also needs escaping if names may contain it."
+    },
+    {
+      "id": "11.4",
+      "level": "Choose a design",
+      "prompt": "There are twenty marks and every style is a short integer code. Compare by-value storage with shared_ptr flyweights.",
+      "hint": "The handle and control block have costs too.",
+      "answer": "By-value integer codes are likely simpler and smaller. Flyweight is worth considering when the repeated payload is large and reused often. Measure memory and workload before introducing allocation, lookup, and shared ownership."
+    },
+    {
+      "id": "11.5",
+      "level": "Extend without regressions",
+      "prompt": "Add a test that a Style returned from a nested pool scope can still be used to construct and draw a Mark after the scope ends. State an expected example.",
+      "hint": "The returned shared_ptr is an owner.",
+      "answer": "Keep a StylePtr outside the scope, assign get(\"dash\",10) inside, then construct Mark(saved,4) afterward. draw must return dash/10@4. This tests actual use after pool destruction rather than only reading one field."
+    },
+    {
+      "id": "11.6",
+      "level": "Justify a decision",
+      "prompt": "Explain why a new color field may require changes to both Style and Key. Give one situation where it should remain in Mark instead.",
+      "hint": "Ask whether color is shared identity or per-use context.",
+      "answer": "If style color is intrinsic, it affects interchangeability and must be included in both Style and Key. If every mark may choose its own temporary highlight color independently, that highlight is extrinsic and belongs in Mark. The same word can represent different responsibilities in different requirements."
+    }
+  ],
+  "glossary": [
+    {
+      "term": "Flyweight",
+      "definition": "A design that shares repeated state while keeping per-use state separate."
+    },
+    {
+      "term": "Intrinsic state",
+      "definition": "State that belongs to the shared object identity and can be reused across contexts."
+    },
+    {
+      "term": "Extrinsic state",
+      "definition": "State that belongs to one use of a shared object."
+    },
+    {
+      "term": "Interning",
+      "definition": "Reusing one stored object for repeated requests with an equal identity key."
+    },
+    {
+      "term": "Immutable",
+      "definition": "Not changing after construction."
+    }
+  ],
+  "example": {
+    "title": "Several marks, one immutable style",
+    "file": "examples/ch11/main.cpp",
+    "requirements": [
+      "Share styles only when both name and size match.",
+      "Keep each mark position separate.",
+      "Reject empty names, size outside 1–100, and missing style pointers."
+    ],
+    "design": "A map interns immutable Style objects by a complete structured key. shared_ptr allows marks to retain styles after a pool is destroyed.",
+    "alternative": "Store style fields by value for a small number of small styles. Integer style IDs into a stable central table can use less per-mark memory but require a clear table lifetime and ID-validity contract.",
+    "invariants": [
+      "One active pool returns the same object for the same key.",
+      "Published Style objects are immutable.",
+      "Each Mark owns its own position and shares only intrinsic style state."
+    ],
+    "failures": [
+      {
+        "mistake": "Use only name as the pool key.",
+        "consequence": "A request for dot/20 can incorrectly receive the existing dot/12 style.",
+        "reason": "The key does not include all intrinsic state."
+      },
+      {
+        "mistake": "Place x inside the shared Style and mutate it for each mark.",
+        "consequence": "Moving or constructing one mark changes the apparent position of other marks.",
+        "reason": "Per-use state was incorrectly shared."
+      },
+      {
+        "mistake": "Return a raw pointer to a pool-owned object, then destroy the pool.",
+        "consequence": "A later Mark draw may dereference a destroyed Style.",
+        "reason": "A raw borrow does not preserve shared lifetime."
+      }
+    ],
+    "verification": "Tests verify same-key identity, different-key separation, distinct positions, size boundaries, invalid size, null-style rejection, survival beyond a pool lifetime, and safe copying even from an rvalue expression. The program does not benchmark memory savings or synchronize concurrent pool access.",
+    "maintenance": "Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics."
+  },
+  "diagram": {
+    "kind": "ownership",
+    "title": "Shared style, separate positions",
+    "nodes": [
+      {
+        "id": "P",
+        "label": "Factory: StylePool",
+        "code": [
+          "std::map<Key, StylePtr> styles_;"
+        ]
+      },
+      {
+        "id": "S",
+        "label": "Flyweight: const Style",
+        "code": [
+          "std::string name;",
+          "int size;"
+        ]
+      },
+      {
+        "id": "L",
+        "label": "Context: left Mark",
+        "code": [
+          "StylePtr style_;",
+          "int x_;"
+        ]
+      },
+      {
+        "id": "R",
+        "label": "Context: right Mark",
+        "code": [
+          "// Shares style; keeps x = 8."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "P",
+        "to": "S",
+        "kind": "shared",
+        "label": "shared owner in map"
+      },
+      {
+        "from": "L",
+        "to": "S",
+        "kind": "shared",
+        "label": "shared owner; x = 3 local"
+      },
+      {
+        "from": "R",
+        "to": "S",
+        "kind": "shared",
+        "label": "shared owner; x = 8 local"
+      }
+    ],
+    "explanation": "Each hollow-diamond link is explicitly labeled shared owner, rather than exclusive composition. Both marks reach the same immutable Style but keep separate x members. The pool keeps another strong owner. A reference count tracks these owners; the Style is destroyed only after the last strong owner releases it. The diagram uses shared aggregation to show the non-exclusive relationship; the C++ shared_ptr contract supplies the precise lifetime rule."
+  },
+  "lab": {
+    "starter": "exercises/ch11/main.cpp",
+    "solution": "solutions/ch11/main.cpp",
+    "task": "Add StylePool::clear(), which removes the pool's retained entries without invalidating existing Mark or StylePtr owners. Preserve every original test. Define identity after clearing explicitly: a later request may create a new Style with equal values.",
+    "checks": [
+      "After clear, pool.count() is zero.",
+      "Existing left.draw still returns dot/12@3.",
+      "A new dot/12 request differs by pointer from first but has equal fields.",
+      "Repeated requests after rebuilding the entry share the new pointer."
+    ],
+    "answer": "The solution clears the map. Existing shared_ptr owners keep old styles alive. The next request creates a new equal-valued object because the old entry is absent. This is a deliberate pool-lifetime identity rule: sharing is guaranteed among active entries, not across every clearing operation for the entire process."
+  },
+  "pattern": "Flyweight",
+  "problem_title": "Share repeated style data while keeping each mark distinct",
+  "attachment_alignment": {
+    "epub_section": "Flyweight — OEBPS/design-patterns__flyweight.xhtml",
+    "source_files": [
+      "C++/src/Flyweight/Conceptual/main.cc",
+      "C++/src/Flyweight/Conceptual/Output.txt"
+    ],
+    "intent": "Reduce repeated stored data when many objects contain the same stable details. The attached EPUB uses many rendered objects and shared tree types. Before adding a pool, identify substantial duplicate state and measure whether sharing helps. Flyweight is a memory design with lookup and lifetime costs, not a rule that every repeated value needs another class.",
+    "mechanism": "Separate intrinsic state, which many uses can share, from extrinsic state, which describes one use. A pool finds the shared object by a complete key. Contexts retain a connection to that object while keeping their own changing details. The shared object must remain stable for all contexts; a change made for one context must not silently change every other context.",
+    "roles": [
+      {
+        "role": "Flyweight / Intrinsic state",
+        "attached": "Flyweight containing SharedState",
+        "example": "const Style",
+        "responsibility": "Store details safe to reuse across many independent objects."
+      },
+      {
+        "role": "Extrinsic state",
+        "attached": "UniqueState: owner_ and plates_",
+        "example": "Mark::x_",
+        "responsibility": "Keep information belonging to one particular use outside the shared object."
+      },
+      {
+        "role": "Flyweight Factory",
+        "attached": "FlyweightFactory::GetFlyweight",
+        "example": "StylePool::get",
+        "responsibility": "Look up shared state by its complete identity key and reuse a match."
+      },
+      {
+        "role": "Context / Client",
+        "attached": "AddCarToPoliceDatabase and its UniqueState argument",
+        "example": "Mark and main",
+        "responsibility": "Combine shared details with local details when performing the operation."
+      }
+    ],
+    "source_walkthrough": "The supplied factory starts with five brand/model/color combinations. Requesting BMW, M5, red follows the reuse branch. Requesting BMW, X1, red creates a sixth entry. Operation prints the shared car details with owner and plate details. Executing the supplied source prints the unique state as [ James Doe , CL234IR ]; its saved Output.txt reverses that pair, so the saved transcript disagrees with the implementation. The unordered_map listing order also is not a portable guarantee. More significantly, GetFlyweight returns Flyweight by value, and its copy constructor allocates a new SharedState. The returned object therefore copies the pooled data instead of sharing its identity. Binding that returned temporary to const Flyweight& extends the temporary’s lifetime; it does not turn it into a reference to the map entry.",
+    "adaptation": "Our program implements actual sharing through shared_ptr<const Style>. Equal name/size keys return handles to the same immutable Style, and a test compares those handles for identity. The pool and each Mark are shared owners: dropping one owner leaves the Style alive while any other remains. A test keeps a Style after its pool is destroyed. Mark keeps x separately and performs drawing itself, which the EPUB permits when the flyweight is a data object. The source’s car messages, raw allocation, deep-copying wrapper, and mutable shared_state accessor are omitted. Its joined string key becomes a pair<string, int>, preventing ambiguity between key fields. Our two marks are deliberately small for tracing; the example proves sharing and lifetime behavior, not a measured memory saving at production scale.",
+    "recognize": "Find multiple independent contexts referring to the same stable state object. Equal values in separately allocated objects are not enough. State placement and identity tests reveal whether the implementation actually shares. A pool can retain unused entries, so the memory budget must include the pool, keys, handles, and ownership bookkeeping.",
+    "contrast": [
+      {
+        "pattern": "Singleton",
+        "distinction": "A Singleton restricts one type to one instance. A Flyweight pool may hold many different shared states, one for each key."
+      },
+      {
+        "pattern": "Prototype",
+        "distinction": "Prototype makes a new object by copying a model. Flyweight intentionally reuses common state instead of giving every context its own copy."
+      },
+      {
+        "pattern": "Composite",
+        "distinction": "Composite organizes recursive part-whole relationships. Its leaves may use flyweights, but a shared style is not itself a tree."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Separate the data",
+        "action": "Place brand/model/color and owner/plates in two columns, then do the same with name/size and position. Justify every field placement."
+      },
+      {
+        "stage": "Inspect actual identity",
+        "action": "Trace the supplied GetFlyweight return and copy constructor. Explain why a reuse message does not prove shared storage."
+      },
+      {
+        "stage": "Prove corrected sharing",
+        "action": "Compare first and same, draw two different positions, and destroy a short-lived pool while retaining one StylePtr."
+      },
+      {
+        "stage": "Evaluate the tradeoff",
+        "action": "Use the clear lab to separate pool retention from object lifetime. Discuss when fewer entries, direct values, or a measured memory budget make a pool unnecessary."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Why would storing position x inside the pooled Style break this design?",
+        "answer": "Two marks needing the same appearance but different positions would either overwrite each other or require separate styles, defeating the chosen shared-state boundary."
+      },
+      {
+        "question": "Why is const Flyweight& f = factory.GetFlyweight(...) not proof of sharing in the attachment?",
+        "answer": "GetFlyweight returns by value. The reference binds to a temporary produced by a deep copy, not the pooled entry. Our shared_ptr copies handles while preserving the shared object."
+      }
+    ]
+  }
+}

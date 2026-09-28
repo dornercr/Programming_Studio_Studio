@@ -1,0 +1,377 @@
+{
+  "number": 15,
+  "title": "Iterator",
+  "part": "III - Behavioral design patterns",
+  "topics": [
+    "Iterator",
+    "cursor validity",
+    "end position",
+    "borrowed lifetime"
+  ],
+  "objectives": [
+    "Traverse a collection through a small cursor interface.",
+    "Separate an end position from an invalidated cursor.",
+    "Explain why collection changes and collection destruction are different hazards."
+  ],
+  "sections": [
+    {
+      "heading": "The problem: callers need readings, not storage details",
+      "paragraphs": [
+        "A measurement log stores a sequence of integer readings. A report must visit the readings in insertion order and compute their total. The simplest loop uses a vector directly, and that is often the best answer when the vector is already part of the public design. The new constraint is that reports should not depend on the storage layout. The log may later use chunks, a file cache, or a filtered view. Reports also need independent positions: one view may be examining the first reading while another has reached the second.",
+        "Giving every caller a reference to the internal vector exposes more than traversal. Callers can start depending on contiguous memory, indexing, and mutation details. Copying the entire vector into every report hides storage but can waste memory when readings are numerous. We need a small object that remembers a position and provides the next value without handing over the container. That object is an iterator. The teaching implementation calls it Cursor to emphasize its explicit done, read, and next operations."
+      ],
+      "code": "int total = 0;\nfor (int value : values) {\n    total += value;\n}",
+      "code_label": "Excerpt - simplest starting point"
+    },
+    {
+      "heading": "Separate a collection from a position within it",
+      "paragraphs": [
+        "Readings owns its vector and a version number. Cursor borrows the Readings object, stores the version seen at creation, and starts its own index at zero. The collection therefore holds data while each cursor holds traversal state. Copying a cursor copies its position and saved version but still refers to the same owner. Advancing the copy does not advance the original. In the example, one cursor moves to nine while an independent copy still reads four.",
+        "The nested class declaration places Cursor inside Readings as part of its interface. A nested class can access the enclosing class private members through an object; it does not carry an implicit enclosing object by magic. owner_ provides that actual object. const Readings& prevents the cursor from modifying the owner through that reference. It does not prevent other code from calling append on the original non-const collection. That distinction is why a read-only reference does not make a changing collection safe by itself."
+      ]
+    },
+    {
+      "heading": "An end position exists, but it is not an element",
+      "paragraphs": [
+        "For two readings, legal traversal positions are index zero, index one, and index two as the end marker. done reports true at index two. There is no third reading to return. read calls vector.at, which checks the bound and throws std::out_of_range when asked for the end element. next also rejects an attempt to step beyond end. Empty collections begin at end, so the same loop works without a special branch in the report.",
+        "The report loop checks !scan.done before calling read. The exclamation mark means not: it enters the body only while the cursor is not at end. After reading, scan.next advances one position. read returns int by value, so the report receives an independent copy. An element reference could avoid copying a large object, but that reference would introduce its own invalidation and lifetime rules. A copied integer keeps this first traversal interface honest and small. The cursor still borrows the collection and must not outlive it."
+      ]
+    },
+    {
+      "heading": "A changed collection makes old cursors stale",
+      "paragraphs": [
+        "Invalidation means that an operation has ended a cursor validity under its documented rules. This implementation chooses a strict policy: every successful append invalidates every existing cursor, even if the vector happened to have spare capacity. append first checks that the version counter can be increased without wrapping, then appends the value, then increases the version. If vector growth fails, neither the collection contents nor the version is committed by this append of an integer. A cursor compares its captured version with the current version before done, read, or next proceeds.",
+        "A stale cursor is different from a cursor at end. End is a valid position in an unchanged collection. Stale means the view no longer matches the collection generation, even if its numeric index remains within bounds. Merely using at would detect a bad index but would not detect a changed traversal contract. The program checks this difference by creating a cursor, appending twelve, and rejecting use of the old cursor. Version exhaustion is rejected instead of wrapping to an old number that might make a stale cursor look current."
+      ]
+    },
+    {
+      "heading": "A safety check cannot bring a dead owner back",
+      "paragraphs": [
+        "The version check reads owner_.stamp_. If the Readings object has already been destroyed, even that first read would use a dangling reference. The check therefore protects against documented mutation while the owner is alive; it is not a general lifetime detector. main declares the collection first and all cursors later, so the collection outlives them. Copy and assignment of Readings are deleted in this example, and it has no implicit move operation. Its identity stays fixed while cursors borrow it.",
+        "Alternative designs make different promises. A snapshot cursor could own a copy of the values, remain valid after append, and cost more memory. A cursor holding shared ownership of an immutable collection can extend lifetime without copying its data. Standard-library containers already supply carefully specified iterators; use them when their contracts fit. This Cursor deliberately does not claim to model a standard C++ iterator category: it lacks operator*, operator++, comparison, and the related type information. It teaches the separation of traversal state from storage without pretending to work with every standard algorithm."
+      ]
+    },
+    {
+      "heading": "Choose traversal features from the reporting problem",
+      "paragraphs": [
+        "A forward scan is enough for the total. The lab introduces a real new need: show the newest readings first. Its reverse cursor stores the number of elements still available and reads the element at remaining minus one. It checks for zero before subtracting, because size_t is unsigned and zero minus one would wrap to a huge value. Forward and reverse cursors follow the same version policy, so a caller does not need to guess which mutation rules apply.",
+        "The primary tests establish behavior for a small deterministic collection, an empty collection, independent positions, end access, end advancement, and stale access. They do not prove thread safety. Concurrent append and read without synchronization can create a data race; a version integer is not a lock. A real reporting subsystem should either prevent concurrent edits during a scan, take a stable snapshot, or define synchronization around both data and cursor checks. The traversal interface makes that choice easier to review, but cannot make it disappear."
+      ]
+    }
+  ],
+  "example": {
+    "title": "A checked cursor over a readings log",
+    "requirements": [
+      "Visit readings in insertion order and support independent positions.",
+      "Make empty/end behavior explicit.",
+      "Reject cursor operations after a successful append."
+    ],
+    "design": "Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.",
+    "alternative": "Expose a vector const_iterator if the public contract can depend on vector rules. Own a snapshot if scans must survive later edits or owner destruction. A snapshot gives stability in exchange for copying and storage costs.",
+    "invariants": [
+      "The owner must remain alive and in place while a cursor is used.",
+      "A live cursor index is at most the number of readings.",
+      "A version mismatch is rejected before data access.",
+      "An end position is never read as an element."
+    ],
+    "failures": [
+      {
+        "mistake": "Treat a bounds check as a complete validity check.",
+        "consequence": "An old cursor can continue after append even though the promised fixed view has ended.",
+        "reason": "Its index may still be in bounds; validity also depends on collection generation."
+      },
+      {
+        "mistake": "Keep a cursor after its owner leaves scope.",
+        "consequence": "Even done() accesses a dead object; the behavior is undefined.",
+        "reason": "A borrowed reference does not own or extend the collection lifetime."
+      }
+    ],
+    "verification": "The executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested.",
+    "maintenance": "Callers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.",
+    "file": "examples/ch15/main.cpp"
+  },
+  "diagram": {
+    "kind": "ownership",
+    "title": "Two cursor positions, one owner",
+    "nodes": [
+      {
+        "id": "R",
+        "label": "Collection: Readings",
+        "code": [
+          "std::vector<int> values_;"
+        ]
+      },
+      {
+        "id": "A",
+        "label": "Iterator: cursor",
+        "code": [
+          "std::size_t index_ = 0;"
+        ]
+      },
+      {
+        "id": "B",
+        "label": "Iterator: independent",
+        "code": [
+          "const Readings& owner_;"
+        ]
+      },
+      {
+        "id": "V",
+        "label": "Owned element values",
+        "code": [
+          "// Read returns an int copy."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "V",
+        "kind": "ownership",
+        "label": "vector owns its integers",
+        "from": "R"
+      },
+      {
+        "to": "R",
+        "kind": "dependency",
+        "label": "borrows same collection",
+        "from": "A"
+      },
+      {
+        "to": "R",
+        "kind": "dependency",
+        "label": "borrows same collection",
+        "from": "B"
+      }
+    ],
+    "explanation": "Only the collection-to-elements edge means ownership. Both cursor dependencies borrow the same Readings object, but each cursor has its own index and version value. Copying a cursor does not copy the readings or create shared ownership. The two iterator nodes are distinct Cursor instances. They share the collection, not their traversal positions."
+  },
+  "focus": [
+    {
+      "title": "Check the captured generation",
+      "start": "void validate() const {",
+      "end": "} // validate",
+      "what": "This guard detects a collection change while its owner is still alive.",
+      "where": "done and read call it; next reaches it through done.",
+      "why": "An in-range index does not prove that a cursor still belongs to the same view.",
+      "invariant": "The owner must outlive this guard, and every successful append must increase its version.",
+      "risk": "Removing the generation check allows silent use after an append; it cannot detect a destroyed owner.",
+      "explain": [
+        "Define a read-only validity check for this cursor.",
+        "The comment states that a collection change ends the view.",
+        "Compare the saved generation with the owner current generation.",
+        "Begin creating and throwing a logic error for a mismatch.",
+        "Give the error its stale-cursor message and finish the throw.",
+        "Close the mismatch branch.",
+        "Close the guard and label its boundary."
+      ]
+    },
+    {
+      "title": "Return a checked value",
+      "start": "int read() const {",
+      "end": "} // read",
+      "what": "The caller receives an independent integer from the current position.",
+      "where": "The report calls read only after checking done.",
+      "why": "Returning by value avoids exposing an element reference and its lifetime.",
+      "invariant": "Validate before reading; the index must denote an element, not end.",
+      "risk": "Replacing at with unchecked indexing removes the defined end-read rejection.",
+      "explain": [
+        "Define a read-only operation returning an integer value.",
+        "The comment explains that the element is copied out.",
+        "Check that the collection version still matches.",
+        "Use checked vector access and copy the resulting integer.",
+        "Close the read operation."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "Empty: index=0, size=0.",
+      "reason": "done is true; read is rejected because there is no element."
+    },
+    {
+      "step": "2",
+      "state": "After appending 4 and 9: version=2.",
+      "reason": "New cursors capture two and begin at index zero."
+    },
+    {
+      "step": "3",
+      "state": "cursor index=1; independent index=0.",
+      "reason": "Advancing one cursor does not alter the copied position."
+    },
+    {
+      "step": "4",
+      "state": "Scan sees 4, then 9, then end.",
+      "reason": "The running total becomes thirteen."
+    },
+    {
+      "step": "5",
+      "state": "Append 12: version=3; old saved version=2.",
+      "reason": "Old operations are rejected before accessing an element."
+    }
+  ],
+  "summary": [
+    "A cursor owns its position, not necessarily its collection.",
+    "End is a valid position with no readable element.",
+    "Bounds and generation are separate checks.",
+    "Read-only access does not freeze other access paths.",
+    "Custom traversal interfaces should not claim standard-iterator compatibility without meeting its requirements."
+  ],
+  "exercises": [
+    {
+      "id": "15.1",
+      "level": "Guided modification",
+      "prompt": "Add a third reading, six, before creating the primary scan. What total should the scan check?",
+      "hint": "Only add values before the new cursor is created.",
+      "answer": "The scan total is nineteen: four plus nine plus six. Any cursor created before the append becomes stale, so create the scan after all three insertions."
+    },
+    {
+      "id": "15.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "For readings [2,5], let a=readings.cursor(); let b=a; call a.next(); then print b.read(), a.read(), b.done(). Give the values.",
+      "hint": "Each cursor keeps its own index.",
+      "answer": "The values are 2, 5, and false, printed as 0 by default stream formatting. Copying b preserved index zero while a moved to index one."
+    },
+    {
+      "id": "15.3",
+      "level": "Diagnose a bug",
+      "prompt": "A loop runs read() before checking done(). What happens for an empty Readings object in this implementation?",
+      "hint": "Check the operation used inside read.",
+      "answer": "vector.at(0) throws std::out_of_range. No value is produced. Move the done check before read; do not special-case emptiness by inventing a zero reading."
+    },
+    {
+      "id": "15.4",
+      "level": "Choose a design",
+      "prompt": "A long report must see the original readings even while new readings arrive. Choose strict invalidation or a snapshot and explain the cost.",
+      "hint": "The report needs stability, not an error after the first append.",
+      "answer": "A snapshot matches that requirement because it keeps the original view. It costs copied data or shared immutable storage. Strict invalidation is simpler for single-threaded scans but interrupts the required report."
+    },
+    {
+      "id": "15.5",
+      "level": "Extend without regressions",
+      "prompt": "Implement reverse traversal with the same invalidation rule. What must happen for an empty log and after append?",
+      "hint": "Guard zero before subtracting from an unsigned count.",
+      "answer": "An empty reverse cursor is done immediately. read and next at end throw. Any later append makes old reverse cursors stale. The lab solution visits 12, 9, 4 and checks these cases."
+    },
+    {
+      "id": "15.6",
+      "level": "Justify a decision",
+      "prompt": "Write a review comment explaining why the version field does not make concurrent append and read safe.",
+      "hint": "Both the vector and version are ordinary unsynchronized state.",
+      "answer": "The check detects a sequential contract violation; it does not serialize access. A writer can race with the check or data access. Use a lock, a stable snapshot, or another explicit concurrency design around the entire operation."
+    }
+  ],
+  "lab": {
+    "task": "Add ReverseCursor and reverse_cursor() without exposing values_. Visit newest to oldest; return integers by value. Match forward rules for owner lifetime, stale checks, end reads, and end advancement. Keep all primary tests.",
+    "checks": [
+      "For [4,9,12], reverse reads 12,9,4, then done.",
+      "Reading reverse end throws; an empty reverse cursor is done.",
+      "Appending after creation makes reverse done reject the old cursor."
+    ],
+    "answer": "The solution stores remaining_ initialized to the collection size, checks for zero, reads remaining_-1, and decrements on next. It uses the same captured version policy. A signed index could also work, but would require clear size conversion and lower-bound handling.",
+    "starter": "exercises/ch15/main.cpp",
+    "solution": "solutions/ch15/main.cpp"
+  },
+  "glossary": [
+    {
+      "term": "Iterator",
+      "definition": "An object that represents a position and a way to traverse a collection."
+    },
+    {
+      "term": "End position",
+      "definition": "A valid traversal position after the last element, with no element to read."
+    },
+    {
+      "term": "Invalidation",
+      "definition": "An event that ends the permission to use an existing cursor or reference."
+    },
+    {
+      "term": "Generation",
+      "definition": "A value used to distinguish one collection version from another."
+    }
+  ],
+  "pattern": "Iterator",
+  "problem_title": "Walk through data without exposing its storage",
+  "attachment_alignment": {
+    "epub_section": "Iterator: independent traversal state, collection and iterator roles, alternative traversal orders, and the social-profile traversal example.",
+    "source_files": [
+      "C++/src/Iterator/Conceptual/main.cc",
+      "C++/src/Iterator/Conceptual/Output.txt"
+    ],
+    "intent": "Let a caller visit a collection through a traversal object instead of reaching into its storage. Each traversal keeps its own position. The EPUB motivates different walks through the same data, including trees and social profiles. The attached C++ sample makes the smaller point with an integer collection and a collection of Data values.",
+    "mechanism": "The collection produces an iterator suited to its representation. The iterator knows how to test completion, read the current element, and advance. The caller follows that protocol without indexing the hidden storage. Independent iterator objects hold independent positions. Hiding storage does not settle lifetime or mutation rules; those must be part of the traversal contract.",
+    "roles": [
+      {
+        "role": "Collection",
+        "attached": "Container<T>",
+        "example": "Readings",
+        "responsibility": "Own elements and supply a new compatible traversal object. Both keep their vector representation private."
+      },
+      {
+        "role": "Concrete iterator",
+        "attached": "Iterator<T, U>",
+        "example": "Readings::Cursor",
+        "responsibility": "Remember one traversal position and implement the operations for reading, advancing, and detecting completion."
+      },
+      {
+        "role": "Iterator protocol",
+        "attached": "First, Next, IsDone, Current",
+        "example": "done, read, next",
+        "responsibility": "Describe how a client visits elements. These examples use concrete C++ APIs rather than a separate virtual iterator base."
+      },
+      {
+        "role": "Client",
+        "attached": "ClientCode traversal loops",
+        "example": "main scan loop",
+        "responsibility": "Consume values through traversal operations. The client must check completion before reading an element."
+      },
+      {
+        "role": "Element",
+        "attached": "int and Data",
+        "example": "int readings",
+        "responsibility": "Hold the visited value. Element type and traversal position are different things."
+      }
+    ],
+    "source_walkthrough": [
+      "ClientCode adds integers zero through nine to Container<int>. CreateIterator allocates an Iterator that stores the container pointer and a vector iterator. First resets that position to begin. Each loop checks IsDone, dereferences Current, prints the integer, and calls Next.",
+      "The second collection stores Data values containing 100, 1000, and 10000. Its loop calls Current()->data(): Current returns a vector iterator, whose arrow operator accesses the current Data object. Output.txt prints those three values after the integer sequence. The friend declaration permits Iterator to reach the private vector; the client itself does not reach it directly.",
+      "Both iterator objects are deleted after use while their stack-owned collections remain alive. The constructor accepts reverse but never uses it, so it does not implement reverse traversal. Next and Current provide no explicit end guard, and mutation behavior depends on the underlying vector iterator rules. The sample demonstrates forward traversal, not a complete checked iterator contract."
+    ],
+    "adaptation": "Readings fixes the element type to int so the lesson can focus on traversal, then returns Cursor by value instead of allocating it. An index replaces the stored vector iterator. A saved version rejects every old cursor after a successful append, even when an index would remain in bounds. read returns an integer copy and checks access. The example adds independent cursor and empty/end tests. It omits generic element types, reverse traversal, and the operator protocol required by standard-library algorithms.",
+    "recognize": "Locate traversal state outside the collection itself: index_ belongs to each Cursor. Copying the cursor copies its position while borrowing the same collection. Advancing one must not advance the other. A for loop alone is not the pattern; the significant boundary is the separate traversal object that hides how elements are located.",
+    "contrast": [
+      {
+        "pattern": "Composite",
+        "distinction": "Composite represents a tree of whole-part relationships. Iterator defines a way to walk data, which may be a tree, list, or another collection. Either can exist without the other."
+      },
+      {
+        "pattern": "Visitor",
+        "distinction": "Iterator controls which element is reached next. Visitor selects an operation appropriate to an element type. A traversal may use a visitor after reaching each element."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Decode the supplied loops",
+        "action": "Translate First, IsDone, Current, and Next into start, stop check, read, and advance. Predict both printed number sequences."
+      },
+      {
+        "stage": "Prove independent progress",
+        "action": "Copy the new cursor at four, advance only one cursor to nine, and ask learners to inspect both values and their shared owner."
+      },
+      {
+        "stage": "Challenge validity",
+        "action": "Test empty read, advance past end, and read after append. Ask why a version check protects the promised view but cannot keep a destroyed owner alive."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Does setting the supplied reverse parameter to true reverse the output?",
+        "answer": "No. The constructor ignores that parameter and still starts at begin. A parameter name is not evidence of implemented behavior."
+      },
+      {
+        "question": "Does copying Cursor copy all readings?",
+        "answer": "No. It copies traversal state and retains the same borrowed owner. The cursors advance independently, but append invalidates both saved versions."
+      }
+    ]
+  }
+}

@@ -1,0 +1,388 @@
+{
+  "number": 21,
+  "title": "Template Method",
+  "part": "III - Behavioral design patterns",
+  "topics": [
+    "Template Method",
+    "required steps",
+    "optional hooks",
+    "postconditions"
+  ],
+  "objectives": [
+    "Distinguish an algorithm skeleton from a replaceable step.",
+    "Keep input checks and output checks around virtual work.",
+    "Explain the limits of nonvirtual orchestration and inheritance."
+  ],
+  "sections": [
+    {
+      "heading": "Two imports must follow the same rules",
+      "paragraphs": [
+        "An import tool receives whole-number readings from 0 through 100. One input source already uses the desired units. Another source needs every value doubled. Each result is a space-separated string; the doubled form ends with scaled. Reject an empty input and reject any out-of-range reading. A bad reading late in the batch must be found before any conversion begins. The caller must receive a complete string or an exception, never a partly formatted result.",
+        "A simple implementation writes one loop for the ordinary input and copies it for the doubled input. The excerpt shows the ordinary conversion after validation. This is easy to understand at first. But when the team adds a full-batch validation rule, both import functions need the same repair. If only one is repaired, the sources obey different rules even though their only intended difference is a unit conversion."
+      ],
+      "code": "std::ostringstream result;\nfor (int raw : input)\n    result << raw << ' ';\nreturn result.str();",
+      "code_label": "Excerpt — simplest approach before the redesign"
+    },
+    {
+      "heading": "The limitation calls for one fixed sequence",
+      "paragraphs": [
+        "The repeated sequence is validate all inputs, convert each value, check each converted value, and finish the string. The differing step is how one valid integer becomes another. The Template Method pattern places the sequence in a base class and lets derived classes supply selected steps. Here Import::run is the template method. The word template means a shared plan of steps; it does not refer to C++ template parameters.",
+        "convert is a required step: every concrete import must supply it. suffix is an optional hook: the base implementation returns an empty string, so an ordinary import need not override it. DoubleImport changes both conversion and suffix. Optional does not mean uncontrolled. A hook must still obey the documented contract and must not quietly perform a second import or change shared input."
+      ]
+    },
+    {
+      "heading": "Where control moves and where it does not",
+      "paragraphs": [
+        "The caller invokes run. run first walks the full input to check every raw value. Only after that pass succeeds does it create the local stream and call convert for each input. The virtual call selects the actual derived implementation. Control returns to run, which checks that the result lies from 0 through 200 and appends it. The final suffix call happens once after the loop. The base therefore owns the order while the derived class owns a small part of the meaning.",
+        "The two passes are deliberate. In a one-pass implementation, convert(3) could run before discovering -1 in the next position. For our pure conversion methods that would not change external state, but the order would violate the stated guarantee. A future conversion with an audit counter would expose that difference. Define order before optimizing away a pass. The cost is one extra linear walk; it does not copy the vector.",
+        "input is a const reference, so run borrows existing readings. Each raw loop variable is an integer copy. value is another local integer, held const because the result should not change after the conversion call. The stream owns the characters accumulated so far. Its exception mask enables badbit and failbit exceptions: an output failure must throw rather than silently leave a partial stream result. result.str() returns a string value. If conversion throws or violates the result range, stack cleanup destroys the local stream, and no partial string is returned. This does not undo outside effects a derived step might already have made."
+      ]
+    },
+    {
+      "heading": "A skeleton is a contract, not a security barrier",
+      "paragraphs": [
+        "run is nonvirtual, so calls through Import use this exact sequence. A derived class can declare a same-named nonvirtual member and hide it for calls made through that derived type. That is name hiding, not overriding. Our final concrete classes do not do so, and normal clients use the inherited run. If a framework needs the compiler to forbid overriding an already virtual public entry point, virtual plus final is an available design. It still does not prevent unrelated methods from doing other work.",
+        "Protected access lets derived classes implement and use steps without advertising them as normal public operations. A derived override may be private, as it is here: access checking uses the base declaration at the call inside Import, and virtual dispatch can reach the private override. override asks the compiler to verify that the method truly matches a virtual base declaration. It prevents mistakes such as accidentally omitting a trailing const and introducing a different function.",
+        "At compilation, types and signatures are checked. During execution, run chooses step implementations from the actual import object. The object must already be fully constructed. Do not call a pure virtual conversion from the base constructor to “test” it: construction-time virtual behavior does not act like a call on a completed derived object. Validate construction data without relying on not-yet-constructed derived behavior."
+      ]
+    },
+    {
+      "heading": "When composition gives a better boundary",
+      "paragraphs": [
+        "Template Method fits a family of closely related processes whose ordering is stable and whose variation belongs in a few well-defined steps. Its cost is inheritance coupling: changing the base sequence changes every derived import. Adding many hooks can make the sequence hard to reason about because every empty-looking call may run unknown derived work.",
+        "If callers need to exchange the conversion while keeping the same importer object, inject a Strategy instead. If there are just two lines of differing math, pass a callable to one ordinary function. If whole workflows differ in ordering, forcing them into one inherited skeleton may hide the true differences. Choose a stable sequence first, then decide how much extension it needs.",
+        "This example checks both sides of the extension point: raw values are preconditions, converted values are postconditions, which are rules that must hold when a step returns. Runtime range checks catch some bad implementations, such as BrokenImport returning 201. They cannot prove that doubled units have the right business meaning. Keep value-based tests alongside these general contract checks."
+      ]
+    }
+  ],
+  "example": {
+    "title": "One import sequence with ordinary and doubled units",
+    "file": "examples/ch21/main.cpp",
+    "requirements": [
+      "Reject empty input and raw values outside 0–100 before calling conversion.",
+      "Require each converted result to lie within 0–200.",
+      "Return one complete string and leave the input unchanged."
+    ],
+    "design": "The base class holds the order and the error boundaries. Derived classes only replace conversion and, optionally, final annotation.",
+    "alternative": "A function accepting a conversion callable would reduce inheritance and suit a single variable step. A Strategy member is preferable if a running import object must exchange its conversion at runtime.",
+    "invariants": [
+      "Every raw value is checked before the first convert call.",
+      "Only checked converted values enter the local output stream.",
+      "suffix runs once after all conversions succeed."
+    ],
+    "failures": [
+      {
+        "mistake": "Validate raw values only as they are converted.",
+        "consequence": "With {3,-1}, convert(3) runs before -1 is rejected.",
+        "reason": "One pass changes the required order even if the final function still throws."
+      },
+      {
+        "mistake": "Allow a derived convert to return 201 without a postcondition check.",
+        "consequence": "The output could contain 201, outside the allowed converted range.",
+        "reason": "A valid raw input does not prove that a replaceable step obeys its result contract."
+      }
+    ],
+    "verification": "main verifies both complete strings, raw and converted boundaries, unchanged input, empty and negative input rejection, and a deliberately defective step whose violation is caught. BrokenImport is exercised only through a checked path. Stream failure exceptions are enabled, but allocation and stream-failure injection are not tested. No test claims to roll back external effects in future steps.",
+    "maintenance": "A single validation repair benefits every importer using run. Keep hooks narrow so a future source format does not require reading an entire inheritance tree to understand one import."
+  },
+  "diagram": {
+    "kind": "activity",
+    "title": "Template Method: Import::run fixes the sequence",
+    "nodes": [
+      {
+        "id": "V",
+        "label": "Import::run — fixed step",
+        "code": [
+          "if (raw < 0 || raw > 100)",
+          "// Reject before any conversion."
+        ]
+      },
+      {
+        "id": "C",
+        "label": "convert — required step",
+        "code": [
+          "const int value = convert(raw);",
+          "// Dispatch to the derived step."
+        ]
+      },
+      {
+        "id": "P",
+        "label": "Import::run — fixed step",
+        "code": [
+          "if (value < 0 || value > 200)",
+          "result << value << ' ';"
+        ]
+      },
+      {
+        "id": "S",
+        "label": "suffix — optional hook",
+        "code": [
+          "return result.str() + suffix();",
+          "// Call the optional hook once."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "C",
+        "kind": "flow",
+        "label": "all input valid",
+        "from": "V"
+      },
+      {
+        "to": "P",
+        "kind": "flow",
+        "label": "step returned",
+        "from": "C"
+      },
+      {
+        "to": "C",
+        "kind": "flow",
+        "label": "next input",
+        "from": "P"
+      },
+      {
+        "to": "S",
+        "kind": "flow",
+        "label": "all inputs converted",
+        "from": "P"
+      }
+    ],
+    "explanation": "Flow arrows show execution, not inheritance. The return from convert is checked before appending. A failure exits by exception rather than following a normal arrow. The loop-back arrow represents the next reading; suffix runs only when no reading remains. Comments inside boxes are teaching annotations."
+  },
+  "focus": [
+    {
+      "title": "The base sequence surrounds the virtual step",
+      "start": "        // All input passed validation.",
+      "end": "        return result.str() + suffix();",
+      "what": "This is the conversion and formatting phase after full validation.",
+      "where": "Inside Import::run, after its first loop.",
+      "why": "It keeps range checking and output order consistent across import types.",
+      "invariant": "A returned string contains only checked results, in original order.",
+      "risk": "A side effect inside convert cannot be undone merely by destroying the stream.",
+      "explain": [
+        "The comment records that the first validation pass already succeeded.",
+        "Create a local stream that owns the characters being built.",
+        "Enable exceptions for serious stream errors.",
+        "Also enable ordinary stream-failure exceptions; finish the mask expression.",
+        "Copy each raw input integer in sequence.",
+        "Call the derived conversion and keep its returned integer constant.",
+        "Test whether that integer violates the result range.",
+        "Begin constructing a logic-error exception for a broken step.",
+        "Use converted as the message and throw the exception.",
+        "Append the checked number and one space.",
+        "Close the conversion loop.",
+        "Return the completed stream text followed by the optional suffix."
+      ]
+    },
+    {
+      "title": "Two changes inside the same overall process",
+      "start": "class DoubleImport final : public Import {",
+      "end": "        return \"scaled\";",
+      "what": "This derived class supplies a unit conversion and a final annotation.",
+      "where": "The implementation reached when run is called on DoubleImport.",
+      "why": "Only the varying steps need new definitions.",
+      "invariant": "For raw values from 0–100, doubling produces values from 0–200.",
+      "risk": "Changing the multiplier can exceed the base result contract.",
+      "explain": [
+        "Declare a final derived import type; final forbids further derivation.",
+        "The comment states the unit change.",
+        "Override the required conversion with matching const signature.",
+        "Return twice the copied raw value.",
+        "Close the conversion method.",
+        "Override the optional string suffix hook.",
+        "Return the annotation appended after all numbers."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "input={3,8}; first pass succeeds",
+      "reason": "Both raw integers are within 0–100."
+    },
+    {
+      "step": "2",
+      "state": "DoubleImport convert(3)=6; output=\"6 \"",
+      "reason": "The derived step runs, then the base checks and appends."
+    },
+    {
+      "step": "3",
+      "state": "convert(8)=16; output=\"6 16 \"",
+      "reason": "The same sequence handles the next integer."
+    },
+    {
+      "step": "4",
+      "state": "suffix=\"scaled\"; final=\"6 16 scaled\"",
+      "reason": "The hook is called once after the loop."
+    }
+  ],
+  "summary": [
+    "Template Method means a shared algorithm sequence, not a C++ generic template.",
+    "Required steps and optional hooks have different extension duties.",
+    "Preconditions and postconditions belong around variable work.",
+    "Nonvirtual orchestration fixes calls through the base but does not prevent name hiding.",
+    "Use composition when behavior must vary independently of inheritance."
+  ],
+  "exercises": [
+    {
+      "id": "21.1",
+      "level": "Guided modification",
+      "prompt": "Change the example input to {5,10}. Give both printed bracketed result strings, including spaces.",
+      "hint": "PlainImport adds no suffix.",
+      "answer": "The strings are [5 10 ] and [10 20 scaled]. The space before the first closing bracket is part of the plain result, because every number is followed by a space."
+    },
+    {
+      "id": "21.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Define a derived Import whose convert returns raw+1 and whose suffix returns \"done\". For run({0,2}), list the order of virtual calls and returned string.",
+      "hint": "The initial validation pass makes no virtual calls.",
+      "answer": "The order is convert(0), convert(2), suffix(). The returned string is \"1 3 done\". The base checks each returned number before putting it into the stream."
+    },
+    {
+      "id": "21.3",
+      "level": "Diagnose a bug",
+      "prompt": "A derived class writes int convert(int raw) override without const. Explain whether this is a runtime failure or a compiler error, and repair it.",
+      "hint": "Compare the complete signature with Import::convert.",
+      "answer": "It is a compiler error because override requires a matching base virtual function. Add const after the parameter list. Removing override would hide the mistake and leave the class abstract because the pure virtual const function still lacks an implementation."
+    },
+    {
+      "id": "21.4",
+      "level": "Choose a design",
+      "prompt": "One import has a fixed sequence with two specialized steps. Another application must switch among many conversions in the same running object. Choose Template Method or Strategy for each.",
+      "hint": "Separate changing object behavior from defining a related type.",
+      "answer": "Template Method fits the stable inherited sequence. Strategy fits runtime replacement inside one context. A callable is an even smaller option when the replaceable conversion is the only varying operation; neither pattern is mandatory merely because two functions differ."
+    },
+    {
+      "id": "21.5",
+      "level": "Extend without regressions",
+      "prompt": "Add OffsetImport: return raw+10 and suffix \"offset\". Retain raw limits, input order, and all original tests. State outputs for {3,8} and {0,100}.",
+      "hint": "The added maximum is 110, below 200.",
+      "answer": "The results are \"13 18 offset\" and \"10 110 offset\". The companion solution adds the type without changing run, checks both cases, rejects 101, and confirms that input remains unchanged."
+    },
+    {
+      "id": "21.6",
+      "level": "Justify a decision",
+      "prompt": "A reviewer wants validation and conversion combined to avoid the second pass. Explain whether that preserves this chapter’s contract.",
+      "hint": "Consider a bad final raw value and a conversion that records calls.",
+      "answer": "It does not preserve the guarantee that no conversion runs before all raw values are valid. For {3,-1}, a combined pass converts 3 first. Approve the optimization only after deliberately weakening that guarantee, proving pure conversion is sufficient, and updating tests and documentation. Keeping two passes is the correct answer under the current requirements."
+    }
+  ],
+  "lab": {
+    "starter": "exercises/ch21/main.cpp",
+    "solution": "solutions/ch21/main.cpp",
+    "task": "Add OffsetImport without editing Import::run or existing subclasses. It adds 10 to each valid raw number and appends offset. Preserve all old checks and add normal, boundary, and rejected-input cases.",
+    "checks": [
+      "{3,8} returns \"13 18 offset\".",
+      "{0,100} returns \"10 110 offset\".",
+      "{101} is rejected by the inherited input gate.",
+      "Original input remains {3,8}."
+    ],
+    "answer": "The reference solution overrides convert and suffix only. This shows that the new type changes two well-defined steps while the ordering, errors, and formatting remain inherited. A callable version could also meet the requirements, but it would be a deliberate redesign rather than this exercise’s requested extension."
+  },
+  "glossary": [
+    {
+      "term": "Template Method",
+      "definition": "A base-class operation that fixes a sequence while letting derived classes replace selected steps."
+    },
+    {
+      "term": "Hook",
+      "definition": "An optional extension point with a useful default or an empty default action."
+    },
+    {
+      "term": "Postcondition",
+      "definition": "A rule that must be true when an operation successfully returns."
+    },
+    {
+      "term": "Name hiding",
+      "definition": "A derived declaration prevents ordinary lookup from finding a same-named base declaration; it is not necessarily an override."
+    }
+  ],
+  "pattern": "Template Method",
+  "problem_title": "Preserve the steps while changing one operation",
+  "attachment_alignment": {
+    "epub_section": "Template Method — fixed algorithm structure, required steps, optional hooks, reuse through inheritance, and comparison with Strategy.",
+    "source_files": [
+      "C++/src/TemplateMethod/Conceptual/main.cc",
+      "C++/src/TemplateMethod/Conceptual/Output.txt"
+    ],
+    "intent": "Keep the required order of a process in one place while letting related implementations supply selected steps. The motivating failure is duplicated workflows: one copy receives a validation or ordering repair while another quietly keeps the old behavior.",
+    "mechanism": "An abstract base class defines the complete algorithm as a template method. That method calls ordinary shared operations, required virtual steps, and optional virtual hooks in a fixed order. A concrete subclass supplies the varying steps. The base algorithm calls into the subclass at those designated points. Here template means a planned sequence; it does not refer to C++ template parameter syntax.",
+    "roles": [
+      {
+        "role": "Abstract Class",
+        "attached": "AbstractClass",
+        "example": "Import",
+        "responsibility": "Own the shared algorithm and declare the steps that implementations may provide."
+      },
+      {
+        "role": "Template Method",
+        "attached": "AbstractClass::TemplateMethod",
+        "example": "Import::run",
+        "responsibility": "Keep the overall order and call the replaceable steps at specified points."
+      },
+      {
+        "role": "Required operations",
+        "attached": "RequiredOperations1 and RequiredOperation2",
+        "example": "Import::convert",
+        "responsibility": "Require each concrete implementation to supply essential varying behavior."
+      },
+      {
+        "role": "Optional hooks",
+        "attached": "Hook1 and Hook2",
+        "example": "Import::suffix",
+        "responsibility": "Offer a default behavior that a subclass may replace when needed."
+      },
+      {
+        "role": "Concrete Classes",
+        "attached": "ConcreteClass1 and ConcreteClass2",
+        "example": "PlainImport and DoubleImport",
+        "responsibility": "Supply specialized steps while using the inherited workflow."
+      }
+    ],
+    "source_walkthrough": [
+      "The supplied client calls TemplateMethod through an AbstractClass pointer. Its sequence is BaseOperation1, RequiredOperations1, BaseOperation2, Hook1, RequiredOperation2, BaseOperation3, and Hook2. The ordinary base operations print shared messages. Virtual calls reach the selected concrete implementation of each required operation. Calling the same client with ConcreteClass1 therefore keeps the shared sequence while using that class’s two required-step messages.",
+      "ConcreteClass2 supplies the same two required operations and additionally overrides Hook1. Its output inserts the Hook1 message after BaseOperation2 and before RequiredOperation2. The empty default hooks print nothing. This lets students verify optional behavior by its exact position in the output instead of treating every virtual function as an independent entry point."
+    ],
+    "adaptation": "The import example replaces diagnostic messages with a useful transformation of integer data. Import::run validates every raw value, converts values in order, checks each converted result, and appends the optional suffix. PlainImport keeps values; DoubleImport doubles them and supplies scaled. There is one required step and one hook instead of two of each. The new design adds checked input and output contracts, local result construction, and a deliberately defective subclass used to test the boundary. It preserves inheritance-based step replacement and one shared sequence.",
+    "recognize": "Locate the method that owns the whole sequence, then mark which calls are fixed and which dispatch to subclass behavior. If each subclass copies the whole process and chooses its own ordering, the intended Template Method structure has been lost. In this example run is nonvirtual, while convert and suffix are virtual. Calls to those steps still dispatch at execution time.",
+    "contrast": [
+      {
+        "pattern": "Strategy",
+        "distinction": "Strategy stores a separate selectable behavior object. Template Method specializes an inherited workflow. To change the import type here, the client uses a different importer object; it does not install a new conversion member in the existing one."
+      },
+      {
+        "pattern": "Factory Method",
+        "distinction": "A factory method specializes object creation. It can be one replaceable step within a larger template method. Import::convert returns an integer calculation result, so its role here is a required algorithm step, not object creation."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Expose duplicated order",
+        "action": "Write two import functions with the same validation and output loops. Ask what could happen if only one receives a new range check."
+      },
+      {
+        "stage": "Trace the supplied sample",
+        "action": "Number the seven calls in TemplateMethod. Have students place ConcreteClass2’s extra Hook1 output between the correct shared messages."
+      },
+      {
+        "stage": "Identify the new skeleton",
+        "action": "Mark the two loops in Import::run, then connect convert and suffix to their concrete overrides. Predict both strings for {3,8} before running."
+      },
+      {
+        "stage": "Break one step",
+        "action": "Run the BrokenImport test. Explain why a valid raw input is insufficient and why the common postcondition check belongs in run."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Why does run validate all raw input before calling convert once?",
+        "answer": "That is the workflow contract. With {3,-1}, no conversion may run before rejection. Combining the loops would change observable behavior for a step with side effects."
+      },
+      {
+        "question": "Does an optional hook mean subclasses may reorder the process?",
+        "answer": "No. A hook changes behavior at its designated point. The template method retains the call order; suffix runs only after all conversions succeed."
+      }
+    ]
+  }
+}

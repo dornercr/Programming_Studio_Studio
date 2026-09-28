@@ -1,0 +1,375 @@
+{
+  "number": 14,
+  "title": "Command",
+  "part": "III - Behavioral design patterns",
+  "topics": [
+    "Command",
+    "deferred execution",
+    "undo history",
+    "transaction boundaries"
+  ],
+  "objectives": [
+    "Represent a delayed request with its arguments.",
+    "Explain successful execution and reverse-order undo.",
+    "Identify the lifetime and isolation conditions an undo mechanism needs."
+  ],
+  "sections": [
+    {
+      "heading": "The problem: moving a marker is easy until timing changes",
+      "paragraphs": [
+        "A planning screen shows a marker at an integer position from zero through ten. Moving it immediately is simple: call marker.set(7). The setter rejects values outside the range and otherwise stores the new position. That direct call is the right first design when every request happens now and never needs undo. The new requirements are different: collect several moves, perform them later in order, and let the user undo that group in reverse order. The program must also reject a second execution of a move that is already applied.",
+        "A vector of destination integers can delay this one operation. However, if the screen later queues a rename or a color change, a vector of integers no longer describes all actions. A growing collection of parallel arrays for action codes and arguments is easy to misalign. The missing idea is to store a request together with the data and behavior needed to carry it out. That stored request is a command. We introduce an interface only because a single queue may need different kinds of requests with the same execute and undo operations."
+      ],
+      "code": "marker.set(3);\nmarker.set(7);\n// The old values are not retained here.",
+      "code_label": "Excerpt - simplest starting point"
+    },
+    {
+      "heading": "A command has intent before it has a history",
+      "paragraphs": [
+        "Move stores a borrowed Marker reference and a target position. Its constructor records intent but does not move the marker. The reference means there is one actual marker: copying the marker into each command would create private markers and leave the screen unchanged. target_ is stored by value so a later change to a caller variable cannot silently change the queued destination. before_ becomes meaningful only when execute runs. Saving it during construction would record the wrong old position for the second command in a delayed queue.",
+        "The interface has virtual execute and undo functions, so callers can use a Command reference without knowing which concrete request it holds. A virtual destructor allows deletion through the base type. Move uses override to ask the compiler to confirm that its functions truly replace those interface functions. std::unique_ptr<Command> owns each queued command. The vector owns its smart pointers, while each command merely borrows the marker. In main the marker is declared before the queue and is destroyed after it, so all borrowed references remain valid."
+      ]
+    },
+    {
+      "heading": "Execution has a commit point",
+      "paragraphs": [
+        "Move begins with applied_ false. execute first rejects a repeated call. It then saves the current marker position, asks the marker to accept the target, and only after success sets applied_ true. This last step is a commit point: the flag now says there is a completed change that can be undone. If the setter rejects eleven, the marker remains unchanged and applied_ remains false. before_ may have been refreshed, but it does not authorize undo because the flag is still false.",
+        "This order is not cosmetic. Setting applied_ true before the setter succeeds would mark a failed request as part of the undo history. Updating the marker before validating the target would allow an invalid state even if an exception is thrown afterward. Here the setter validates first and then assigns one integer, which cannot throw. The program therefore gives a clear guarantee for a bad target: the visible marker stays as it was. This guarantee depends on the receiver behavior; a command cannot make a partly failing external service atomic merely by adding a bool."
+      ]
+    },
+    {
+      "heading": "Undo reverses successful requests in reverse order",
+      "paragraphs": [
+        "The first queued move records zero and sets three. The second records three and sets seven. To reverse the group, undo the second move to restore three, then undo the first to restore zero. The reverse iterators rbegin and rend traverse the vector from its last element toward its first. In (*it)->undo(), *it obtains the unique pointer stored at the iterator position; the arrow accesses the owned command. Iteration changes which command is selected, not who owns it.",
+        "An undo operation is permitted only for an applied command. After restoration, applied_ becomes false and another execute is allowed; that is the limited redo behavior of this implementation. Redo reads a new before_ value at execution time. It does not promise to replay the exact historical environment. The design assumes exclusive, ordered changes to this marker while a history is active. If unrelated code changes the marker to nine between execution and undo, blindly restoring before_ can erase that later change. Real editors often route all edits through one history owner or use version checks to detect conflicts."
+      ]
+    },
+    {
+      "heading": "Queueing, undo, and transactions are separate promises",
+      "paragraphs": [
+        "The primary queue loop runs commands in order but does not automatically undo earlier commands if a later one fails. A transaction is a group treated as one success or failure under a stated contract. The lab adds a small transaction runner for range failures: it counts successfully applied commands and reverses only that prefix. An empty batch succeeds without changing the marker. A batch containing targets six and eleven returns failure and restores the original zero. This works because the local receiver and undo operations have tightly controlled behavior.",
+        "A command can also represent an operation that cannot truly be undone. Sending a message may be followed by a correction, but the recipient may already have read it. A compensation is a new action that tries to offset an earlier effect; it is not time travel. Another option for local state is a snapshot, developed in Chapter 17, which remembers the state instead of how to reverse each action. For this marker, two integers and a flag are cheaper and clearer than a general snapshot system. Choose what must be preserved before promising undo to a user."
+      ]
+    }
+  ],
+  "example": {
+    "title": "An undoable queue of marker moves",
+    "requirements": [
+      "Keep marker positions within 0 through 10.",
+      "Construction must not execute a request.",
+      "Undo applied moves in reverse order and reject invalid command states."
+    ],
+    "design": "Move holds the receiver, destination, prior position, and an applied flag. The queue owns commands but borrows no internal marker storage. Receiver validation happens before the command commits success.",
+    "alternative": "A vector of integers with a loop is sufficient for a fixed set of move-only requests. A std::function<void()> queue is compact for delayed work, but an undo contract still needs saved state and pairing between forward and reverse behavior.",
+    "invariants": [
+      "The marker stays within its allowed range.",
+      "Only successful executions set applied_ true.",
+      "Commands must not outlive their borrowed receiver.",
+      "Undo history assumes no unrelated edits to the receiver."
+    ],
+    "failures": [
+      {
+        "mistake": "Capture before_ in the constructor.",
+        "consequence": "Both queued moves may save zero, so undoing the second jumps from seven directly to zero instead of three.",
+        "reason": "Both objects are constructed before either action executes."
+      },
+      {
+        "mistake": "Undo the commands in insertion order.",
+        "consequence": "After moves to three and seven, the final marker becomes three instead of zero.",
+        "reason": "The first restoration to zero is overwritten by the second restoration to three."
+      }
+    ],
+    "verification": "Checks cover delayed execution, the final queue value, repeated execution rejection, reverse undo, invalid destination, undo of a failed command, the upper boundary, and execute-after-undo. They do not establish persistence, concurrency safety, or recovery from process failure.",
+    "maintenance": "Representing requests explicitly gives a debugger a concrete place to inspect their arguments and state. Keep the history owner responsible for ordering and receiver lifetime instead of scattering undo calls across user-interface components.",
+    "file": "examples/ch14/main.cpp"
+  },
+  "diagram": {
+    "kind": "class",
+    "title": "A queue owns requests; requests borrow the marker",
+    "nodes": [
+      {
+        "id": "Q",
+        "label": "Invoker: queue loops",
+        "code": [
+          "std::vector<std::unique_ptr<Command>> queue;"
+        ]
+      },
+      {
+        "id": "C",
+        "label": "Command interface",
+        "code": [
+          "virtual void execute() = 0;"
+        ]
+      },
+      {
+        "id": "M",
+        "label": "Concrete command: Move",
+        "code": [
+          "Marker& marker_;"
+        ]
+      },
+      {
+        "id": "R",
+        "label": "Receiver: Marker",
+        "code": [
+          "int position_ = 0;"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "C",
+        "kind": "ownership",
+        "label": "unique_ptr owns each command",
+        "from": "Q"
+      },
+      {
+        "to": "C",
+        "kind": "inheritance",
+        "label": "Move implements Command",
+        "from": "M"
+      },
+      {
+        "to": "R",
+        "kind": "dependency",
+        "label": "borrows receiver; no ownership",
+        "from": "M"
+      }
+    ],
+    "explanation": "The ownership edge ends at Command because that is the queue element type. Actual owned objects are Move instances. The inheritance arrow points from Move toward its base. The dependency arrow is a borrowed reference: deleting a command must never delete the marker. The invoker role belongs to the execution loops over queue, not to std::vector itself; main also performs the separate client role when constructing commands."
+  },
+  "focus": [
+    {
+      "title": "Record success only after the receiver accepts",
+      "start": "void execute() override {",
+      "end": "} // execute",
+      "what": "This method changes intent into a completed marker move.",
+      "where": "The queue calls it through Command during execution.",
+      "why": "Saving the old value at execution time gives correct undo information for delayed requests.",
+      "invariant": "A failed setter must leave applied_ false and the marker unchanged.",
+      "risk": "Saving too early or committing the flag too early creates a false history.",
+      "explain": [
+        "Define the concrete implementation of the interface operation.",
+        "The comment announces the repeated-execution guard.",
+        "Check whether this request is already applied.",
+        "Throw a logic error rather than silently applying twice.",
+        "Close the guard branch.",
+        "Read the receiver position immediately before changing it.",
+        "Ask the receiver to validate and apply the target.",
+        "Record success only after set has returned normally.",
+        "Close execute; the comment labels the boundary."
+      ]
+    },
+    {
+      "title": "Undo only a completed move",
+      "start": "void undo() override {",
+      "end": "} // undo",
+      "what": "This method restores the position captured by a successful execute.",
+      "where": "The client visits queued commands in reverse order.",
+      "why": "A completion flag distinguishes valid history from a request that never took effect.",
+      "invariant": "Each applied move can be undone once before another execution.",
+      "risk": "Restoring in forward order loses the original state; outside edits also invalidate the assumption.",
+      "explain": [
+        "Define the concrete reverse operation.",
+        "The comment states that only completed work can be undone.",
+        "Test for the absence of an applied change.",
+        "Reject undo when there is nothing valid to reverse.",
+        "Close the invalid-state branch.",
+        "Restore the saved receiver value, which was previously valid.",
+        "Mark this command as no longer applied.",
+        "Close undo and label its source boundary."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "Marker=0; queued targets=[3,7].",
+      "reason": "Constructing commands stores requests without executing them."
+    },
+    {
+      "step": "2",
+      "state": "First execute: before=0, marker=3.",
+      "reason": "The old position is captured just before the setter call."
+    },
+    {
+      "step": "3",
+      "state": "Second execute: before=3, marker=7.",
+      "reason": "The second command sees the result of the first."
+    },
+    {
+      "step": "4",
+      "state": "Undo second: marker=3; undo first: marker=0.",
+      "reason": "History is reversed from its newest change to its oldest."
+    },
+    {
+      "step": "5",
+      "state": "Target 11 is rejected; marker remains 0.",
+      "reason": "The setter throws before assignment; failed work cannot be undone."
+    }
+  ],
+  "summary": [
+    "Store arguments when requests are created, but prior state when they execute.",
+    "A borrowed receiver must outlive its commands.",
+    "Reverse history in reverse order.",
+    "Undo needs isolation from unrelated edits.",
+    "A queue is not automatically a transaction."
+  ],
+  "exercises": [
+    {
+      "id": "14.1",
+      "level": "Guided modification",
+      "prompt": "Add a Move to position zero after the existing targets three and seven. Predict the final queue position and the result after reverse undo.",
+      "hint": "Trace the new command before undoing the group.",
+      "answer": "The queue ends at zero; the new command saved seven. Undo restores seven, then three, then zero. A command that ends at the starting position still has meaningful history."
+    },
+    {
+      "id": "14.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Starting at zero, construct Move a(marker, 2) and Move b(marker, 8); run a.execute(), b.execute(), b.undo(), a.undo(), a.execute(). List the position after each call.",
+      "hint": "Construction does not change the marker.",
+      "answer": "Positions are 2, 8, 2, 0, 2. The final execution is permitted because undo cleared a.applied_; it records zero again as the prior value."
+    },
+    {
+      "id": "14.3",
+      "level": "Diagnose a bug",
+      "prompt": "A developer sets applied_ true before marker_.set(target_). What false state results when target is eleven, and how should it be repaired?",
+      "hint": "An exception skips all later statements.",
+      "answer": "The marker stays at its old value but the command claims it is applied. Move the flag assignment after the successful setter call. Keep a test that bad.undo() is rejected after bad.execute() fails."
+    },
+    {
+      "id": "14.4",
+      "level": "Choose a design",
+      "prompt": "Choose a saved old value or an inverse subtraction for a command that sets a marker to an absolute destination.",
+      "hint": "Setting seven is not the same request as adding seven.",
+      "answer": "Save the old value. Subtracting the destination after setting it always gives zero and cannot recover an arbitrary previous position. An inverse delta can work for bounded relative moves under the same isolation contract."
+    },
+    {
+      "id": "14.5",
+      "level": "Extend without regressions",
+      "prompt": "Add batch execution that rolls back the successful prefix after a range error. Specify behavior for an empty batch and [6,11] starting at zero.",
+      "hint": "Increment the success count only after execute returns.",
+      "answer": "The empty batch succeeds. The two-command batch applies six, rejects eleven, undoes only the first command, and returns failure with marker zero. The reference solution demonstrates this without changing primary checks."
+    },
+    {
+      "id": "14.6",
+      "level": "Justify a decision",
+      "prompt": "Explain why a network request named DeleteRemoteFile should not automatically offer undo merely because it derives from Command.",
+      "hint": "The interface cannot recover information that was never retained.",
+      "answer": "Undo requires retained content, authorization, and a service operation that can restore it. A local bool proves none of those conditions. Keep irreversible commands outside this undo interface or explicitly describe compensation and its limits."
+    }
+  ],
+  "lab": {
+    "task": "Add run_batch for fresh commands sharing an exclusively controlled Marker. Execute in order. On std::out_of_range, undo the successfully applied prefix in reverse order and return false. Return true on success, including an empty batch. Preserve all primary checks.",
+    "checks": [
+      "Fresh batch [6,11] from zero fails and restores zero.",
+      "Fresh batch [2,5] succeeds at five.",
+      "An empty batch succeeds and preserves five."
+    ],
+    "answer": "The solution maintains a count rather than assuming the failing command is undoable. It catches only the specified range failure; logic errors remain programming errors. Rollback depends on valid saved positions and no unrelated changes. A production transaction wrapper would need a policy for rollback failures and other receiver types.",
+    "starter": "exercises/ch14/main.cpp",
+    "solution": "solutions/ch14/main.cpp"
+  },
+  "glossary": [
+    {
+      "term": "Command",
+      "definition": "An object that stores a request and provides an operation to perform it."
+    },
+    {
+      "term": "Receiver",
+      "definition": "The object whose real state or service a command uses."
+    },
+    {
+      "term": "Commit point",
+      "definition": "The point after which an operation is recorded as successfully applied."
+    },
+    {
+      "term": "Compensation",
+      "definition": "A later action intended to offset an effect that cannot literally be undone."
+    }
+  ],
+  "pattern": "Command",
+  "problem_title": "Store an action, run it later, and undo it",
+  "attachment_alignment": {
+    "epub_section": "Command: text-editor actions, sender/receiver separation, command history, structure, and the relationship between Command and Memento.",
+    "source_files": [
+      "C++/src/Command/Conceptual/main.cc",
+      "C++/src/Command/Conceptual/Output.txt"
+    ],
+    "intent": "Make a requested action into an object that can be stored and invoked through a common operation. The sender then chooses when to trigger work without knowing its details. The EPUB motivates this with buttons, menus, and keyboard shortcuts that should share one action instead of duplicating editor logic.",
+    "mechanism": "A concrete command stores the receiver and arguments needed for a request. The client creates it; the invoker triggers it; the receiver performs the domain operation. A very small command may perform its own work. Delaying execution is distinct from undo: undo requires an additional policy and enough previous state to reverse the successful change.",
+    "roles": [
+      {
+        "role": "Command interface",
+        "attached": "Command::Execute() const",
+        "example": "Command::execute and undo",
+        "responsibility": "Give the invoker a common operation. The chapter adds undo explicitly; it is not supplied automatically by virtual dispatch."
+      },
+      {
+        "role": "Concrete command",
+        "attached": "SimpleCommand and ComplexCommand",
+        "example": "Move",
+        "responsibility": "Retain request data. Move also remembers the previous position and whether its request was successfully applied."
+      },
+      {
+        "role": "Receiver",
+        "attached": "Receiver",
+        "example": "Marker",
+        "responsibility": "Perform and validate domain changes. The marker enforces position bounds independently of how a request was triggered."
+      },
+      {
+        "role": "Invoker",
+        "attached": "Invoker",
+        "example": "main execution and reverse-undo loops",
+        "responsibility": "Decide when commands run. The queue owns stored commands; the loops supply the invoker behavior without a separate class."
+      },
+      {
+        "role": "Client",
+        "attached": "main",
+        "example": "main command construction",
+        "responsibility": "Bind concrete requests to a receiver, then hand them to code working through the Command interface."
+      }
+    ],
+    "source_walkthrough": [
+      "The supplied main gives Invoker a SimpleCommand for its start slot and a ComplexCommand for its finish slot. Creating either object does not call Execute. SimpleCommand stores a message; ComplexCommand stores a borrowed Receiver pointer plus two strings.",
+      "DoSomethingImportant calls the start command, prints its own middle message, and calls the finish command. The first command prints its payload directly. The second calls Receiver::DoSomething followed by Receiver::DoSomethingElse. Output.txt confirms this order; it is one invocation with two configured hooks, not a queue or undo demonstration.",
+      "Invoker deletes the two commands in its destructor. The receiver is deleted separately afterward. Command has a virtual destructor, so deletion through its base pointer reaches derived destruction. Both slots are assigned in the supplied path; their declarations are not initialized, so calling an unconfigured Invoker would read indeterminate pointers. A generalized version must fix that construction contract."
+    ],
+    "adaptation": "The new example replaces before/after hooks with a vector of owned command objects. Move borrows a stack-owned Marker; unique_ptr releases each command automatically. Targets three and seven make deferred execution and reverse undo observable. Previous state is captured during execute, not construction, because both queued requests are built before either runs. The example adds bounds checks and command-state checks. It omits persistent queues, retries, and recovery after a process crash.",
+    "recognize": "Find a stored request whose construction is separate from its execution. Then identify who decides when it runs and who actually changes the data. Here Move is the request, the loops are the invoker, and Marker is the receiver. A class named Command is not enough if construction immediately performs all work and nothing remains to invoke.",
+    "contrast": [
+      {
+        "pattern": "Strategy",
+        "distinction": "A strategy supplies an interchangeable way to carry out a task. A command represents a particular request, such as moving this marker to seven, and can retain that request for later."
+      },
+      {
+        "pattern": "Memento",
+        "distinction": "A memento stores prior state; it does not itself define the requested action. Commands can keep mementos for undo, while Move needs only one saved integer here."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Connect to the attachment",
+        "action": "Trace start command, invoker work, finish command, then the two receiver calls. Ask which classes know the concrete receiver."
+      },
+      {
+        "stage": "Demonstrate deferred work",
+        "action": "Stop the new program after both push_back calls and inspect position zero. Execute one request, then the second, recording zero, three, seven."
+      },
+      {
+        "stage": "Expose the undo rule",
+        "action": "Predict reverse undo and insertion-order undo. Use the invalid target test to explain why a failed request must not become an applied command."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Does the supplied Command interface already provide undo?",
+        "answer": "No. It declares Execute only. Undo is a possible use of the pattern and needs extra state and operations."
+      },
+      {
+        "question": "Why must the second Move capture three during execution?",
+        "answer": "Three is the receiver state immediately before its change. Capturing at construction would remember zero and skip the first move when undoing the second."
+      }
+    ]
+  }
+}

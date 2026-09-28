@@ -1,0 +1,384 @@
+{
+  "number": 8,
+  "title": "Composite",
+  "part": "II - Structural design patterns",
+  "topics": [
+    "Composite"
+  ],
+  "objectives": [
+    "Give a leaf and a group one meaningful operation.",
+    "Trace recursive totals through an owned tree.",
+    "Preserve tree lifetime and bounded totals."
+  ],
+  "sections": [
+    {
+      "heading": "A flat list works until a task contains tasks",
+      "paragraphs": [
+        "A work plan contains steps measured in minutes. A step lasts from zero to ten thousand minutes. A group may contain steps and smaller groups. The tool must report the total for either a single step or an entire project. An empty group totals zero. A result above ten thousand minutes is rejected rather than silently accepted. This upper bound is a business rule and also makes integer arithmetic easy to reason about.",
+        "For a flat list, start with a vector of integers and a loop that adds them. Nothing about that problem requires a class family. The limitation arrives when groups can contain groups. Keeping one vector for steps and another for groups forces each caller to understand both types and every nesting level. A hard-coded loop for two levels fails as soon as a third group appears. We need one operation whose meaning stays valid at any depth."
+      ],
+      "code": "int total = 0;\nfor (int minutes : steps) {\n    total += minutes;\n}",
+      "code_label": "Excerpt — simplest starting point"
+    },
+    {
+      "heading": "One operation for a part and a whole",
+      "paragraphs": [
+        "Composite is a design for a tree whose individual items and containers support the same useful operation. A tree is a structure with one root and child branches, where following child links never leads back to an ancestor. A leaf has no children. In this example Step is a leaf, Group is a container, and Work is their shared contract. Work::minutes asks for total work time without asking which kind of object receives the request.",
+        "Step returns its stored duration. Group asks each child for its minutes and adds the answers. A child group repeats that process. This repeated call on a smaller part of the same problem is recursion. Recursion stops at a Step or an empty Group, so each valid finite tree eventually returns a result. A caller needs only one expression, work.minutes(), whether it measures one step or a project containing many groups.",
+        "The contract deliberately does not put add or remove on Work. Adding a child makes sense for a container but not for a leaf. Pretending every leaf can accept a child would create confusing no-op methods or runtime errors. Our groups receive their full child lists during construction and then expose only the query. That is enough for the current requirement and keeps the assembled topology stable."
+      ]
+    },
+    {
+      "heading": "Build ownership from the leaves upward",
+      "paragraphs": [
+        "Children is a type alias for a vector of unique_ptr<Work>. The vector owns its pointer objects, and each unique_ptr owns exactly one Work object. The virtual destructor in Work ensures that deleting through the base type destroys a complete Step or Group. When a group is destroyed, its vector destroys its children. Child groups then destroy their own children. The project owns the complete tree through a chain of clearly stated owners.",
+        "main first creates two Step objects for ten and twenty minutes. It moves their vector into a Group, then moves that child group into another vector alongside a five-minute Step. Finally it moves that vector into project. std::move permits ownership transfer; it does not copy the work objects. The source vector remains valid after its move, but the program does not depend on its size or contents. Its old children are now owned through the new container.",
+        "Group rejects a null child in its constructor. If validation throws, already-constructed member objects are destroyed automatically, including their owned children. No manual delete loop is needed. Since the public API only builds groups from completed children and does not later attach an existing group beneath a descendant, ordinary bottom-up construction yields an acyclic tree. This does not excuse creating a unique_ptr from an already-owned raw pointer; that would violate ownership rules before this API could protect the program."
+      ]
+    },
+    {
+      "heading": "Follow the return values, not just the arrows",
+      "paragraphs": [
+        "For the supplied project, the outer Group starts total at zero. Its first child is another Group. That inner group receives ten from its first leaf and twenty from its second, then returns thirty. The outer group adds thirty and next receives five. It returns thirty-five. Each group has its own local total. The locals exist in separate function calls, so the inner subtotal does not overwrite the outer subtotal.",
+        "In for (const auto& child : children_), the colon means take each element from children_ in sequence. child is a const reference to a unique_ptr already in the vector. It is not a copy; unique ownership must not be copied. The arrow in child->minutes() follows the pointer to the owned Work object and calls its virtual function. const on minutes says the operation does not change the tree through that interface. Every invocation computes fresh local state instead of storing a running total in a member.",
+        "Before adding n, Group checks whether n is greater than 10000 - total. If so, it throws overflow_error. Despite the exception name, the rejected condition here is the project's allowed budget, reached well before the built-in int limit. Testing before addition avoids doing an unsafe addition and only checking after damage. The nonnegative child contract makes the subtraction and comparison meaningful. A future Work implementation that returns negative minutes would break that contract even if its code compiled."
+      ]
+    },
+    {
+      "heading": "Cost, depth, and the limits of uniform operations",
+      "paragraphs": [
+        "The compiler checks that Step and Group provide minutes, and that an owning vector cannot be copied accidentally. At execution, virtual dispatch selects the correct child operation at each link. A complete query visits every node once, so its work grows in proportion to the number of nodes. Recursive calls use stack space proportional to tree depth. A million siblings and a million nested groups pose different risks: the latter may exhaust the call stack.",
+        "For an untrusted input format, enforce a depth limit while parsing or use an explicit stack for traversal. Our small, internally assembled tree has no parser and no arbitrary-depth guarantee. Caching a group total could make repeated reads cheaper, but would add invalidation concerns if editing later becomes possible. Since this tree is fixed after construction, storing a checked total at construction could also be reasonable when queries dominate. The example recomputes totals so the recursive mechanism stays visible.",
+        "Composite fits operations that make sense on both a part and a whole. A total duration qualifies. A command such as set_leaf_duration does not naturally apply to every container. Keep type-specific editing outside the uniform query contract. When maintaining the system, add a new leaf only after defining how it contributes to totals, ownership, and failure behavior. A new class name alone does not make a safe new component."
+      ]
+    }
+  ],
+  "focus": [
+    {
+      "title": "Accept a completed owned subtree",
+      "start": "// Take a finished list of children.",
+      "end": "// End group construction.",
+      "what": "Construction transfers a list of exclusive owners and rejects a missing child.",
+      "where": "This is the point where a new Group takes responsibility for its subtree.",
+      "why": "Validating once prevents every later query from having to handle null children.",
+      "invariant": "All accepted entries own real Work objects and remain inside the group.",
+      "risk": "Manually manufacturing duplicate owners can still violate unique_ptr rules.",
+      "explain": [
+        "The comment identifies an ownership transfer.",
+        "Receive the completed vector by value.",
+        "Move its owners into the member vector.",
+        "Borrow each pointer entry while validating it.",
+        "Test whether an entry contains no object.",
+        "Begin throwing a constructor argument error.",
+        "Name the invalid child argument.",
+        "Close the missing-child branch.",
+        "Close the validation loop.",
+        "Finish construction with a valid list."
+      ]
+    },
+    {
+      "title": "Return a checked subtotal",
+      "start": "// Add each child subtotal once.",
+      "end": "// End recursive total.",
+      "what": "Each group computes a fresh sum from its child queries.",
+      "where": "This block is the recursive part of Group::minutes.",
+      "why": "One uniform query handles both leaf durations and nested subtotals.",
+      "invariant": "total remains between zero and ten thousand throughout successful execution.",
+      "risk": "Adding before checking or accepting a negative child result breaks the bound.",
+      "explain": [
+        "The comment states the one-contribution rule.",
+        "Start this call with the additive identity, zero.",
+        "Borrow each child owner without copying it.",
+        "Ask the actual child type for its duration.",
+        "Test the budget before performing the addition.",
+        "Begin throwing a budget-overflow exception.",
+        "Supply the budget error message.",
+        "Close the rejection branch.",
+        "Add this accepted child exactly once.",
+        "Close the loop over children.",
+        "Return this group subtotal to its caller.",
+        "Close the recursive query."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "inner total: 0 -> 10 -> 30",
+      "reason": "The first group adds its two leaf durations."
+    },
+    {
+      "step": "2",
+      "state": "outer total: 0 -> 30 -> 35",
+      "reason": "The outer group receives the inner result and adds five."
+    },
+    {
+      "step": "3",
+      "state": "empty total: 0",
+      "reason": "No children means the loop makes no additions."
+    },
+    {
+      "step": "4",
+      "state": "10000 + 1 rejected before addition",
+      "reason": "One exceeds the remaining zero-minute budget."
+    }
+  ],
+  "summary": [
+    "Composite gives parts and containers one meaningful contract.",
+    "A recursive group delegates to children and combines their results.",
+    "unique_ptr expresses one owner per child.",
+    "A stored borrow and an ownership link are different relationships.",
+    "Validate numeric and depth assumptions; recursion does not remove limits."
+  ],
+  "exercises": [
+    {
+      "id": "08.1",
+      "level": "Guided modification",
+      "prompt": "Change the final five-minute step to seven. Predict project.minutes and the inner group subtotal.",
+      "hint": "The inner group is unchanged.",
+      "answer": "The inner group still returns 30 and the project returns 37. Only the final leaf contributes two additional minutes."
+    },
+    {
+      "id": "08.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Construct one empty Group and a Step(4), move both into an outer Group, and query the outer group twice. State both results.",
+      "hint": "An empty group contributes zero and totals are local.",
+      "answer": "Both calls return 4. The first child returns zero, the second returns four, and each call starts a new local total at zero."
+    },
+    {
+      "id": "08.3",
+      "level": "Diagnose a bug",
+      "prompt": "A developer writes for (auto child : children_) in Group::minutes. Why does this fail to compile, and what is the repair?",
+      "hint": "The vector stores unique ownership objects.",
+      "answer": "The loop tries to copy each unique_ptr. Copying it is disabled because two copies would imply two owners. Use const auto& child to borrow each existing owner; const auto* would not match the vector element type."
+    },
+    {
+      "id": "08.4",
+      "level": "Choose a design",
+      "prompt": "The data is always a single flat list of durations. Should you use Composite? Give a concrete simpler representation.",
+      "hint": "Remove abstractions when their motivating constraint disappears.",
+      "answer": "Use std::vector<int> with validated durations and a checked summing function. A tree and virtual query add little when no element contains other elements. Revisit Composite if nested groups become a real requirement."
+    },
+    {
+      "id": "08.5",
+      "level": "Extend without regressions",
+      "prompt": "Add two calls checking project.minutes() == 35 before the output. What bug does this guard against, and what further boundary test is useful?",
+      "hint": "A query should not remember the last total.",
+      "answer": "Repeated checks catch a member accumulator that was not reset. Also test a group containing 9999 and 1, which must return 10000, then 9999 and 2, which must throw. Together they distinguish allowed equality from overflow."
+    },
+    {
+      "id": "08.6",
+      "level": "Justify a decision",
+      "prompt": "Explain why add belongs on Group construction rather than Work in this design. Name a circumstance where a different decision could work.",
+      "hint": "Ask what adding to a leaf would mean.",
+      "answer": "A leaf cannot accept children, so a universal add operation would mislead callers. Group construction makes the restriction explicit. A generic tree editor may choose a separate editable-container interface or a checked operation returning a documented failure, but that is an additional requirement."
+    }
+  ],
+  "glossary": [
+    {
+      "term": "Composite",
+      "definition": "A design in which leaves and containers support the same useful operation over a tree."
+    },
+    {
+      "term": "Leaf",
+      "definition": "A tree node with no children."
+    },
+    {
+      "term": "Recursion",
+      "definition": "Solving a problem by calling the same operation on smaller parts until a stopping case is reached."
+    },
+    {
+      "term": "Acyclic",
+      "definition": "Having no path that leads back to an earlier node."
+    }
+  ],
+  "example": {
+    "title": "A nested work plan",
+    "file": "examples/ch08/main.cpp",
+    "requirements": [
+      "Support nested groups and individual steps through Work::minutes.",
+      "Own every child exactly once; reject null children.",
+      "Allow zero and totals through 10000; reject larger totals."
+    ],
+    "design": "A fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear.",
+    "alternative": "A flat vector is better when there is no nesting. A tagged value tree can avoid virtual functions for a closed set of node kinds, but every added kind then requires editing the variant-handling code.",
+    "invariants": [
+      "Every child is non-null and owned once.",
+      "Every successful child result is in the allowed nonnegative range.",
+      "A group visits each child once and does not retain a running total between calls."
+    ],
+    "failures": [
+      {
+        "mistake": "Store total as a member and add to it on every minutes call.",
+        "consequence": "For this nested tree, repeated queries return 35, then 100, instead of the same result.",
+        "reason": "Both levels retain state: the inner group grows from 30 to 60, and the outer grows from 35 by adding 60 and 5."
+      },
+      {
+        "mistake": "Copy a raw child pointer into two owning unique_ptr objects.",
+        "consequence": "Destruction attempts to delete the same object twice, causing undefined behavior.",
+        "reason": "unique_ptr promises exclusive ownership; inventing duplicate owners violates it."
+      },
+      {
+        "mistake": "Return 1 for an empty group.",
+        "consequence": "An empty project reports one minute.",
+        "reason": "The identity value for addition is zero, so the empty subtotal must be zero."
+      }
+    ],
+    "verification": "The main program checks the 35-minute nested tree, an empty group, a 10000-minute leaf, a negative duration, a null child, and a 10001-minute group. It does not establish safe traversal of unbounded depth.",
+    "maintenance": "Project plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts."
+  },
+  "diagram": {
+    "kind": "ownership",
+    "title": "The project owns a tree of work",
+    "nodes": [
+      {
+        "id": "P",
+        "label": "Composite: project Group",
+        "code": [
+          "Children children_;"
+        ]
+      },
+      {
+        "id": "G",
+        "label": "Composite: child Group",
+        "code": [
+          "return total;"
+        ]
+      },
+      {
+        "id": "S",
+        "label": "Leaf: Step",
+        "code": [
+          "int minutes_;"
+        ]
+      },
+      {
+        "id": "W",
+        "label": "Component: Work",
+        "code": [
+          "virtual int minutes() const = 0;"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "P",
+        "to": "G",
+        "kind": "ownership",
+        "label": "owns one child group"
+      },
+      {
+        "from": "P",
+        "to": "S",
+        "kind": "ownership",
+        "label": "owns five-minute leaf"
+      },
+      {
+        "from": "G",
+        "to": "S",
+        "kind": "ownership",
+        "label": "owns ten- and twenty-minute leaves"
+      },
+      {
+        "from": "G",
+        "to": "W",
+        "kind": "inheritance",
+        "label": "Group implements Work"
+      }
+    ],
+    "explanation": "Ownership arrows point from owning Group to owned child. The Step block summarizes three distinct leaf objects, not one shared instance. The inheritance arrow describes the Group type, whereas the ownership links describe this example tree. Each child query returns a subtotal upward; ownership does not mean call direction."
+  },
+  "lab": {
+    "starter": "exercises/ch08/main.cpp",
+    "solution": "solutions/ch08/main.cpp",
+    "task": "Add a virtual steps() query returning the number of Step leaves beneath any Work object. A Step counts as one even when its duration is zero. An empty Group counts as zero. Preserve the duration query and every original test.",
+    "checks": [
+      "The existing project has three steps and 35 minutes.",
+      "An empty Group has zero steps and zero minutes.",
+      "Step(0) has one step and zero minutes."
+    ],
+    "answer": "The solution gives Step a constant result and Group a recursive sum of child counts. The count is std::size_t, the container-size type. For the finite in-memory trees used here, the number of allocated nodes bounds the count. The duration and leaf-count operations stay separate because they answer different questions."
+  },
+  "pattern": "Composite",
+  "problem_title": "Measure a whole project one child at a time",
+  "attachment_alignment": {
+    "epub_section": "Composite — OEBPS/design-patterns__composite.xhtml",
+    "source_files": [
+      "C++/src/Composite/Conceptual/main.cc",
+      "C++/src/Composite/Conceptual/Output.txt"
+    ],
+    "intent": "Treat a whole tree and an individual item through the same operation. The attached EPUB motivates nested containers whose contents contribute to a combined result. Composite is needed when a child can itself contain children; a plain list with one fixed item type does not establish the same recursive relationship.",
+    "mechanism": "Component declares the common query. Leaf answers directly. Composite stores Component connections, calls each child through that interface, and combines the answers. A child Composite repeats the same process. Recursion follows the tree; virtual dispatch chooses leaf work or another traversal. The caller does not need a separate query for every depth.",
+    "roles": [
+      {
+        "role": "Component",
+        "attached": "Component::Operation",
+        "example": "Work::minutes",
+        "responsibility": "Provide the operation shared by a whole subtree and a single item."
+      },
+      {
+        "role": "Leaf",
+        "attached": "Leaf",
+        "example": "Step",
+        "responsibility": "Return its own contribution without visiting children."
+      },
+      {
+        "role": "Composite / Container",
+        "attached": "Composite",
+        "example": "Group",
+        "responsibility": "Hold components and combine their results recursively."
+      },
+      {
+        "role": "Client",
+        "attached": "ClientCode / ClientCode2",
+        "example": "main and each Group traversal",
+        "responsibility": "Query through the common contract; assembly has a separate policy."
+      }
+    ],
+    "source_walkthrough": "ClientCode(simple) prints RESULT: Leaf. main then uses Add to place two leaves in branch1 and one in branch2, and places both branches in tree. Each Add appends a pointer and calls SetParent(this). tree->Operation visits branch1, which combines Leaf+Leaf, then branch2, which combines Leaf. The result is Branch(Branch(Leaf+Leaf)+Branch(Leaf)). ClientCode2 asks tree->IsComposite(), receives true, and adds simple through the Component interface. The final result gains +Leaf at the outer level. Remove is defined but not exercised: it removes matching pointers from the list and clears that child’s parent pointer; it does not delete the child. main separately deletes every allocation.",
+    "adaptation": "Our tree sums work minutes instead of building a shape description. Group takes a finished vector of unique_ptr<Work>, rejects null children, and owns their lifetimes. Work contains only minutes; there are no Add, Remove, IsComposite, or parent operations because this task builds once and queries downward. These are optional management choices, not missing requirements of Composite. The attached broad interface permits assembly through Component, but its leaf Add and Remove do nothing; IsComposite avoids that silent non-action. A narrow interface puts mutation only on Group. Parent links become useful for upward navigation, breadcrumbs, reparenting, or finding an ancestor. They should borrow rather than own the parent and start as nullptr. The attached parent_ lacks initialization for a new root; its demonstration never queries that root parent. Mutation also needs rules for duplicate insertion, cycles, and detachment. The source’s raw pointer list does not enforce those rules or transfer ownership automatically.",
+    "recognize": "Find the recursive part-whole relationship: a container stores the same interface it implements, and a query can descend through another container. Drawing a tree is insufficient if clients still branch on every concrete child type. Ownership is a separate design decision; Composite alone does not promise deletion or prevent cycles.",
+    "contrast": [
+      {
+        "pattern": "Decorator",
+        "distinction": "Decorator normally wraps one component to add behavior. Composite normally holds multiple components and combines their results."
+      },
+      {
+        "pattern": "Iterator",
+        "distinction": "Iterator exposes a traversal order. Composite defines a recursive object structure; its operation may traverse internally without exposing an iterator."
+      },
+      {
+        "pattern": "Flyweight",
+        "distinction": "Shared leaves may save memory, but a leaf shared by several parents cannot maintain one unambiguous parent pointer."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Establish uniform queries",
+        "action": "Ask for one minutes operation that handles a Step and an entire project. Draw the nested subtotals before writing classes."
+      },
+      {
+        "stage": "Trace the attachment",
+        "action": "Follow Add and SetParent while assembling the supplied tree, then trace each recursive Operation and the final ClientCode2 insertion."
+      },
+      {
+        "stage": "Separate management from meaning",
+        "action": "Compare the source’s broad Component API with Work’s query-only API. Ask when parent links, live insertion, or removal are actual requirements."
+      },
+      {
+        "stage": "Review a mutation contract",
+        "action": "For a proposed Group::detach(index), require unique_ptr<Work> as the returned owner, a cleared borrowed parent link, unchanged siblings, and rejection of an invalid index before mutation. Explain why removing a pointer is not the same as deleting its object."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Is Group still a Composite without Add, Remove, or IsComposite on Work?",
+        "answer": "Yes. Group implements Work and recursively queries Work children. Runtime editing and discovery are optional interface choices."
+      },
+      {
+        "question": "Would copying the attached parent_ pointer into an owning smart pointer be safe?",
+        "answer": "No. The parent already owns downward in our tree. A strong owner back upward risks ownership cycles or double ownership; the parent link must be non-owning and kept consistent."
+      }
+    ]
+  }
+}

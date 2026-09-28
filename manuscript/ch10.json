@@ -1,0 +1,379 @@
+{
+  "number": 10,
+  "title": "Facade",
+  "part": "II - Structural design patterns",
+  "topics": [
+    "Facade"
+  ],
+  "objectives": [
+    "Create a simple operation over parsing, validation, and calculation.",
+    "Explain which guarantees come from call order.",
+    "Keep subsystem detail separate from application use."
+  ],
+  "sections": [
+    {
+      "heading": "A small request with several hidden steps",
+      "paragraphs": [
+        "An inspection screen accepts whitespace-separated integer readings and displays their count and total. Each reading must be between -100 and 100. There must be at least one reading and at most one thousand. Tokens such as 4x and 1.5 are invalid. The screen should ask for a summary, not repeat parsing rules and subsystem call order in every event handler.",
+        "The simplest implementation for one screen is a direct sequence: parse text, validate the vector, then summarize it. That is a reasonable function, and the pattern does not require making it a class. Trouble begins when several screens repeat the sequence. One may forget validation. Another may summarize first, so invalid data reaches arithmetic. A third may accept a valid prefix of a malformed token. The application's simple request has become tied to the details of three services."
+      ],
+      "code": "auto values = parser.parse(text);\nvalidator.validate(values);\nauto result = summarizer.summarize(values);",
+      "code_label": "Excerpt — simplest starting point"
+    },
+    {
+      "heading": "A small doorway rather than a new object hierarchy",
+      "paragraphs": [
+        "A facade is a simpler public entrance to a set of related operations. Importer::run accepts text and returns Stats. Internally it performs the required steps in the required order. It does not introduce inheritance because no interchangeable family of importers is needed. Parser, Validator, and Summarizer are ordinary member objects. Their lifetimes are part of Importer itself.",
+        "The facade gives a name to a useful application operation: import readings and produce a valid summary. It does not merely rename every subsystem method. A facade with parse, validate, summarize, configure_parser, configure_validator, and many other forwarded operations would force everyday callers to understand the old sequencing problem again. Advanced callers can still use the smaller subsystem types directly when they accept those responsibilities.",
+        "The component classes here make the boundary visible in a complete small program. In a tiny project, these could be free functions and run could be the facade function. The reason to keep the boundary is consistency of use; the decision to store member objects is separate. A larger subsystem might keep parser options or other state in these members, but this example does not invent state just to justify classes."
+      ]
+    },
+    {
+      "heading": "Parsing must consume the whole token",
+      "paragraphs": [
+        "Parser first uses istringstream to split on whitespace. The extraction expression input >> token succeeds when it obtains another string token. The while loop continues only on success. An empty or whitespace-only input therefore returns an empty vector; deciding whether that count is acceptable belongs to Validator.",
+        "For each token, std::from_chars tries to read a base-ten integer into n. Its result contains an error code, ec, and a pointer, ptr, marking where parsing stopped. Success requires both no error and ptr equal to the token's end. Parsing 4x can read the integer 4 successfully but stops at x, so the second condition rejects it. Parsing an integer outside the representable int range sets an error. The code never uses n unless both checks pass.",
+        "The end pointer is token.data() plus token.size(): the position just after the final character. That position is valid for comparison and as an end marker, but it is not a character the parser should dereference. data supplies contiguous character storage, and from_chars borrows it only during the call. Parser stores the integer value in its vector, not a pointer into token. Reusing token on the next loop iteration is therefore safe.",
+        "This narrow grammar accepts a leading minus sign and ordinary decimal digits. Integer from_chars does not accept a leading plus sign. Whitespace is handled outside it by the stream. The contract intentionally does not accept decimal fractions, thousands separators, or locale-specific numbers. If those become requirements, update the grammar and tests explicitly instead of hoping a different conversion function happens to accept them."
+      ]
+    },
+    {
+      "heading": "Validation establishes arithmetic assumptions",
+      "paragraphs": [
+        "Validator checks count before checking each value. The count must be in the closed range one through one thousand, and each value must be in the closed range -100 through 100. Closed means both endpoints are allowed. With those limits, a total lies between -100000 and 100000. That is well within int on the supported compiler environment, which uses at least 32-bit int for these examples.",
+        "Summarizer relies on that validated-input precondition. A precondition is a rule the caller must make true before calling an operation. Its local total begins at zero and adds each value exactly once. Stats stores the number of values as std::size_t and the total as int. The brace return {v.size(), total} initializes these members in their declared order. It does not attach references to the input vector.",
+        "Importer enforces the precondition by calling validate before summarize. If parsing or validation throws, control leaves run immediately; calculation is skipped and no Stats value is returned. The input string remains unchanged. The local vector is destroyed when the function exits normally or because of an exception. Because this example has no external writes, failure cannot leave a half-written file or partially updated database.",
+        "This is not an automatic transaction mechanism. A facade that writes to two files can still fail after writing the first. Such a workflow needs a separate recovery or commit design. A simple public method reduces caller complexity; it does not erase the failure modes of the operations it coordinates."
+      ]
+    },
+    {
+      "heading": "Compilation, performance, and a maintainable boundary",
+      "paragraphs": [
+        "All calls in this example are direct calls to concrete types. The compiler checks signatures and may inline small methods. No virtual dispatch or heap-based object hierarchy is needed. The vector may allocate while collecting input, and strings and streams manage their own storage. At execution, values move from text tokens to integers to a checked summary. Control follows the three-stage sequence shown in the diagram.",
+        "The one-thousand count check protects the calculation, but parsing still builds the vector before validation. This is acceptable for the bounded local example and is not a denial-of-service defense for unlimited network input. A production ingestion service should stop reading after its token or byte limit, before allocating for the entire request. That change belongs at the input boundary and needs tests of the chosen maximum.",
+        "When replacing a parser, keep the facade's accepted grammar and rejected cases stable unless a requirement changes. When adding a new summary, decide whether it belongs in Stats or deserves another operation. Avoid turning Importer into a giant class that manages screens, persistence, authentication, and printing. A useful facade has one coherent purpose. Separate facades can expose other workflows over the same subsystem without making every client know every service.",
+        "The key debugging question is where a guarantee is established. Parser establishes valid integer syntax. Validator establishes domain and count bounds. Summarizer assumes those bounds. Importer connects them. If an invalid value reaches arithmetic, inspect the call order and the bypass paths rather than adding random checks to the output screen."
+      ]
+    }
+  ],
+  "focus": [
+    {
+      "title": "Keep the everyday workflow in one place",
+      "start": "    Stats run(",
+      "end": "// End import.",
+      "what": "Importer turns text into a valid summary through three ordered stages.",
+      "where": "This is the public entrance used by main.",
+      "why": "Callers should not need to remember which precondition each stage establishes.",
+      "invariant": "Validation completes before any summary is produced.",
+      "risk": "Reordering calls can let invalid data reach arithmetic.",
+      "explain": [
+        "Declare a Stats-valued operation.",
+        "Borrow the text through a const reference in a const member function.",
+        "The comment states the safety order.",
+        "Parse and own a local vector of integer values.",
+        "Validate the vector; an exception stops this operation.",
+        "Calculate and return the value-based summary.",
+        "Close the facade operation."
+      ]
+    },
+    {
+      "title": "Calculate under an explicit precondition",
+      "start": "// Precondition: Validator accepted v.",
+      "end": "// End summary.",
+      "what": "Summarizer totals a vector whose count and values have already been checked.",
+      "where": "This is the final stage called by Importer.",
+      "why": "The documented bound makes the small integer calculation safe on supported builds.",
+      "invariant": "Only a validated vector reaches this stage through the facade.",
+      "risk": "Direct callers can violate the precondition; the class name alone offers no protection.",
+      "explain": [
+        "The comment states the caller responsibility.",
+        "Declare a Stats-valued summary method.",
+        "Borrow the vector without changing it.",
+        "Create a fresh local total of zero.",
+        "Add every integer once; the colon means each element of v.",
+        "Return count and total in Stats member order.",
+        "Close the calculation method."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "text = \"4 6\" -> values = {4,6}",
+      "reason": "Each whole token is a valid integer."
+    },
+    {
+      "step": "2",
+      "state": "count = 2; both values in range",
+      "reason": "Validator accepts the data."
+    },
+    {
+      "step": "3",
+      "state": "total = 0 -> 4 -> 10",
+      "reason": "Summarizer adds the checked values."
+    },
+    {
+      "step": "4",
+      "state": "text = \"4x\" -> exception",
+      "reason": "The parse stopping pointer has not reached the token end."
+    }
+  ],
+  "summary": [
+    "A facade offers one useful entrance to a subsystem.",
+    "A simple entrance does not require inheritance.",
+    "Validate complete tokens rather than accepting numeric prefixes.",
+    "Call order can establish the preconditions of later stages.",
+    "A facade does not automatically make external side effects atomic."
+  ],
+  "exercises": [
+    {
+      "id": "10.1",
+      "level": "Guided modification",
+      "prompt": "Allow values from -200 through 200 while retaining the count bound. What new total range must the implementation support?",
+      "hint": "Multiply each endpoint by the maximum count.",
+      "answer": "The total range becomes -200000 through 200000, still safe on the supported 32-bit-or-wider int environment. Update the range check and add -200, 200, and rejected 201 tests."
+    },
+    {
+      "id": "10.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Predict run(\"0 -5 5\") and run(\"  \"). Give count and total when a result exists.",
+      "hint": "Whitespace parsing and domain validation are different stages.",
+      "answer": "The first returns count 3 and total 0. The second parses no values and is rejected by Validator; it does not return a Stats object."
+    },
+    {
+      "id": "10.3",
+      "level": "Diagnose a bug",
+      "prompt": "A parser accepts 12oops because it checks only the error code from from_chars. Explain the missing check and its meaning.",
+      "hint": "Parsing can succeed on only part of a token.",
+      "answer": "Require result.ptr == end as well as a clear error code. That pointer equality proves every character belongs to the parsed integer. Without it, a valid numeric prefix is mistaken for a valid token."
+    },
+    {
+      "id": "10.4",
+      "level": "Choose a design",
+      "prompt": "A subsystem has no state and only three functions. Must a facade be a class? Propose an interface.",
+      "hint": "The design goal is simpler use, not a required keyword.",
+      "answer": "No. A free function Stats import_readings(const std::string& text) can parse, validate, and summarize in order. A class is useful when a workflow holds configuration or collaborators, but stateless functions can provide the same boundary."
+    },
+    {
+      "id": "10.5",
+      "level": "Extend without regressions",
+      "prompt": "Add regression tests for \"-100\", \"100\", and \"-101\". State exact accepted results and rejected behavior.",
+      "hint": "Both endpoints are included.",
+      "answer": "The first returns count 1, total -100; the second returns count 1, total 100. The third throws invalid_argument. Keep the malformed-token and count tests so a range change cannot conceal a syntax or size regression."
+    },
+    {
+      "id": "10.6",
+      "level": "Justify a decision",
+      "prompt": "A new screen wants raw parsed values even when domain validation fails. Should run silently weaken its contract? Explain a safer interface choice.",
+      "hint": "Different operations can make different promises.",
+      "answer": "Keep run as the checked-summary operation. Expose Parser separately or add a distinctly named parse-only operation with its weaker guarantee documented. Callers then choose the needed workflow without changing the meaning of an existing successful run."
+    }
+  ],
+  "glossary": [
+    {
+      "term": "Facade",
+      "definition": "A simpler public operation or interface over a related set of subsystem operations."
+    },
+    {
+      "term": "Precondition",
+      "definition": "A rule a caller must establish before invoking an operation."
+    },
+    {
+      "term": "Token",
+      "definition": "A small input unit, such as one whitespace-separated number."
+    },
+    {
+      "term": "Closed range",
+      "definition": "A range that includes both stated endpoints."
+    }
+  ],
+  "example": {
+    "title": "A checked reading summary",
+    "file": "examples/ch10/main.cpp",
+    "requirements": [
+      "Parse complete whitespace-separated integer tokens.",
+      "Accept 1–1000 values, each from -100 through 100.",
+      "Return count and total only after validation."
+    ],
+    "design": "One facade method fixes the call order while member objects retain separate parsing, validation, and calculation responsibilities. No polymorphism is needed.",
+    "alternative": "A free function performing the same sequence is an equally valid facade for a stateless subsystem. Letting every screen call the services directly is reasonable only when callers genuinely need different workflows and can enforce their preconditions.",
+    "invariants": [
+      "Malformed tokens never become accepted partial integers.",
+      "Summarizer is reached only after Validator accepts the vector.",
+      "Returned Stats owns values and does not refer to local storage."
+    ],
+    "failures": [
+      {
+        "mistake": "Check only from_chars.ec and ignore its stopping pointer.",
+        "consequence": "The malformed token 4x may be accepted as 4.",
+        "reason": "A valid numeric prefix is not a valid complete token."
+      },
+      {
+        "mistake": "Summarize before validating.",
+        "consequence": "Out-of-contract values can reach arithmetic; sufficiently large totals can overflow int.",
+        "reason": "The operation that establishes the precondition was delayed until after its consumer."
+      },
+      {
+        "mistake": "Treat an empty vector as a valid zero total.",
+        "consequence": "Empty input becomes count=0 total=0 instead of being rejected.",
+        "reason": "Zero readings and one reading whose value is zero are different cases."
+      }
+    ],
+    "verification": "Tests cover normal input, both value boundaries, a single zero, empty input, malformed tokens, out-of-range values, exactly 1000 maximum readings, and 1001 rejected readings. They do not test arbitrary input size or allocation failure.",
+    "maintenance": "Expose one coherent workflow while keeping subsystem preconditions documented. A small facade gives callers a stable place to depend on during library changes."
+  },
+  "diagram": {
+    "kind": "activity",
+    "title": "Facade: Importer coordinates three subsystem roles",
+    "nodes": [
+      {
+        "id": "P",
+        "label": "Subsystem: Parser",
+        "code": [
+          "const auto v = parser_.parse(text);"
+        ]
+      },
+      {
+        "id": "V",
+        "label": "Subsystem: Validator",
+        "code": [
+          "validator_.validate(v);"
+        ]
+      },
+      {
+        "id": "S",
+        "label": "Subsystem: Summarizer",
+        "code": [
+          "return summarizer_.summarize(v);"
+        ]
+      },
+      {
+        "id": "E",
+        "label": "Failure annotation",
+        "code": [
+          "// An exception exits run immediately."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "P",
+        "to": "V",
+        "kind": "flow",
+        "label": "integer tokens accepted"
+      },
+      {
+        "from": "P",
+        "to": "E",
+        "kind": "flow",
+        "label": "syntax rejected"
+      },
+      {
+        "from": "V",
+        "to": "S",
+        "kind": "flow",
+        "label": "count and range accepted"
+      },
+      {
+        "from": "V",
+        "to": "E",
+        "kind": "flow",
+        "label": "count or range rejected"
+      }
+    ],
+    "explanation": "Solid flow arrows describe execution order inside Importer::run. An exception follows the failure path and skips later stages. The failure block is a teaching annotation for C++ exception propagation, not an extra class or explicit branch in run."
+  },
+  "lab": {
+    "starter": "exercises/ch10/main.cpp",
+    "solution": "solutions/ch10/main.cpp",
+    "task": "Add Importer::mean(text), returning the arithmetic mean as double. It must reuse run so syntax, range, and count rejection stay identical. Keep run and all its original tests unchanged.",
+    "checks": [
+      "mean(\"4 5\") returns 4.5 and prints 4.50 in the lab.",
+      "mean(\"-100 100\") returns 0.0.",
+      "mean(\"\") throws instead of dividing by zero."
+    ],
+    "answer": "The solution obtains a validated Stats value from run, converts total to double before division, and divides by the nonzero count. Integer division first would lose the fraction. Reusing the facade operation keeps one accepted-input contract; introducing a separately validated path would create an unnecessary second source of truth."
+  },
+  "pattern": "Facade",
+  "problem_title": "Give a subsystem one safe everyday entrance",
+  "attachment_alignment": {
+    "epub_section": "Facade — OEBPS/design-patterns__facade.xhtml",
+    "source_files": [
+      "C++/src/Facade/Conceptual/main.cc",
+      "C++/src/Facade/Conceptual/Output.txt"
+    ],
+    "intent": "Provide one convenient operation for a task that otherwise requires knowledge of several subsystem objects and their call order. The attached EPUB motivates a complicated conversion library. A Facade gives ordinary callers a smaller entrance to useful work; it does not require removing the lower-level interfaces or pretending the whole subsystem has become simple internally.",
+    "mechanism": "The client calls a task-level method on Facade. Facade knows which subsystem methods to call, which results to pass onward, and which order to preserve. Subsystem classes continue doing their own jobs without knowing about the facade. This pattern does not require a base class or virtual function: delegation and a simpler public task contract are the central mechanism.",
+    "roles": [
+      {
+        "role": "Facade",
+        "attached": "Facade::Operation",
+        "example": "Importer::run",
+        "responsibility": "Offer the convenient entry point and coordinate the required sequence."
+      },
+      {
+        "role": "Subsystem classes",
+        "attached": "Subsystem1 / Subsystem2",
+        "example": "Parser / Validator / Summarizer",
+        "responsibility": "Implement focused operations that remain useful below the facade."
+      },
+      {
+        "role": "Client",
+        "attached": "ClientCode and main",
+        "example": "main",
+        "responsibility": "Ask for a complete import without duplicating the subsystem call sequence."
+      },
+      {
+        "role": "Additional facade",
+        "attached": "Discussed in the EPUB; absent from this C++ example",
+        "example": "Not needed for this focused import task",
+        "responsibility": "Provide another task entrance when unrelated features would overload one facade."
+      }
+    ],
+    "source_walkthrough": "main allocates Subsystem1 and Subsystem2 and transfers responsibility for them to a newly allocated Facade. ClientCode calls Facade::Operation once. Operation starts with an initialization heading, then calls Subsystem1::Operation1 and Subsystem2::Operation1, which return Ready! and Get ready! lines. It adds the action heading, calls OperationN on subsystem1, then OperationZ on subsystem2, and returns the assembled text. ClientCode prints that text, including Go! before Fire!. Finally, deleting facade invokes its destructor, which deletes both subsystem pointers. Unlike several other attached examples, these injected pointers are owned by the facade; main does not delete them again.",
+    "adaptation": "Our facade coordinates parsing, validation, and a summary. Importer::run(\"4 6\") parses two integers, validates the count and range, and returns count 2 and total 10. A malformed token such as 4x stops before validation; a valid integer outside the allowed range stops before summarizing. The stages therefore have meaningful failure boundaries, beyond the source’s printed action ordering. Importer holds its three small stateless services by value, so it needs neither heap allocation nor a custom destructor. We omit the source’s optional pointer injection because this fixed workflow needs no replaceable service instances. Its constructor uses the GNU omitted-middle conditional expression, written pointer ?: fallback; that is a compiler extension, not portable C++17 syntax. Our implementation uses standard C++17 throughout. The workflow has no external side effects and makes no database transaction or rollback promise.",
+    "recognize": "Find a client that can request useful work through fewer, task-focused operations because coordination knowledge moved into one object. Merely placing several unrelated methods in one class is not a Facade. A free function can be a sufficient facade-like boundary when object state and lifetime management add no value.",
+    "contrast": [
+      {
+        "pattern": "Adapter",
+        "distinction": "Adapter satisfies a required interface that an existing service cannot meet directly. Facade chooses a convenient interface for using a subsystem."
+      },
+      {
+        "pattern": "Mediator",
+        "distinction": "Mediator coordinates peers that communicate through it. These subsystem classes do not send events to Importer; the facade calls them in a workflow."
+      },
+      {
+        "pattern": "Proxy",
+        "distinction": "Proxy retains the service interface so it can stand in for that service. Importer exposes a new task-level operation over three different services."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Expose client burden",
+        "action": "Write parse, validate, summarize in every proposed caller. Ask what happens when one caller skips validation or changes the order."
+      },
+      {
+        "stage": "Trace the supplied operation",
+        "action": "Match each returned output line to its subsystem call. Mark which object owns each allocated subsystem."
+      },
+      {
+        "stage": "Map the roles",
+        "action": "Identify Importer as Facade and the three stage classes as the subsystem. Explain why inheritance adds nothing here."
+      },
+      {
+        "stage": "Teach failures and scope",
+        "action": "Trace 4 6, 4x, and 101. Add mean through run in the lab so the new convenience operation preserves the original checks."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Must Parser know that Importer exists for this to be a Facade?",
+        "answer": "No. The subsystem should retain its own focused behavior; Importer is simply a client that coordinates it."
+      },
+      {
+        "question": "Does using a Facade guarantee rollback if a later stage fails?",
+        "answer": "No. Call coordination alone supplies no transaction. A workflow with external writes needs an explicit commit, rollback, or compensation design."
+      }
+    ]
+  }
+}

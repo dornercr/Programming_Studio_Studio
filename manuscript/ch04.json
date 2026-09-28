@@ -1,0 +1,375 @@
+{
+  "number": 4,
+  "title": "Prototype",
+  "part": "I - Creational design patterns",
+  "topics": [
+    "Prototype",
+    "polymorphic copy",
+    "deep copy",
+    "object slicing"
+  ],
+  "objectives": [
+    "Copy through a base interface while preserving concrete behavior.",
+    "State which data a clone owns and which resources may remain shared.",
+    "Verify independence by editing and destroying the original."
+  ],
+  "sections": [
+    {
+      "heading": "Duplicate cues without knowing their kinds",
+      "paragraphs": [
+        "A presentation tool keeps a list of cues. A text cue has one name, such as Start. A list cue contains several names, such as Check and Begin. The user duplicates a group of cues and edits the first name in the copied list. The original group must remain unchanged. A cue name may not be empty, and a list must contain at least one name.",
+        "For a known TextCue, an ordinary copy is the simplest reasonable solution. C++ already knows how to copy a string member. No design pattern is needed for that case. The difficulty begins when a container stores owning handles to Cue and the duplication code cannot name each concrete type. The excerpt can copy a known object but does not solve copying an unknown derived object through its base interface."
+      ],
+      "code": "TextCue original(\"Start\");\nTextCue copy = original;\ncopy.rename(\"Continue\");",
+      "code_label": "Excerpt — simplest approach before the redesign"
+    },
+    {
+      "heading": "The limitation is lost concrete type information",
+      "paragraphs": [
+        "A unique_ptr cannot be copied because copying the sole owner would give two owners responsibility for deleting one object. Copying Cue itself would not solve the problem either. Cue is abstract here, so it cannot be constructed. In a nonabstract hierarchy, copying only the base part can discard derived data and behavior, a problem called object slicing. Neither copying the handle nor copying only the base subobject means “make an independent object of the same actual kind.”",
+        "The Prototype pattern asks the existing object to create that copy. Cue declares a virtual clone operation returning a new owning Cue handle. TextCue and ListCue each know their own concrete type, so each can call its own copy constructor. The caller asks for a clone without deciding which constructor to invoke. Prototype is therefore about construction from an existing object’s state, not simply about any function named copy."
+      ]
+    },
+    {
+      "heading": "What clone preserves",
+      "paragraphs": [
+        "ListCue::clone calls make_unique<ListCue>(*this). this points at the current ListCue; *this refers to the whole current ListCue object. Inside a const member, that expression is a const reference suitable for copying. The explicitly defaulted copy constructor copies the vector member. Both concrete cue types declare their copy constructors this way, suppressing implicit object moves. Constructing from an rvalue therefore copies instead of emptying the source; moves of unique_ptr handles still transfer ownership without moving the cue object itself. Copying a vector of strings copies each string value, so the clone owns independent character data in the normal observable sense. Editing one list’s first name does not edit the other list’s name.",
+        "The clone’s type is still ListCue even though its returned owner is unique_ptr<Cue>. Later virtual calls to text and rename reach ListCue behavior. The new object has a different address but starts with the same public value. Equal value and shared identity are different ideas: two clocks can display the same time without being the same clock. The program checks both equal initial text and distinct object addresses.",
+        "During compilation, the compiler generates the appropriate memberwise copy constructor and checks the clone override signature. During execution, the actual cue chooses which clone override runs. Allocation creates new storage, construction copies the concrete object into it, and ownership returns to the caller. If copying fails, make_unique cleans up the allocated storage; the original remains owned by its existing handle."
+      ]
+    },
+    {
+      "heading": "Copy depth is a design decision",
+      "paragraphs": [
+        "A shallow copy copies a handle or address while keeping the same underlying resource. A deep copy makes an independent copy of owned contents, to the depth promised by the application. The words need a boundary. A vector of strings gives independent string values. A vector of shared_ptr<Image> would copy handles and share images unless the clone explicitly copied them. That may be correct if images are immutable and expensive, but it would not be correct for an independently editable image promise.",
+        "A unique_ptr member normally makes the containing type noncopyable until a copy operation is explicitly defined. The lab adds BoxCue with a unique_ptr<string>. Its copy constructor allocates a new string initialized from the original string. Simply returning make_unique<BoxCue>(*this) without that copy constructor would fail to compile. Replacing unique_ptr with shared_ptr just to silence the error would change ownership meaning and make edits visible through both handles.",
+        "Some resources should not be cloned at all. A live socket, open transaction, mutex, or hardware session has an identity that copying bytes cannot duplicate. A clone may copy configuration while opening a fresh session, share a documented immutable resource, or reject duplication. Cyclic object graphs need additional rules: a map from old objects to new objects can preserve internal relationships without infinite recursion. Do not promise a universal deep copy without defining where the copy stops."
+      ]
+    },
+    {
+      "heading": "Keep the generic loop simple and the copy rules local",
+      "paragraphs": [
+        "The loop over originals uses const auto& because each vector element is a unique_ptr and must not be copied. The reference borrows the owning handle; const prevents reseating that handle through this reference. It does not by itself make the pointed-to object const. clone is separately declared const to promise that cloning does not mutate the cue’s ordinary members. The arrow calls the operation on the object reached through the handle.",
+        "Each new owner goes into copies. push_back accepts the returned temporary owning handle by move. After the loop, originals and copies are separate owning collections. Destruction of either collection destroys only its own objects. The program renames the first entry of the copied ListCue and checks that the original text is still list:Check;Begin; while the copied text becomes list:Inspect;Begin;.",
+        "Prototype is useful for user duplication, reusable configured objects, and heterogeneous snapshots when copying has a clear domain meaning. A registry may keep named prototypes and return clones, but the registry is optional. If the concrete type is already known and ordinary value copying works, use it. If objects should have unique noncopyable identities, omit clone instead of adding a misleading operation. Maintaining a clone requires adding new fields to its copy policy as the type evolves, especially when members change from values to owning or shared handles."
+      ]
+    }
+  ],
+  "example": {
+    "title": "Duplicate mixed presentation cues with independent edits",
+    "file": "examples/ch04/main.cpp",
+    "requirements": [
+      "Duplicate cues through the Cue interface without selecting concrete constructors in the loop.",
+      "Preserve concrete behavior and initial public values.",
+      "Keep originals unchanged after valid and rejected edits of clones."
+    ],
+    "design": "Each concrete cue implements clone with its own copy constructor. Value-owned strings and vectors give independent editable state, while unique_ptr states ownership of each new polymorphic object.",
+    "alternative": "Ordinary copying is simpler for a container of one known value type. A variant of a closed set of cue types can also support value copying without a virtual clone. Prototype fits an extensible hierarchy whose concrete types are unknown to the duplication code.",
+    "invariants": [
+      "clone returns a new owner of the same concrete kind and equivalent initial value.",
+      "A successful rename preserves nonempty names.",
+      "Cloned editable contents do not alias originals."
+    ],
+    "failures": [
+      {
+        "mistake": "Construct a new owning handle from the original raw pointer.",
+        "consequence": "Both owners refer to one object; destruction attempts to delete it twice.",
+        "reason": "An owning-handle copy is not an object clone."
+      },
+      {
+        "mistake": "Use shared_ptr<string> for editable clone state without copying the string.",
+        "consequence": "Renaming the clone also changes the original’s visible name.",
+        "reason": "Copying the shared handle preserves shared identity rather than independent value."
+      }
+    ],
+    "verification": "main checks matching initial values for both cue kinds, a distinct text-cue address, independent list edits, rejected empty rename with preserved state, and rejected empty list construction. The lab additionally destroys an original before reading its cloned owned string. These checks do not define cloning of external resources or cyclic graphs.",
+    "maintenance": "Keep clone policy beside the concrete type. Review every newly added pointer-like member for whether it should copy deeply, share immutable state, or forbid cloning."
+  },
+  "diagram": {
+    "kind": "ownership",
+    "title": "Cloning produces a second owning collection",
+    "nodes": [
+      {
+        "id": "O",
+        "label": "Client-owned originals\noriginals",
+        "code": [
+          "std::vector<std::unique_ptr<Cue>> originals;",
+          "// Own original cue objects."
+        ]
+      },
+      {
+        "id": "L",
+        "label": "Concrete prototype\nOriginal ListCue",
+        "code": [
+          "std::vector<std::string> names_;",
+          "// Original strings remain unchanged."
+        ]
+      },
+      {
+        "id": "C",
+        "label": "Client-owned clones\ncopies",
+        "code": [
+          "std::vector<std::unique_ptr<Cue>> copies;",
+          "// Own new cue objects."
+        ]
+      },
+      {
+        "id": "N",
+        "label": "Concrete prototype\nCloned ListCue",
+        "code": [
+          "// Independently copied names vector."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "L",
+        "kind": "ownership",
+        "label": "owns original",
+        "from": "O"
+      },
+      {
+        "to": "N",
+        "kind": "ownership",
+        "label": "owns clone",
+        "from": "C"
+      },
+      {
+        "to": "N",
+        "kind": "dependency",
+        "label": "clone copies value",
+        "from": "L"
+      }
+    ],
+    "explanation": "Ownership arrows identify which collection destroys each object. The dashed clone dependency describes creation and copying; it does not mean that the clone borrows the original. Both ListCue objects own separate vectors of string values. The text cue follows the same ownership shape and is omitted only to keep this view focused."
+  },
+  "focus": [
+    {
+      "title": "Copy the concrete object behind a base interface",
+      "start": "        // Copy the vector and its strings.",
+      "end": "        names_.front() = std::move(name);",
+      "what": "The clone copies value-owned members; rename edits only one object’s first string.",
+      "where": "The ListCue implementation of copying and editing.",
+      "why": "The concrete class knows how its state should duplicate.",
+      "invariant": "Every list stays nonempty, every name stays nonempty, and copies remain independent.",
+      "risk": "Replacing the value vector with shared mutable storage would require a new copy policy.",
+      "explain": [
+        "The comment states what the concrete copy constructor duplicates.",
+        "Begin returning a new owning handle.",
+        "Construct a new ListCue by copying this complete object.",
+        "Close the clone method.",
+        "Declare an override accepting a new name by value.",
+        "Reject an empty name before changing existing state.",
+        "Begin constructing an invalid-argument exception.",
+        "Supply name as the message and throw without editing the vector.",
+        "Move the valid new name into this list’s first element."
+      ]
+    },
+    {
+      "title": "The caller copies without a type switch",
+      "start": "    // No concrete type is named here.",
+      "end": "    copies[1]->rename(\"Inspect\");",
+      "what": "This loop duplicates heterogeneous cues through one operation.",
+      "where": "main, after creating the original owning collection.",
+      "why": "Type-specific copying stays inside each concrete cue.",
+      "invariant": "Every new owning handle refers to an independent object with equivalent initial value.",
+      "risk": "Copying a unique_ptr directly will not compile; wrapping its raw pointer creates double ownership.",
+      "explain": [
+        "The comment identifies the absence of concrete-type decisions.",
+        "Borrow each owning handle by const reference instead of copying it.",
+        "Call its virtual clone and move the new owner into copies.",
+        "Begin comparing the clone’s visible text.",
+        "Require equality with the original object’s visible text.",
+        "Close the duplication loop.",
+        "Edit only the second cloned object through the common interface."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "originals owns TextCue(Start) and ListCue(Check,Begin)",
+      "reason": "Application setup supplies concrete objects once."
+    },
+    {
+      "step": "2",
+      "state": "clone loop creates one new object per original",
+      "reason": "Virtual dispatch chooses the matching concrete copy constructor."
+    },
+    {
+      "step": "3",
+      "state": "copies[1] names={Inspect,Begin}",
+      "reason": "rename changes the copied vector’s first string."
+    },
+    {
+      "step": "4",
+      "state": "originals[1] names={Check,Begin}",
+      "reason": "The original vector does not share editable value storage with the copy."
+    }
+  ],
+  "summary": [
+    "Prototype copies from an existing object through a common cloning operation.",
+    "Copying a base value can slice; copying an owner is not cloning.",
+    "Define copy depth according to owned and shared resources.",
+    "Value members often provide correct memberwise copying without custom code.",
+    "Test independence through edits and destruction, not just initial equality."
+  ],
+  "exercises": [
+    {
+      "id": "04.1",
+      "level": "Guided modification",
+      "prompt": "Rename the copied ListCue to Ready instead of Inspect. State both list text outputs.",
+      "hint": "The second name is unchanged and each name ends with a semicolon.",
+      "answer": "The original remains \"list:Check;Begin;\". The copy becomes \"list:Ready;Begin;\". Update the clone-specific expected text while preserving the original-independence check."
+    },
+    {
+      "id": "04.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Let a be a unique_ptr<Cue> owning TextCue(\"A\"). Execute auto b=a->clone(); b->rename(\"B\"); auto c=b->clone(); c->rename(\"C\");. What do a->text(), b->text(), and c->text() return?",
+      "hint": "Each clone copies the state that exists when cloning occurs.",
+      "answer": "They return \"text:A\", \"text:B\", and \"text:C\". c initially copied B, then changed independently. Cloning a clone does not restore the first ancestor’s state."
+    },
+    {
+      "id": "04.3",
+      "level": "Diagnose a bug",
+      "prompt": "A clone returns unique_ptr<Cue>(this), using a cast to remove const when needed. Explain the ownership failure even if the first printed text looks correct.",
+      "hint": "Count owners of the same address.",
+      "answer": "The result points to the original object rather than a new one. Both original and returned handles try to destroy it, producing double deletion and undefined behavior. Allocate a new concrete object using its copy constructor; never treat the source pointer as newly owned."
+    },
+    {
+      "id": "04.4",
+      "level": "Choose a design",
+      "prompt": "A program stores only plain value records in vector<Record>. Another stores extensible derived cues behind unique_ptr<Cue>. Choose ordinary copying or Prototype and explain why.",
+      "hint": "Is the complete concrete value type known at the copy site?",
+      "answer": "Copy the value vector normally in the first program. Use virtual clone for the open cue hierarchy when the copy site does not know concrete types. A variant is reasonable for a closed finite set of alternatives, but adding a new variant alternative requires updating the closed type definition."
+    },
+    {
+      "id": "04.5",
+      "level": "Extend without regressions",
+      "prompt": "Implement BoxCue with an owning unique_ptr<string>, nonempty names, box: text prefix, and independent clone. Verify the clone remains valid after destroying its original.",
+      "hint": "An owning pointer needs an explicit policy for copying the pointed-to string.",
+      "answer": "The solution defines a copy constructor that makes a new string from *other.name_. clone copies the BoxCue with that constructor. Renaming the copy to Close leaves the original at Open; after original reset, the copy still returns \"box:Close\"."
+    },
+    {
+      "id": "04.6",
+      "level": "Justify a decision",
+      "prompt": "A new cue refers to a 50 MB read-only image. Should every clone copy those bytes? Give a defensible sharing contract and the condition that would invalidate it.",
+      "hint": "Independence concerns permitted mutation, not necessarily identical storage layout.",
+      "answer": "Sharing an immutable image through shared_ptr<const Image> is reasonable when clones cannot mutate it and ownership keeps it alive. If users can edit image contents independently, sharing mutable storage violates the promise; use a deep copy or a carefully implemented copy-on-write policy. State which operations are allowed and who owns the lifetime."
+    }
+  ],
+  "lab": {
+    "starter": "exercises/ch04/main.cpp",
+    "solution": "solutions/ch04/main.cpp",
+    "task": "Add BoxCue with unique ownership of a dynamically stored string. Support clone, rename, and text, reject empty names, and preserve independent values after edits and original destruction. Keep existing cue checks.",
+    "checks": [
+      "A clone of BoxCue(Open) initially returns box:Open.",
+      "Renaming the clone to Close leaves the original at box:Open.",
+      "After original.reset(), the clone still returns box:Close.",
+      "A rejected empty rename leaves box:Close unchanged."
+    ],
+    "answer": "The custom copy constructor copies the pointed-to string into a new allocation. The unique_ptr member then cleans up normally, so no custom destructor is needed. Copy assignment is not required by this lab’s interface and is not supplied; a real type should document or implement its desired assignment policy rather than assume clone implies every copy operation exists."
+  },
+  "glossary": [
+    {
+      "term": "Prototype",
+      "definition": "A pattern in which an existing object creates a new object by copying its own state through a common operation."
+    },
+    {
+      "term": "Object slicing",
+      "definition": "Losing the derived part when a derived object is copied into a base value."
+    },
+    {
+      "term": "Deep copy",
+      "definition": "A copy that duplicates owned contents to the independence depth required by the application."
+    },
+    {
+      "term": "Shallow copy",
+      "definition": "A copy that duplicates handles while retaining some shared underlying objects."
+    }
+  ],
+  "pattern": "Prototype",
+  "problem_title": "Copy an object when its concrete type is unknown",
+  "attachment_alignment": {
+    "epub_section": "Prototype — cloning through an interface, concrete prototypes, optional prototype registry, copy policy, and relationships to other creation patterns.",
+    "source_files": [
+      "C++/src/Prototype/Conceptual/main.cc",
+      "C++/src/Prototype/Conceptual/Output.txt"
+    ],
+    "intent": "Prototype copies an already configured object without requiring its caller to know the object's concrete class. The attached chapter distinguishes this active copying role from a rough early product model. Its object-copying problem is the same one our cue collection faces: the caller has a base interface, yet the copy must preserve the actual kind of object.",
+    "mechanism": "The base interface declares a virtual clone operation. Each concrete implementation creates its own concrete type using the current object as the source of values. The caller invokes clone through the base interface and receives a new object. A registry can hold named prototypes for reuse, but the registry is optional. The copy policy must say which data becomes independent and which resources, if any, remain shared.",
+    "roles": [
+      {
+        "role": "Prototype interface",
+        "attached": "Prototype::Clone",
+        "example": "Cue::clone",
+        "responsibility": "Offers copying through the common interface without a concrete-type switch in the caller."
+      },
+      {
+        "role": "Concrete prototypes",
+        "attached": "ConcretePrototype1; ConcretePrototype2",
+        "example": "TextCue; ListCue",
+        "responsibility": "Construct copies of their own concrete type and preserve their state rules."
+      },
+      {
+        "role": "Prototype registry",
+        "attached": "PrototypeFactory::prototypes_",
+        "example": "Not needed; originals holds the selected objects",
+        "responsibility": "The attachment maps keys to reusable source objects. Our caller already has the objects to duplicate."
+      },
+      {
+        "role": "Client",
+        "attached": "Client(PrototypeFactory&)",
+        "example": "main cloning each Cue in originals",
+        "responsibility": "Requests copies without rebuilding their private data or branching on concrete classes."
+      },
+      {
+        "role": "Clone owner",
+        "attached": "Client deletes each returned Prototype*",
+        "example": "copies holds unique_ptr<Cue> values",
+        "responsibility": "Keeps each new object alive and destroys it exactly once."
+      }
+    ],
+    "source_walkthrough": "PrototypeFactory constructs two registered sources, named PROTOTYPE_1 and PROTOTYPE_2, with concrete fields initialized to 50 and 60. Client asks CreatePrototype for the first key. The map supplies a Prototype pointer; Clone dispatches to ConcretePrototype1 and uses new ConcretePrototype1(*this). Client then calls Method(90), which assigns the base field and prints the first name with 90. After deletion, the second request similarly clones ConcretePrototype2, calls Method(10), prints 10, and deletes it. The factory destructor later deletes the registered originals. The attached transcript records those names and values. It does not prove the copy is safe: prototype_field_ is not initialized by the source constructors before the default copy reads that float. This C++17 defect must be repaired before treating the sample as a correct executable model.",
+    "adaptation": "The cue example keeps the essential virtual-copy relationship and provides two visibly different concrete behaviors. It omits the key-to-prototype map because main already owns the source collection; adding a registry would not improve that duplication task. The attachment's PrototypeFactory is a registry wrapper, not the Factory Method pattern merely because its name contains Factory. We replace owning raw pointers with unique_ptr, initialize state through checked constructors, and choose value-owned strings/vectors so copying produces independent editable data. Renaming the cloned list must leave the original list unchanged. This exposes a meaningful copy test beyond printing the new value. We omit cyclic object graphs and external resources; their cloning rules need additional policies and cannot be inferred from vector copying.",
+    "recognize": "Point to the virtual clone call made through an interface, then show where the concrete object copies itself. Ordinary copying of a known value type is often simpler. Prototype earns its role here because the caller must duplicate different concrete kinds without knowing their constructors or private layouts.",
+    "contrast": [
+      {
+        "pattern": "Factory Method",
+        "distinction": "Factory Method asks a creator subclass which product to construct. Prototype asks an existing configured product to reproduce itself."
+      },
+      {
+        "pattern": "Builder",
+        "distinction": "Builder obtains a result by executing construction steps. Prototype starts from an existing result and applies a defined copy policy."
+      },
+      {
+        "pattern": "Memento",
+        "distinction": "Memento saves state for later restoration. Prototype creates another object; copying alone does not define an undo history or restoration operation."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Expose the missing type",
+        "action": "Give students only Cue references and ask them to duplicate each object. Show why copying a base value loses derived state or cannot construct an abstract base."
+      },
+      {
+        "stage": "Trace creation and ownership",
+        "action": "Map Clone to clone, follow make_unique<ListCue>(*this), and draw separate ownership paths for original and copy."
+      },
+      {
+        "stage": "Test independence",
+        "action": "Rename the copy and compare both texts. Discuss an immutable shared asset versus mutable shared names before deciding what deep copying requires."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Why is copying the unique_ptr address into another owning handle not cloning?",
+        "answer": "Both handles would own the same object, leading to double deletion. clone must create a distinct object with the promised copied state."
+      },
+      {
+        "question": "Is a prototype registry required for the cue example?",
+        "answer": "No. The collection already supplies each source object. A registry becomes useful when callers need to look up configured prototypes by a key."
+      }
+    ]
+  }
+}

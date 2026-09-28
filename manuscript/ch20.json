@@ -1,0 +1,368 @@
+{
+  "number": 20,
+  "title": "Strategy",
+  "part": "III - Behavioral design patterns",
+  "topics": [
+    "Strategy",
+    "runtime selection",
+    "policy contracts"
+  ],
+  "objectives": [
+    "Separate a stable workflow from a replaceable calculation.",
+    "Trace a virtual call and a transfer of ownership.",
+    "Add a calculation while preserving validation and existing behavior."
+  ],
+  "sections": [
+    {
+      "heading": "One screen, two useful readings",
+      "paragraphs": [
+        "A room monitor receives a small batch of whole-number readings. Each reading is from 0 through 1000. A batch contains 1 through 1000 readings. The ordinary screen shows the average, rounded down. During a review, an operator wants the highest reading instead. Both views use the same batch. Neither view may edit the stored readings. The input limits keep arithmetic predictable and make a missing batch an error rather than a made-up zero.",
+        "Start with a free function that adds each value and divides by the number of values. Add an ordinary if statement when the second view arrives. This is reasonable for two small, stable choices. The excerpt assumes the caller already checked the batch. The bool chooses which calculation to run. It does not explain why that choice belongs in this function."
+      ],
+      "code": "int summarize(const std::vector<int>& data, bool highest) {\n    if (highest)\n        return *std::max_element(data.begin(), data.end());\n    int sum = 0;\n    for (int sample : data) sum += sample;\n    return sum / static_cast<int>(data.size());\n}",
+      "code_label": "Excerpt — simplest approach before the redesign"
+    },
+    {
+      "heading": "The specific limit: unrelated changes share one function",
+      "paragraphs": [
+        "Now a third team wants the middle reading after sorting. A fourth wants a calibrated result with stored settings. Each addition changes the same selection function. A new branch can accidentally skip shared validation. Sorting the original batch to find the middle also changes data that another screen expected to keep in arrival order. These are concrete costs, not proof that every if statement is bad.",
+        "We need a small interchangeable rule, called a strategy. The monitor keeps the stable work: check inputs, then ask its current rule for one answer. Each rule owns its calculation. The caller chooses the rule because the caller knows what the operator requested. This arrangement is the Strategy pattern. Its purpose is replaceable behavior. The number of classes is a consequence of that need, not the goal."
+      ]
+    },
+    {
+      "heading": "A contract larger than a function signature",
+      "paragraphs": [
+        "Estimate declares value. The const reference borrows a vector and forbids changing its elements through that reference. The final const describes the Estimate object used for the call: value promises not to change its ordinary members. These are two separate const promises. The function returns a new integer value, so its result does not borrow storage from the vector.",
+        "The interface also has a written contract. Its caller supplies a nonempty validated batch, and the rule returns a whole-number estimate without changing that batch. Average and Highest rely on that precondition. Calling either concrete rule directly with an empty vector violates the contract: Average divides by zero; Highest would dereference an end iterator. The monitor is the intended public entry point for untrusted data. An interface does not cause the compiler to check these meaning-level rules.",
+        "Average uses integer division. With 1, 2, and 9, the sum is 12 and the answer is 4. With 1 and 2, the answer is 1. This is deliberate downward rounding for nonnegative values. At the largest accepted batch, the sum is at most 1,000,000, which fits the required ordinary int implementations with at least 32 bits. If the environment had only a 16-bit int, this chapter's arithmetic requirements would need a wider type. Highest uses max_element, which returns an iterator pointing at the largest element; the leading star reads the pointed-to integer."
+      ]
+    },
+    {
+      "heading": "What the compiler fixes and execution selects",
+      "paragraphs": [
+        "During compilation, the compiler checks the override signatures and that Estimate has the requested operation. A virtual call through rule_ selects the implementation belonging to the actual object during execution. Replacing Average with Highest changes the selected object, not the code of Monitor::read. A compiler may optimize a call whose target it can prove, but the program must keep the same observable behavior.",
+        "A unique_ptr is the sole owning handle. Monitor receives that handle by value and moves it into rule_. std::move permits ownership transfer; it does not call the estimate or copy its readings. The arrow in rule_->value reaches the object owned by the handle and calls its method. On replacement, the previous strategy is destroyed. Monitor explicitly deletes copying; those user-declared copy operations also suppress its implicit move operations. The monitor itself therefore keeps a stable identity, while its strategy can be replaced. This avoids leaving a moved-from monitor with an empty rule. The virtual destructor makes destruction through the base type reach the complete derived object. Data is borrowed only for the duration of read; ownership of the strategy lasts until replacement or monitor destruction."
+      ]
+    },
+    {
+      "heading": "Failure boundaries and a smaller alternative",
+      "paragraphs": [
+        "select checks the proposed handle before assigning it. A null request throws, while the old strategy remains usable. read validates every reading before calling the strategy. These boundaries make failure local: a bad sample cannot partly sort or partly accumulate shared state inside the strategy. The current calculations themselves have no external effects. A future rule that writes a file would need a stronger contract about partial failure.",
+        "For a single stateless operation, a function pointer, a lambda, or std::function can express Strategy with less class code. A template parameter is attractive when the rule is fixed at compilation and speed or inlining matters. The virtual interface earns its place when selection occurs during execution, rule objects hold settings, or several operations belong to one rule. Do not add a strategy for each constant. A named parameter can represent a threshold without creating a new type.",
+        "In a long-lived monitor, replacement also raises a timing question: can one thread replace a rule while another calls read? This example is single-threaded and makes no such guarantee. A mutex, immutable shared snapshot, or an event-loop rule could define a safe policy. Merely using a smart pointer does not synchronize access to the member that holds it."
+      ]
+    }
+  ],
+  "example": {
+    "title": "A monitor with average and highest rules",
+    "file": "examples/ch20/main.cpp",
+    "requirements": [
+      "Accept 1–1000 integer readings, each from 0 through 1000.",
+      "Choose average or highest during execution; reject a missing strategy.",
+      "Keep input unchanged and keep the previous strategy after a rejected replacement."
+    ],
+    "design": "Monitor centralizes validation while Estimate isolates the changing calculation. Owning the selected rule avoids a caller-lifetime dependency and permits replacement after construction.",
+    "alternative": "A switch plus two free functions is easier for a permanently small choice set. A callable is also sufficient for stateless rules. The object interface becomes useful as policies gain settings or are supplied through a common runtime API.",
+    "invariants": [
+      "Every constructed Monitor owns a non-null strategy.",
+      "Every strategy call receives a nonempty bounded batch.",
+      "read does not change input; a rejected select leaves the old rule installed."
+    ],
+    "failures": [
+      {
+        "mistake": "Assign a null handle before checking it.",
+        "consequence": "The next read attempts to call through a null pointer, producing undefined behavior.",
+        "reason": "The object no longer meets its non-null invariant."
+      },
+      {
+        "mistake": "Implement average as sum += sample / data.size().",
+        "consequence": "For {1,2,9}, the result becomes 0 + 0 + 3 = 3 instead of 4.",
+        "reason": "Integer division discards each remainder before the additions can combine it."
+      }
+    ],
+    "verification": "main checks both calculations, singleton batches at 0 and 1000, empty input, a negative sample, and null replacement while retaining Highest. These checks are meaningful examples, not exhaustive proof over all bounded batches or concurrent access.",
+    "maintenance": "A new rule can be reviewed and tested independently of monitor validation. Keep the written preconditions next to the interface so future implementers do not silently add incompatible meanings."
+  },
+  "diagram": {
+    "kind": "class",
+    "title": "Strategy: a context owns its selected algorithm",
+    "nodes": [
+      {
+        "id": "M",
+        "label": "Context: Monitor",
+        "code": [
+          "std::unique_ptr<Estimate> rule_;",
+          "// Own exactly one selected rule."
+        ]
+      },
+      {
+        "id": "E",
+        "label": "Strategy: Estimate",
+        "code": [
+          "virtual ~Estimate() = default;",
+          "// Shared calculation contract."
+        ]
+      },
+      {
+        "id": "A",
+        "label": "Concrete Strategy: Average",
+        "code": [
+          "int sum = 0;",
+          "// Add, then divide once."
+        ]
+      },
+      {
+        "id": "H",
+        "label": "Concrete Strategy: Highest",
+        "code": [
+          "// Choose the greatest reading."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "E",
+        "kind": "ownership",
+        "label": "owns selected rule",
+        "from": "M"
+      },
+      {
+        "to": "E",
+        "kind": "inheritance",
+        "label": "implements",
+        "from": "A"
+      },
+      {
+        "to": "E",
+        "kind": "inheritance",
+        "label": "implements",
+        "from": "H"
+      }
+    ],
+    "explanation": "The ownership arrow runs from Monitor to its owned Estimate object. Inheritance arrows run from each concrete rule toward Estimate. They do not show execution order. Teaching comments describe responsibilities; they are not extra program members. At execution, Monitor validates the batch and calls the one installed object."
+  },
+  "focus": [
+    {
+      "title": "Replace a rule without losing the old one",
+      "start": "    void select(",
+      "end": "        rule_ = std::move(rule);",
+      "what": "This operation accepts ownership of a proposed strategy.",
+      "where": "The public Monitor entry point for changing behavior.",
+      "why": "Validation must precede the change so failure leaves a usable monitor.",
+      "invariant": "rule_ always owns an object after successful construction.",
+      "risk": "Moving first and testing later can erase a working rule.",
+      "explain": [
+        "Declare the replacement operation; it has no returned value.",
+        "Receive the proposed owning handle by value and open the body.",
+        "The comment names the failure guarantee.",
+        "Test whether the incoming handle is empty.",
+        "Begin constructing an invalid-argument exception.",
+        "Supply rule as the message and throw if no rule was supplied.",
+        "Move the valid handle into the member; destroy the previous rule."
+      ]
+    },
+    {
+      "title": "Check data before calling the chosen calculation",
+      "start": "        for (int sample : data) {",
+      "end": "        return rule_->value(data);",
+      "what": "The shared input gate runs before the variable behavior.",
+      "where": "The latter half of Monitor::read, after the batch-size check.",
+      "why": "Both calculations can rely on one common input contract.",
+      "invariant": "No value outside 0–1000 reaches the strategy through read.",
+      "risk": "Skipping the size check before this block would still allow an empty batch.",
+      "explain": [
+        "Visit each integer in the vector; the colon means “from this range.”",
+        "Test both ends of the allowed numeric interval.",
+        "Begin constructing an invalid-argument exception.",
+        "Use sample as the error description and throw it.",
+        "Close the range loop after checking all elements.",
+        "The comment identifies the boundary between checking and calculating.",
+        "Call the installed strategy through its owning handle and return its integer."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "data={1,2,9}; rule=Average",
+      "reason": "Construction transfers the Average owner into the monitor."
+    },
+    {
+      "step": "2",
+      "state": "sum=12; size=3; result=4",
+      "reason": "read validates first; Average divides after adding."
+    },
+    {
+      "step": "3",
+      "state": "rule=Highest; result=9",
+      "reason": "select replaces the rule, then the same read method delegates again."
+    },
+    {
+      "step": "4",
+      "state": "select(nullptr) throws; rule remains Highest",
+      "reason": "The null check runs before member assignment."
+    }
+  ],
+  "summary": [
+    "Use Strategy when a stable task needs replaceable behavior.",
+    "The caller selects the policy; the context enforces shared preconditions.",
+    "Value, borrowed reference, and owning handle have different lifetime rules.",
+    "Dynamic dispatch chooses behavior during execution; it does not validate meaning.",
+    "A function or callable is often the right smaller design."
+  ],
+  "exercises": [
+    {
+      "id": "20.1",
+      "level": "Guided modification",
+      "prompt": "Change main so Average reads {2,3,8}. State the expected result without changing the rounding rule.",
+      "hint": "Add all values before integer division.",
+      "answer": "The sum is 13, and 13 / 3 is 4. Keep the existing tests and add this case; replacing the arithmetic with floating-point division would change the stated integer contract."
+    },
+    {
+      "id": "20.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "After constructing Monitor with Average, execute read({2,8}), select(make_unique<Highest>()), read({2,8}), select(make_unique<Average>()), read({1,2}). List the three returned values. Assume std:: qualifiers as in main.cpp.",
+      "hint": "Only select changes the installed object.",
+      "answer": "The results are 5, 8, and 1. Each read borrows its temporary vector for the duration of the call. The last average truncates 3 / 2. Old strategy objects are destroyed as their owners are replaced."
+    },
+    {
+      "id": "20.3",
+      "level": "Diagnose a bug",
+      "prompt": "A proposed Average computes sum += sample / static_cast<int>(data.size()) inside the loop. For {2,2,2}, identify its actual answer and repair it.",
+      "hint": "Trace each integer division separately.",
+      "answer": "It returns 0 because each 2 / 3 is 0. Add the three integers first, then divide 6 by 3 to return 2. The repair also keeps the bounded-sum argument simple."
+    },
+    {
+      "id": "20.4",
+      "level": "Choose a design",
+      "prompt": "A command-line tool has one fixed average calculation and exits after one batch. A live application accepts independently configured calculation objects. Choose a free function, template, or virtual Strategy for each and explain the deciding fact.",
+      "hint": "Ask when the rule must be selected and whether it has identity or settings.",
+      "answer": "Use a free function for the one fixed calculation. The live application can justify virtual Strategy because it receives objects during execution. A template is reasonable if the live application actually fixes each rule at compilation and never swaps it; selection time, not application size, decides."
+    },
+    {
+      "id": "20.5",
+      "level": "Extend without regressions",
+      "prompt": "Implement the companion Middle strategy. Keep Monitor unchanged, preserve input order, return the sorted middle item for odd sizes, and the downward-rounded average of the two middle items for even sizes.",
+      "hint": "Sort a local vector copy; the valid range makes two-item addition safe.",
+      "answer": "The solution copies data, sorts the copy, uses size()/2, and branches on size()%2. {9,1,2} returns 2; {9,1,2,4} returns 3. Tests retain Average, Highest, rejection, and boundary behavior."
+    },
+    {
+      "id": "20.6",
+      "level": "Justify a decision",
+      "prompt": "A reviewer proposes borrowing Estimate& inside Monitor to avoid heap allocation. Give a reasoned approval condition and a reasoned rejection condition.",
+      "hint": "Ownership is about who must keep an object alive.",
+      "answer": "Approve when the caller clearly outlives every monitor use and replacement can be represented safely, for example by a reference_wrapper. Reject a reference to a local strategy returned from a setup function: it would dangle. A good explanation states the lifetime contract and the allocation tradeoff; simply saying references are faster is insufficient."
+    }
+  ],
+  "lab": {
+    "starter": "exercises/ch20/main.cpp",
+    "solution": "solutions/ch20/main.cpp",
+    "task": "Add Middle as an Estimate implementation. Select it after the existing checks. Do not change Monitor or the original batch. Preserve every starter check and append the new deterministic output line shown by the solution.",
+    "checks": [
+      "Odd unsorted {9,1,2} returns 2.",
+      "Even unsorted {9,1,2,4} returns 3.",
+      "Singleton {0} and repeated {1000,1000} preserve boundaries.",
+      "The original {1,2,9} remains unchanged."
+    ],
+    "answer": "Middle sorts a value copy, so its work cannot reorder the caller’s vector. It checks parity before indexing the lower middle element. A selection algorithm can reduce sorting work for large inputs, but the copied-and-sorted version is clearer at this chapter’s scale and satisfies the same contract."
+  },
+  "glossary": [
+    {
+      "term": "Strategy",
+      "definition": "A replaceable object or callable that supplies one way to perform a task."
+    },
+    {
+      "term": "Context",
+      "definition": "The object that keeps stable work and calls a selected strategy."
+    },
+    {
+      "term": "Precondition",
+      "definition": "A rule that must already hold when an operation begins."
+    }
+  ],
+  "pattern": "Strategy",
+  "problem_title": "Choose a rule without rewriting the monitor",
+  "attachment_alignment": {
+    "epub_section": "Strategy — a family of interchangeable algorithms, client selection, composition, and comparisons with State and Template Method.",
+    "source_files": [
+      "C++/src/Strategy/Conceptual/main.cc",
+      "C++/src/Strategy/Conceptual/Output.txt"
+    ],
+    "intent": "Let one object use different ways of doing the same task without embedding every algorithm in that object. The changing part is the calculation or policy; the surrounding workflow should remain stable when another supported method is added.",
+    "mechanism": "The context holds an object through a shared strategy interface. The client chooses a concrete strategy and supplies it to the context. When work arrives, the context calls that interface rather than testing every algorithm name. Replacing the installed object changes the chosen algorithm without replacing the context. This is composition: one object performs part of its job by using another object.",
+    "roles": [
+      {
+        "role": "Context",
+        "attached": "Context",
+        "example": "Monitor",
+        "responsibility": "Keep the selected algorithm and delegate the varying part of its work."
+      },
+      {
+        "role": "Strategy interface",
+        "attached": "Strategy::doAlgorithm",
+        "example": "Estimate::value",
+        "responsibility": "State the input and result contract that every selectable algorithm follows."
+      },
+      {
+        "role": "Concrete Strategies",
+        "attached": "ConcreteStrategyA and ConcreteStrategyB",
+        "example": "Average and Highest",
+        "responsibility": "Implement different valid algorithms behind the same calling interface."
+      },
+      {
+        "role": "Client",
+        "attached": "clientCode",
+        "example": "main",
+        "responsibility": "Understand the desired policy and choose which strategy the context should use."
+      }
+    ],
+    "source_walkthrough": [
+      "The supplied client creates Context with a unique_ptr holding ConcreteStrategyA. doSomeBusinessLogic calls the installed strategy with the characters aecbd. Strategy A copies those characters into a string and sorts it in ascending order, producing abcde. Context prints the returned string; it contains no ascending-sort implementation of its own.",
+      "The client then calls set_strategy with ConcreteStrategyB. Moving the new unique_ptr replaces the old owned strategy. A second call through the same context sorts in descending order and prints edcba. Both strategies receive the same input and return the same result type. Their ordering rule differs. The sample also defines a no-strategy branch, although its supplied client does not exercise that branch."
+    ],
+    "adaptation": "The new program replaces character sorting with integer estimates over a batch of readings. Average adds the readings and divides once; Highest selects the largest reading. Monitor validates the batch before either strategy runs. The client switches the installed rule and sees average=4 followed by highest=9 for {1,2,9}. Unlike the supplied sample, Monitor forbids an empty strategy and keeps its old rule when a null replacement is rejected. Both programs use exclusive ownership, so the context owns its selected algorithm. Domain checks are added; the replaceable-algorithm mechanism is unchanged.",
+    "recognize": "Find the algorithm boundary, the shared operation, the installed concrete choice, and the client’s selection point. A new Estimate implementation should not require another branch in Monitor::read. Distinct subclasses alone do not demonstrate Strategy: they must be usable as alternative algorithms for the same contextual task.",
+    "contrast": [
+      {
+        "pattern": "State",
+        "distinction": "A state describes the current mode and permitted transitions. Average and Highest do not move a monitor through a lifecycle or select one another. The caller selects a calculation policy."
+      },
+      {
+        "pattern": "Template Method",
+        "distinction": "Template Method puts the fixed algorithm in a base class and replaces steps through inheritance. Strategy stores a separate algorithm object, which this monitor can replace while it remains alive."
+      },
+      {
+        "pattern": "Command",
+        "distinction": "A command packages a particular requested action, often with arguments for later execution. An estimate strategy supplies a reusable way to calculate results for many later batches."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Identify the changing decision",
+        "action": "Ask for one monitor that can report either an average or a peak. First sketch a branch inside read, then ask where a third estimate would be added."
+      },
+      {
+        "stage": "Trace the supplied sample",
+        "action": "Use the same input aecbd twice. Point to the installed strategy as the only reason the two printed strings have different order."
+      },
+      {
+        "stage": "Map roles explicitly",
+        "action": "Replace Context, Strategy, and the two generic class names with Monitor, Estimate, Average, and Highest. Follow read into value on the selected object."
+      },
+      {
+        "stage": "Test an extension",
+        "action": "Use the chapter lab to add the new estimate without editing read. Run the original tests and explain why a rejected null selection leaves Highest installed."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Must Strategy use inheritance and heap allocation?",
+        "answer": "No. A callable or function pointer can express a simple interchangeable algorithm. This class-based version makes roles explicit and supports independently implemented strategy objects."
+      },
+      {
+        "question": "Which class decides whether an empty batch is allowed here?",
+        "answer": "Monitor enforces the shared input boundary before delegation. Its strategy implementations rely on that stated contract when called through Monitor."
+      }
+    ]
+  }
+}

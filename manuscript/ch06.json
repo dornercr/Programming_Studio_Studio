@@ -1,0 +1,374 @@
+{
+  "number": 6,
+  "title": "Adapter",
+  "part": "II - Structural design patterns",
+  "topics": [
+    "Adapter"
+  ],
+  "objectives": [
+    "Translate an existing device API into an application contract.",
+    "Explain borrowing and conversion boundaries.",
+    "Test units, invalid readings, and rounding behavior."
+  ],
+  "sections": [
+    {
+      "heading": "The problem: one program, two meanings of weight",
+      "paragraphs": [
+        "A parcel station decides whether a sample weighs at most two grams. Its application already asks a Scale for grams. A replacement device is not available. The old device returns an integer count of milligrams through milligrams(), and a negative value means the device failed. We must reuse that device without teaching every parcel rule its old spelling, units, and error convention. The answer must preserve fractions: 1,250 milligrams means 1.25 grams.",
+        "For one caller, the simplest reasonable answer is a direct conversion. Read the integer, reject negative results, and divide by 1000.0. A helper function could keep that operation in one place. If every caller can use that helper, stop there. A class does not improve a problem that is already solved clearly. Our added constraint is different: existing rules accept a Scale reference and may receive several kinds of scales at run time."
+      ],
+      "code": "int raw = device.milligrams();\nif (raw < 0) throw std::runtime_error(\"device\");\ndouble grams = raw / 1000.0;",
+      "code_label": "Excerpt — simplest starting point"
+    },
+    {
+      "heading": "The failure that calls for a translator",
+      "paragraphs": [
+        "Passing LegacyScale straight to light_enough does not compile. It is not a Scale, and it has no grams member. Merely renaming milligrams would still leave the wrong unit and would treat a failure signal as a very light parcel. Changing every rule would mix device concerns with parcel rules. Each new device would repeat that work.",
+        "An adapter is an object that makes an existing service meet another interface. An interface is the set of operations and promises callers may use. ScaleAdapter meets Scale by implementing grams. Inside that method it calls the old device, checks its result, and translates the unit. The caller sees grams throughout. The old device does not know that an adapter exists. This is useful at a boundary where two independently developed pieces already disagree."
+      ]
+    },
+    {
+      "heading": "What the C++ mechanism does",
+      "paragraphs": [
+        "The colon in class ScaleAdapter final : public Scale declares public inheritance: the adapter may be used wherever a Scale is required. This is a type relationship, not a statement that the adapter owns a Scale object. The inherited pure virtual function, marked = 0 in Scale, demands an implementation. The override word asks the compiler to check that grams matches it, including its final const. A misspelled name or missing const produces a compile error instead of a hidden new method. final prevents further derivation; this example does not need another layer of subclasses.",
+        "At compilation, the compiler checks that light_enough may call grams through const Scale&. At execution, virtual dispatch selects ScaleAdapter::grams for our actual object. The ampersand makes scale a reference, so the function borrows the existing object rather than copying it. const prevents that call from modifying the object through this interface. It does not prove the physical sensor never changes. Here the simulated device stores one fixed reading, making our printed results repeatable.",
+        "ScaleAdapter also contains a reference, device_. Its constructor stores a connection to a LegacyScale that already exists. No device copy is made; no allocation is needed. The caller must keep that device alive for every adapter call. main creates device first and scale second. Local objects are destroyed in reverse order, so the adapter goes away before the device. Destroying the adapter does not destroy the borrowed device. Scale has a virtual destructor so a future owner holding a base-class pointer can destroy a derived adapter correctly."
+      ]
+    },
+    {
+      "heading": "Units and errors are part of the contract",
+      "paragraphs": [
+        "A boundary must translate meanings, not just names. In grams(), raw is checked before conversion. The value -1 is an error marker, not negative physical weight. Throwing std::runtime_error ends the normal call, so light_enough cannot accidentally accept the parcel. The error reaches the test's matching catch block. The adapter leaves both itself and its device unchanged when the call fails.",
+        "Dividing two integers discards the fractional part. Writing 1000.0 makes the divisor a double; the integer is converted for floating-point division. The returned double represents grams. This does not make floating-point arithmetic exact for every fraction. The test therefore uses a small tolerance when checking 1.25. The exact boundary values used here, two and zero, are represented exactly. A measurement system with strict legal or scientific rounding rules would need an explicit rule and perhaps an integer base unit throughout.",
+        "The contract assumes nonnegative integer milligrams are valid readings and all negatives signal failure. Real devices may distinguish timeout, overload, and calibration errors. An adapter should preserve distinctions the application needs instead of flattening every failure into zero. It should also avoid inventing precision: dividing an integer milligram count does not create a more precise measurement."
+      ]
+    },
+    {
+      "heading": "Composition and multiple inheritance",
+      "paragraphs": [
+        "C++ also permits a class to inherit from two bases. A class adapter could inherit from Scale and LegacyScale, then use the inherited milligrams member. That approach may fit a legacy class designed for derivation, especially when overriding its virtual behavior is necessary. However, the adapter then contains its own legacy base subobject. It cannot automatically wrap the device instance that the application already owns. Public inheritance from the legacy type can also expose operations the new interface was meant to hide.",
+        "Our object adapter uses composition in the broad design sense of holding a connection to another object. The connection is borrowing, so the diagram uses a dependency arrow rather than an ownership diamond. It keeps lifetime policy with main and permits several adapters to view one device when that is intended. If the adapter should control the device's lifetime, a value member or unique_ptr would state a different ownership rule. Choose that rule from the actual device lifecycle, not from the pattern's name.",
+        "When debugging an adapter, write down three things before changing code: the input unit and error range, the target unit and error contract, and the lifetime owner. A wrong answer can come from any of them. When replacing a device library, keep the parcel tests unchanged and add device-specific adapter tests. That small boundary limits how far vendor changes travel through the program."
+      ]
+    }
+  ],
+  "focus": [
+    {
+      "title": "Store a borrowed connection",
+      "start": "const LegacyScale& device_;",
+      "end": "// Borrow.",
+      "what": "The adapter remembers an existing device without taking ownership.",
+      "where": "This member and constructor connect the new interface to the old service.",
+      "why": "Wrapping the actual device avoids copying device state or changing its class.",
+      "invariant": "The device outlives every use of this adapter.",
+      "risk": "A reference to a destroyed device is a dangling reference.",
+      "explain": [
+        "Declare a read-only reference to the legacy object.",
+        "Make the constructor callable by outside code.",
+        "The comment states the lifetime obligation.",
+        "Begin an explicit constructor; implicit conversions are unwanted.",
+        "Accept a reference to the existing device.",
+        "Initialize the reference member; the empty body needs no work."
+      ]
+    },
+    {
+      "title": "Translate a reading without hiding failure",
+      "start": "double grams() const override {",
+      "end": "// End conversion.",
+      "what": "Convert a valid milligram reading into fractional grams.",
+      "where": "This is the one operation the existing application calls.",
+      "why": "Error handling and unit conversion belong together at the device boundary.",
+      "invariant": "A returned value is nonnegative grams; a failed device produces no value.",
+      "risk": "Integer division loses fractions; missing validation turns failure into a light parcel.",
+      "explain": [
+        "Implement the const virtual function required by Scale.",
+        "The comment identifies the old device error convention.",
+        "Read the device exactly once and keep that integer.",
+        "Test the raw error range before doing arithmetic.",
+        "Begin construction and throwing of a runtime error.",
+        "Supply the error message and end the throw statement.",
+        "Close the failure branch; valid readings continue.",
+        "Divide with a floating-point divisor to preserve fractions.",
+        "Close the conversion method."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "device.raw_ = 1250",
+      "reason": "main owns the old device and the adapter borrows it."
+    },
+    {
+      "step": "2",
+      "state": "raw = 1250; raw < 0 is false",
+      "reason": "The reading is accepted as a measurement."
+    },
+    {
+      "step": "3",
+      "state": "grams = 1.25; light_enough = 1",
+      "reason": "Division changes the unit; 1.25 is at most 2.0."
+    },
+    {
+      "step": "4",
+      "state": "failed.raw_ = -1; exception",
+      "reason": "No negative error marker is returned as grams."
+    }
+  ],
+  "summary": [
+    "Adapt meanings, units, and failures as well as function names.",
+    "Prefer a helper when no interface mismatch requires an object.",
+    "A reference member borrows; it does not manage lifetime.",
+    "Use override to check the promised virtual signature.",
+    "Test the adapter boundary and the unchanged application rule."
+  ],
+  "exercises": [
+    {
+      "id": "06.1",
+      "level": "Guided modification",
+      "prompt": "Change only the parcel limit in light_enough to 1.25 grams. What should it return for raw readings 1250 and 1251?",
+      "hint": "Convert before comparing; equality is permitted.",
+      "answer": "It returns true and false. The unchanged adapter produces 1.25 and 1.251. Keep the comparison <= so exactly the allowed weight passes."
+    },
+    {
+      "id": "06.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "In examples/ch06/main.cpp replace device(1250) with device(1999), ignore the old checks, and trace grams() followed by light_enough(scale). State both results.",
+      "hint": "The divisor is a double.",
+      "answer": "grams returns 1.999, and light_enough returns true. raw is nonnegative and 1.999 <= 2.0. No rounding to a whole gram occurs."
+    },
+    {
+      "id": "06.3",
+      "level": "Diagnose a bug",
+      "prompt": "A developer writes return static_cast<double>(raw / 1000); after checking raw. What happens for 1999, and how should it be repaired?",
+      "hint": "Ask which operation happens before the cast.",
+      "answer": "It returns 1.0. Integer division has already lost 999 milligrams. Use raw / 1000.0 or convert raw to double before division; a cast after division cannot recover the remainder."
+    },
+    {
+      "id": "06.4",
+      "level": "Choose a design",
+      "prompt": "A one-file script reads one device once, and no caller accepts Scale. Choose a free helper or an adapter class and explain the deciding constraint.",
+      "hint": "The object interface exists to satisfy an actual caller.",
+      "answer": "Use a free helper that validates and converts. No runtime interface needs an adapter object. Choose the class when callers already use Scale or need interchangeable device implementations."
+    },
+    {
+      "id": "06.5",
+      "level": "Extend without regressions",
+      "prompt": "Add a test for raw -20 without removing the -1 test. What behavior must remain unchanged?",
+      "hint": "Negative is the documented error range, not one magic number.",
+      "answer": "Construct another LegacyScale and ScaleAdapter; catch runtime_error from grams and require that it was thrown. Valid readings, fractional output, and the two-gram boundary remain unchanged. Testing only -1 could miss an incorrect equality check."
+    },
+    {
+      "id": "06.6",
+      "level": "Justify a decision",
+      "prompt": "A teammate proposes that ScaleAdapter delete its device in its destructor. Give a plain-English rejection and one safe owning alternative.",
+      "hint": "Ownership follows how an object was created and transferred.",
+      "answer": "Reject the deletion: main owns a local device, so deleting it as though it came from new is invalid. If the adapter must own a heap device, accept unique_ptr<LegacyScale> and move it into a unique_ptr member. Then the constructor clearly transfers ownership."
+    }
+  ],
+  "glossary": [
+    {
+      "term": "Adapter",
+      "definition": "A boundary object that translates an existing service into a contract another caller needs."
+    },
+    {
+      "term": "Adaptee",
+      "definition": "The existing service whose interface or meaning must be translated."
+    },
+    {
+      "term": "Class adapter",
+      "definition": "An adapter implemented by inheriting from a target interface and a legacy class."
+    },
+    {
+      "term": "Unit contract",
+      "definition": "The agreement about what physical unit a number represents."
+    }
+  ],
+  "example": {
+    "title": "A gram-based parcel rule",
+    "file": "examples/ch06/main.cpp",
+    "requirements": [
+      "Accept an existing LegacyScale without changing its class.",
+      "Return fractional grams and reject every negative raw reading.",
+      "Accept exactly two grams and reject a heavier sample."
+    ],
+    "design": "Use one borrowing adapter because the existing rule depends on Scale and the physical device already has an owner. Keep conversion and device-error checks together.",
+    "alternative": "A free conversion function is simpler if all callers can use it. A multiple-inheritance adapter can reuse protected legacy behavior but ties the adapter to a legacy base subobject and its construction rules.",
+    "invariants": [
+      "The adapter never owns or deletes device_.",
+      "A successful grams call returns a nonnegative value in grams.",
+      "Device failure never becomes a successful parcel decision."
+    ],
+    "failures": [
+      {
+        "mistake": "Divide raw by integer 1000.",
+        "consequence": "A raw value of 1250 becomes 1 gram instead of 1.25.",
+        "reason": "Integer division discards the remainder before conversion to double."
+      },
+      {
+        "mistake": "Convert -1 without checking it.",
+        "consequence": "The rule reports the failed reading as light enough because -0.001 <= 2.0.",
+        "reason": "A device status is being treated as a measurement."
+      },
+      {
+        "mistake": "Return an adapter that refers to a local device.",
+        "consequence": "A later grams call accesses an object whose lifetime has ended; behavior is undefined.",
+        "reason": "References do not extend the lifetime of arbitrary local objects."
+      }
+    ],
+    "verification": "The executable checks 1250, zero, the 2000 boundary, 2001, and -1. It verifies both the translated value and the client rule. It does not test real hardware timing or every possible device error.",
+    "maintenance": "Keep the adapter next to the integration code. Application rules should speak in application units and depend on stable contracts."
+  },
+  "diagram": {
+    "kind": "class",
+    "title": "A new contract around an old device",
+    "nodes": [
+      {
+        "id": "S",
+        "label": "Target: Scale",
+        "code": [
+          "virtual double grams() const = 0;"
+        ]
+      },
+      {
+        "id": "A",
+        "label": "Adapter: ScaleAdapter",
+        "code": [
+          "const LegacyScale& device_;",
+          "return raw / 1000.0;"
+        ]
+      },
+      {
+        "id": "L",
+        "label": "Adaptee: LegacyScale",
+        "code": [
+          "int milligrams() const { return raw_; }"
+        ]
+      },
+      {
+        "id": "C",
+        "label": "Client: light_enough",
+        "code": [
+          "return scale.grams() <= 2.0;"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "A",
+        "to": "S",
+        "kind": "inheritance",
+        "label": "is usable as"
+      },
+      {
+        "from": "A",
+        "to": "L",
+        "kind": "dependency",
+        "label": "borrows; calls milligrams"
+      },
+      {
+        "from": "C",
+        "to": "S",
+        "kind": "dependency",
+        "label": "requires grams contract"
+      }
+    ],
+    "explanation": "The hollow triangle points from adapter to Scale. Dashed dependencies mean use, not ownership. light_enough calls grams; the adapter reads raw milligrams, checks the error range, and returns grams. Teaching panels describe those operations and are not extra UML edges."
+  },
+  "lab": {
+    "starter": "exercises/ch06/main.cpp",
+    "solution": "solutions/ch06/main.cpp",
+    "task": "Add an optional nonnegative finite calibration offset in grams to ScaleAdapter. The default is zero. Subtract it after successful unit conversion. Reject negative results instead of clamping them. Keep all original tests and device-error behavior.",
+    "checks": [
+      "1250 with offset 0.25 returns 1.0.",
+      "1250 with offset 1.25 returns zero.",
+      "1250 with offset 2.0 throws; a negative offset is rejected at construction.",
+      "Default construction preserves every original result."
+    ],
+    "answer": "The solution stores the offset by value, checks std::isfinite and its sign once in the constructor, and checks the adjusted reading on each call. Calibration belongs in this adapter only if it is part of the device-to-application contract; a separate calibrated Scale wrapper is reasonable when many scale types need independent calibration."
+  },
+  "pattern": "Adapter",
+  "problem_title": "Read an old device without spreading its quirks",
+  "attachment_alignment": {
+    "epub_section": "Adapter — OEBPS/design-patterns__adapter.xhtml",
+    "source_files": [
+      "C++/src/Adapter/Conceptual/Normal/main.cc",
+      "C++/src/Adapter/Conceptual/Normal/Output.txt",
+      "C++/src/Adapter/Conceptual/MultipleInheritance/main.cc",
+      "C++/src/Adapter/Conceptual/MultipleInheritance/Output.txt"
+    ],
+    "intent": "Make an already useful object usable through the interface a caller already requires. The attached EPUB motivates this with incompatible data formats and a square peg presented as a round peg. Both problems demand a translator at the boundary. Learning Adapter means recognizing that mismatch before choosing inheritance or a wrapper.",
+    "mechanism": "The client calls the target operation. An adapter satisfies that target contract, calls the existing service through its different interface, and translates the result. In the normal attached C++ variant, Adapter inherits Target and stores an Adaptee pointer. In the multiple-inheritance variant, Adapter inherits both Target and Adaptee; Request calls the inherited SpecificRequest. That second adapter has its own Adaptee base subobject. It does not wrap the separate adaptee allocated by main.",
+    "roles": [
+      {
+        "role": "Client",
+        "attached": "ClientCode",
+        "example": "light_enough",
+        "responsibility": "Use the required contract without learning the old service interface."
+      },
+      {
+        "role": "Target / Client interface",
+        "attached": "Target::Request",
+        "example": "Scale::grams",
+        "responsibility": "Define the operation and meaning that callers expect."
+      },
+      {
+        "role": "Adaptee / Service",
+        "attached": "Adaptee::SpecificRequest",
+        "example": "LegacyScale::milligrams",
+        "responsibility": "Provide the existing behavior in its original form."
+      },
+      {
+        "role": "Adapter",
+        "attached": "Adapter::Request",
+        "example": "ScaleAdapter::grams",
+        "responsibility": "Translate calls and results while preserving the target contract."
+      }
+    ],
+    "source_walkthrough": "ClientCode first receives a Target and prints its default behavior. A direct SpecificRequest call then prints the reversed sentence .eetpadA eht fo roivaheb laicepS. Finally, ClientCode receives Adapter through a Target pointer. Request calls SpecificRequest, reverses the returned string with std::reverse, and returns the translated sentence. The last output line is Adapter: (TRANSLATED) Special behavior of the Adaptee. Both attached implementations produce that same translated line. Equal output does not imply equal object relationships: one follows a stored pointer; the other uses an inherited base subobject.",
+    "adaptation": "The original teaching program replaces string reversal with a measurement mismatch: integer milligrams and negative error signals must become valid fractional grams or an exception. The unchanged parcel rule supplies a concrete reason for the Scale interface. A reference replaces the attached normal variant’s borrowed raw pointer, expressing a required non-null connection; main still owns the device. The target is abstract here because no useful default grams implementation exists. We retain the object-adapter implementation and explain the multiple-inheritance alternative separately: deriving from a legacy type can expose unwanted operations and cannot automatically adapt a device object that already exists. Manual new/delete and a second legacy base subobject are omitted because neither is required by this integration.",
+    "recognize": "Look for a caller-facing contract and a different service-facing contract, joined by actual translation. Delegation alone is not enough. If the two operations already have the same meaning and interface, identify what problem remains before calling the wrapper an Adapter.",
+    "contrast": [
+      {
+        "pattern": "Decorator",
+        "distinction": "A Decorator preserves a component interface while adding a layer of behavior; Adapter reconciles a mismatch between interfaces or meanings."
+      },
+      {
+        "pattern": "Bridge",
+        "distinction": "Bridge separates two dimensions intended to vary independently. Adapter usually joins pieces that already disagree."
+      },
+      {
+        "pattern": "Facade",
+        "distinction": "A Facade offers a convenient task-level entrance to a subsystem; an Adapter must satisfy a specific client contract."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Expose the mismatch",
+        "action": "Write the client’s expected method, units, and failure rule beside the existing service’s method, units, and failure rule."
+      },
+      {
+        "stage": "Trace the attachment",
+        "action": "Follow ClientCode to Request to SpecificRequest. Ask students to identify the exact translation rather than just circle the class named Adapter."
+      },
+      {
+        "stage": "Compare the two variants",
+        "action": "Draw a stored Adaptee connection for Normal and an inherited Adaptee subobject for MultipleInheritance. Explain why only the first wraps the separately created object."
+      },
+      {
+        "stage": "Transfer and verify",
+        "action": "Map the four roles to the scale example. Trace 1250 and -1, then repair integer division without changing light_enough."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Why is merely renaming milligrams to grams an incorrect Adapter?",
+        "answer": "It leaves units and error meanings wrong. The target contract requires conversion and rejection, not only a matching method name."
+      },
+      {
+        "question": "Does the attached multiple-inheritance Adapter adapt the Adaptee object separately allocated in main?",
+        "answer": "No. Its inherited SpecificRequest operates on its own Adaptee base subobject. The separate object is used only for the direct demonstration."
+      }
+    ]
+  }
+}

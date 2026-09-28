@@ -1,0 +1,384 @@
+{
+  "number": 3,
+  "title": "Builder",
+  "part": "I - Creational design patterns",
+  "topics": [
+    "Builder",
+    "construction boundary",
+    "director",
+    "immutable snapshot"
+  ],
+  "objectives": [
+    "Separate incomplete setup data from usable product objects.",
+    "Validate per-step and whole-product rules at the right boundaries.",
+    "Explain builder reuse, product independence, and optional directors."
+  ],
+  "sections": [
+    {
+      "heading": "The plan has rules that span several inputs",
+      "paragraphs": [
+        "A teaching session planner needs a title and between one and three timed activities. Each activity lasts from 1 through 60 minutes, and the whole plan lasts no more than 90 minutes. A valid plan can be handed to a presenter. An unfinished draft cannot. The title and durations arrive in separate setup steps, perhaps from a form or a configuration reader.",
+        "The simplest implementation is a struct with a title and a vector of minutes. Fill the fields and then call validate before using it. That can be enough in a short local function. The difficulty appears when the draft escapes to other code before validation or when one caller forgets the check. The same type then means both “possibly incomplete” and “safe to present.”"
+      ],
+      "code": "struct Draft {\n    std::string title;\n    std::vector<int> minutes;\n};\nDraft draft;\ndraft.title = \"Introduction\";\ndraft.minutes = {20, 30};",
+      "code_label": "Excerpt — simplest approach before the redesign"
+    },
+    {
+      "heading": "Separate the draft from the finished product",
+      "paragraphs": [
+        "A builder is an object that gathers construction choices in steps and produces a usable product when those choices are complete. This is the Builder pattern. PlanBuilder can be incomplete. Plan cannot be created through the public interface until build succeeds. The design makes the boundary visible: collecting settings is different from possessing a valid plan.",
+        "named sets a nonempty title. add accepts one valid activity while respecting the three-activity limit. build checks rules that need the whole draft: a title exists, at least one activity exists, and the sum is at most 90. A draft with two 60-minute activities can exist, but build rejects it. That is deliberate; intermediate choices are not claimed to be a finished plan. A form could let a user edit such a draft before trying again."
+      ]
+    },
+    {
+      "heading": "Why friendship is narrow here",
+      "paragraphs": [
+        "Plan has a private constructor and private data. friend class PlanBuilder grants this one named class access to the private constructor. Friendship is permission, not inheritance, ownership, or automatic trust in every caller. It is not symmetric or transitive. The builder is responsible for checking its draft before using that permission. No other public function in this example can create an invalid Plan by filling fields afterward.",
+        "The finished Plan exposes a title reference for reading and a computed total. Its public interface has no setters. Calling title returns a borrowed const string reference, valid only while that Plan remains alive and unchanged by assignment or movement. Returning a copy would provide a simpler lifetime contract at the cost of copying the title. Do not retain the borrowed reference after the plan dies.",
+        "build returns Plan by value. The constructor receives a string and vector by value and moves those parameters into its members. Because build itself is const and passes its own members as lvalues, the constructor parameters are copies of the draft. The resulting plan therefore owns independent data. Later builder changes cannot alter earlier products. Plan explicitly defaults its copy constructor. This suppresses implicit move operations, so constructing or assigning it from an rvalue uses copying instead and leaves the source valid. Moving the builder’s temporary constructor parameters into the new product is still safe: those parameters are ordinary local values, not previously published plans. C++17 can construct the returned product directly in its destination; correctness must not depend on counting visible copy calls."
+      ]
+    },
+    {
+      "heading": "Chaining steps does not create magic",
+      "paragraphs": [
+        "named and add return PlanBuilder&, a reference to the same builder. return *this dereferences the implicit this pointer to refer to the current object. This supports builder.named(\"Practice\").add(30).add(30): each call returns the object on which the next call operates. Chaining is an optional convenience. It is not what makes the design Builder; staged construction and the valid-product boundary are the important parts.",
+        "The member functions check invalid values before changing their vectors or titles. A rejected add(0) leaves the existing draft unchanged. A fourth activity is rejected even if it would fit the time total, because count and total are separate rules. The maximum sum of a draft is 180, so this example’s int arithmetic cannot overflow on the required compiler platform. A production planner with unbounded counts needs a different bound or checked accumulation.",
+        "The program demonstrates two snapshots from one builder. After 30 and 30, first totals 60. Adding another 30 produces second at 90. first still totals 60 because it owns its own copied durations. build does not reset the builder in this design. That policy is part of its contract, not a universal rule. A consuming builder might move data out and require a reset; a reusable builder might return snapshots, as ours does."
+      ]
+    },
+    {
+      "heading": "A director is just a reusable recipe",
+      "paragraphs": [
+        "introduction records a repeated sequence of builder calls. Such a recipe is called a director in the classic Builder vocabulary. A director does not have to be a class. Here an ordinary function creates a builder, names the plan, adds two activities, and returns the result. The caller receives a Plan without knowing every construction step. If no recipe repeats, callers can drive the builder directly.",
+        "The broader Builder pattern can use one recipe with different builders to produce different representations, such as an executable session plan and a printed outline. Those products need not share a base type. A common step interface can express named and add, while each concrete builder exposes its own finished result. A function template can also apply one recipe to builders with matching operations. Introduce that machinery only when the second representation exists; one valid-plan builder does not need an abstract builder hierarchy.",
+        "For a small object with two required values available at once, a checked constructor or a named factory function is simpler. A builder becomes valuable when many optional choices accumulate, validation spans choices, or setup order and product readiness need clear separation. A fluent chain of trivial setters on a publicly mutable product does not provide the same guarantee. Ask what invalid state the design prevents, not how attractive the chained syntax looks."
+      ]
+    }
+  ],
+  "example": {
+    "title": "A staged planner that publishes independent snapshots",
+    "file": "examples/ch03/main.cpp",
+    "requirements": [
+      "Require a nonempty title and 1–3 activities.",
+      "Accept activity durations 1–60 minutes and finished totals at most 90.",
+      "Keep earlier products unchanged when the builder changes or rejects a step."
+    ],
+    "design": "PlanBuilder stores draft values and alone can call the private Plan constructor after validation. Products own copied data and expose only read access, so partial setup cannot leak through the product API.",
+    "alternative": "A checked Plan(title, durations) constructor is smaller when all data is available together. A validated factory function also works. The builder is justified by staged input and reusable construction recipes.",
+    "invariants": [
+      "Every successfully built or copied Plan has a title, valid activity count, valid durations, and total at most 90.",
+      "The builder may be incomplete but never publishes that state as a Plan.",
+      "Previously built snapshots are independent of later builder changes."
+    ],
+    "failures": [
+      {
+        "mistake": "Return a reference to builder-owned draft storage as the finished product.",
+        "consequence": "The 60-minute first snapshot would change when a third 30-minute activity is added, or dangle when the builder dies.",
+        "reason": "The apparent finished product does not own independent data."
+      },
+      {
+        "mistake": "Validate each duration but never validate the total.",
+        "consequence": "A plan with {60,60} is published at 120 minutes.",
+        "reason": "Per-item validity does not imply whole-product validity."
+      }
+    ],
+    "verification": "main checks the introduction recipe, independent 60 and 90 minute snapshots, incomplete build, zero duration, fourth activity, and a 120-minute total. Checks use explicit failures that remain active in optimized builds. They do not exercise interactive form editing or memory-allocation failure.",
+    "maintenance": "Place readiness rules at the build boundary and keep the draft type out of execution APIs. Later changes to plan validity then have one obvious place for checks and regression tests."
+  },
+  "diagram": {
+    "kind": "activity",
+    "title": "Draft steps end at a checked publication boundary",
+    "nodes": [
+      {
+        "id": "D",
+        "label": "Builder draft\nPlanBuilder",
+        "code": [
+          "std::string title_;",
+          "std::vector<int> minutes_;",
+          "// Incomplete state is permitted here."
+        ]
+      },
+      {
+        "id": "A",
+        "label": "Builder step\nPlanBuilder::add",
+        "code": [
+          "minutes_.push_back(minutes);",
+          "return *this;"
+        ]
+      },
+      {
+        "id": "B",
+        "label": "Finish step\nPlanBuilder::build",
+        "code": [
+          "if (total > 90)",
+          "// Also require title and activity."
+        ]
+      },
+      {
+        "id": "P",
+        "label": "Product\nPlan",
+        "code": [
+          "return Plan(title_, minutes_);",
+          "// Product owns independent copies."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "A",
+        "kind": "flow",
+        "label": "valid next duration",
+        "from": "D"
+      },
+      {
+        "to": "D",
+        "kind": "flow",
+        "label": "continue drafting",
+        "from": "A"
+      },
+      {
+        "to": "B",
+        "kind": "flow",
+        "label": "build requested",
+        "from": "D"
+      },
+      {
+        "to": "P",
+        "kind": "flow",
+        "label": "all final rules hold",
+        "from": "B"
+      }
+    ],
+    "explanation": "Flow arrows describe construction steps, not class inheritance. Rejected steps throw and leave the normal path. The final Plan is a separate value, not the same draft renamed. The builder can keep drafting after publishing a snapshot. The comments are teaching annotations; they do not add state transitions to the implementation."
+  },
+  "focus": [
+    {
+      "title": "Validate before publishing the finished value",
+      "start": "        // A draft is not yet a Plan.",
+      "end": "        return Plan(title_, minutes_);",
+      "what": "This operation decides whether draft choices form a usable plan.",
+      "where": "The PlanBuilder boundary between setup and execution.",
+      "why": "Rules involving the entire object cannot be checked by one duration setter.",
+      "invariant": "Only complete drafts with total at most 90 become Plan values.",
+      "risk": "Checking each add alone would allow an invalid 120-minute total.",
+      "explain": [
+        "The comment distinguishes draft state from valid product state.",
+        "Check whether the required title is missing.",
+        "Also reject a draft with no activities.",
+        "Begin constructing an exception for an incomplete draft.",
+        "Supply the message and throw without publishing a product.",
+        "Begin accumulating durations into an integer starting at zero.",
+        "Pass the iterator marking the first activity.",
+        "Pass the past-the-end iterator and zero as the initial sum.",
+        "Check the whole-plan limit after computing the sum.",
+        "Begin constructing an error for an overlong draft.",
+        "Supply too long as its message and reject publication.",
+        "Copy the checked draft data into an independently owned Plan."
+      ]
+    },
+    {
+      "title": "Use a named recipe when the sequence repeats",
+      "start": "Plan introduction() {",
+      "end": "    return builder.build();",
+      "what": "This function records the standard introduction plan recipe.",
+      "where": "A caller-facing helper above main.",
+      "why": "Repeated construction choices should have one named home.",
+      "invariant": "The same builder validation applies to recipe-built products.",
+      "risk": "A recipe must not bypass build or expose the unfinished builder as a Plan.",
+      "explain": [
+        "Declare a function that returns a completed Plan by value.",
+        "The comment names this repeated recipe as the director.",
+        "Create an empty local draft builder.",
+        "Set the required title.",
+        "Add two durations; the reference return enables chaining.",
+        "Ask the builder to validate and return its finished product."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "builder: title=Practice; minutes={30,30}",
+      "reason": "The client gathers a valid draft in separate calls."
+    },
+    {
+      "step": "2",
+      "state": "first owns {30,30}; total=60",
+      "reason": "build validates and copies the draft."
+    },
+    {
+      "step": "3",
+      "state": "builder minutes={30,30,30}; second total=90",
+      "reason": "A later add affects only draft storage."
+    },
+    {
+      "step": "4",
+      "state": "first total remains 60; fourth add rejected",
+      "reason": "Products own separate vectors and the draft count limit is enforced."
+    }
+  ],
+  "summary": [
+    "Builder separates staged draft data from valid product objects.",
+    "Check local rules before each mutation and whole-product rules at build.",
+    "Define whether build copies, consumes, or resets draft data.",
+    "A director is a reusable construction recipe and may be a function.",
+    "Prefer a checked constructor when staged setup solves no real problem."
+  ],
+  "exercises": [
+    {
+      "id": "03.1",
+      "level": "Guided modification",
+      "prompt": "Change introduction to add 15 and 25 minutes. State the new total and whether the finished plan remains valid.",
+      "hint": "Check count, per-item range, and total separately.",
+      "answer": "The total becomes 40. There are two activities, each lies from 1 through 60, the total is at most 90, and the title remains nonempty. Update the expected total and displayed line together."
+    },
+    {
+      "id": "03.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Create a builder named Review, add 20, and build a. Then add 10 and build b. What do a.total(), b.total(), and a.title() return?",
+      "hint": "build copies the draft rather than returning a reference.",
+      "answer": "They return 20, 30, and \"Review\". The second add changes the builder vector, while a retains its own first snapshot. Both builds leave the title in the reusable draft."
+    },
+    {
+      "id": "03.3",
+      "level": "Diagnose a bug",
+      "prompt": "A builder accepts add(60).add(60), and a changed build omits its total check. Which invariant breaks, and what is the erroneous product total?",
+      "hint": "Both individual durations are valid.",
+      "answer": "The product total is 120, violating the 90-minute whole-plan limit. Restore aggregate validation in build. Rejecting every 60-minute activity would be an incorrect repair because one 60-minute activity is allowed."
+    },
+    {
+      "id": "03.4",
+      "level": "Choose a design",
+      "prompt": "A coordinate object needs two mandatory integers supplied together. A session plan receives title and optional activities from separate form steps. Choose a checked constructor or builder for each.",
+      "hint": "The need is staged readiness, not chained method syntax.",
+      "answer": "Use a checked constructor for the coordinate unless another construction problem exists. Use a builder for the plan because its draft can remain incomplete across several input steps and only validated products should escape. A named factory remains reasonable if the form already collects all values before object creation."
+    },
+    {
+      "id": "03.5",
+      "level": "Extend without regressions",
+      "prompt": "Add reset() to PlanBuilder. It must clear title and durations, permit reuse, and leave every existing Plan unchanged. Calling reset twice must be safe.",
+      "hint": "The builder owns its own string and vector.",
+      "answer": "The solution clears both draft members. build immediately afterward throws incomplete. A new named 10-minute plan succeeds, while previous totals remain 60 and 90. Two consecutive resets leave the same empty draft state."
+    },
+    {
+      "id": "03.6",
+      "level": "Justify a decision",
+      "prompt": "A reviewer asks whether build should automatically empty the draft after returning a product. Give one reason for each policy and state this chapter’s choice.",
+      "hint": "A policy change affects repeated calls and saved recipes.",
+      "answer": "Automatic reset suits a one-shot builder where accidental reuse would repeat stale options. Snapshot behavior suits comparing nearby plans and repeated builds from a standard draft. This chapter chooses snapshots, so build is const and later calls preserve current choices. Either design needs explicit documentation and tests; silently switching would break caller expectations."
+    }
+  ],
+  "lab": {
+    "starter": "exercises/ch03/main.cpp",
+    "solution": "solutions/ch03/main.cpp",
+    "task": "Add a public reset() operation that clears all draft choices without changing published plans. Preserve every existing check. Verify incomplete state after reset, successful reuse, independent old snapshots, and safe repeated reset.",
+    "checks": [
+      "build immediately after reset throws logic_error.",
+      "After reset, add(10) without named still cannot build, proving the title was cleared.",
+      "named(\"Fresh\").add(10).build() has title Fresh and total 10.",
+      "Previously built plans still total 60 and 90.",
+      "Two consecutive resets are safe and leave no activity choices."
+    ],
+    "answer": "The reference implementation calls clear on the draft string and vector. It does not need to touch any Plan because products own their own copies. A reset that only cleared durations would leave a stale title and violate the requested all-choices-cleared behavior. The added test supplies a duration without a new title and requires build to reject, so it catches that specific faulty reset."
+  },
+  "glossary": [
+    {
+      "term": "Builder",
+      "definition": "An object that collects construction choices in steps and produces a completed product."
+    },
+    {
+      "term": "Director",
+      "definition": "A reusable recipe that calls builder steps in a chosen sequence."
+    },
+    {
+      "term": "Snapshot",
+      "definition": "An independent value representing data at one point in time."
+    },
+    {
+      "term": "Friend declaration",
+      "definition": "A C++ declaration granting a named class or function access to private and protected members."
+    }
+  ],
+  "pattern": "Builder",
+  "problem_title": "Build a valid plan from an unfinished draft",
+  "attachment_alignment": {
+    "epub_section": "Builder — staged construction, common construction steps, concrete builders, optional director, and products with different representations.",
+    "source_files": [
+      "C++/src/Builder/Conceptual/main.cc",
+      "C++/src/Builder/Conceptual/Output.txt",
+      "C++/src/Builder/RealWorld/main.cc",
+      "C++/src/Builder/RealWorld/Output.txt"
+    ],
+    "intent": "Builder separates the steps that assemble a product from the completed product itself. The attached chapter motivates this with many house options and later shows vehicle/manual representations. The problem is a growing construction process, rather than choosing a single class with one call.",
+    "mechanism": "A builder retains work between construction steps. A director can package a repeatable sequence of those steps, while the client obtains the finished result from the builder. Different builders can interpret the same steps to produce different representations; their products need not share a base class. A chain of calls is optional syntax. The lasting design distinction is the separate construction process and product.",
+    "roles": [
+      {
+        "role": "Builder interface",
+        "attached": "Builder::ProducePartA/B/C",
+        "example": "PlanBuilder::named/add/build",
+        "responsibility": "Provides construction steps. Our single implementation needs no separate abstract base."
+      },
+      {
+        "role": "Concrete builder",
+        "attached": "ConcreteBuilder1; html::ElementBuilder",
+        "example": "PlanBuilder",
+        "responsibility": "Stores the developing state and performs the actual assembly work."
+      },
+      {
+        "role": "Product",
+        "attached": "Product1; html::Element",
+        "example": "Plan",
+        "responsibility": "Represents the result handed to the caller after construction."
+      },
+      {
+        "role": "Director",
+        "attached": "Director::BuildMinimalViableProduct/BuildFullFeaturedProduct",
+        "example": "introduction()",
+        "responsibility": "Reuses a chosen sequence of steps. A function can perform this role without a director class."
+      },
+      {
+        "role": "Client",
+        "attached": "ClientCode; main in the HTML example",
+        "example": "main",
+        "responsibility": "Chooses the builder or recipe and receives finished products."
+      }
+    ],
+    "source_walkthrough": "The conceptual client creates ConcreteBuilder1, assigns its borrowed address to Director, and requests the minimal recipe. The director calls ProducePartA, which appends PartA1. GetProduct saves the current Product1 pointer, resets the builder to a fresh product, and transfers the old pointer to the caller. ListParts prints PartA1, then the caller deletes that product. The full recipe appends A, B, C to the fresh product, yielding PartA1, PartB1, PartC1. Finally the client directly invokes A and C, showing that Director is optional. These sequences agree with the attached conceptual output. In the real-world sample, ElementBuilder begins with a body element, add_child appends the h1, h2, paragraph, h2, paragraph children, and each call returns the same builder. Conversion to Element copies the assembled root; printing walks that element tree.",
+    "adaptation": "The planner preserves stored construction state, repeated steps, result retrieval, and a director recipe. PlanBuilder replaces ConcreteBuilder1; introduction replaces a Director method. It also follows the real-world sample's fluent-call and value-result approach. The important policy change is explicit: our build returns an independent snapshot without resetting the builder, whereas conceptual GetProduct hands off a pointer and resets. We add a validity boundary, so an incomplete draft cannot escape as a usable Plan. Only one representation is needed, so there is no abstract Builder hierarchy. We omit HTML tags, compatibility macros, and a second representation to keep the construction rules visible. The attachment's broader multiple-builder form remains useful when the same recipe must generate genuinely different products; it is not required solely to earn the pattern name.",
+    "recognize": "Find an object that retains partial construction choices, operations that add or change those choices, and a defined way to receive the result. Then identify whether a repeated recipe acts as director. Explain the result/reset policy; do not identify Builder solely from dots in a chained expression.",
+    "contrast": [
+      {
+        "pattern": "Abstract Factory",
+        "distinction": "Abstract Factory selects matching ready-to-use family members. Builder assembles a result through several steps; alternate builders can even produce unrelated result types."
+      },
+      {
+        "pattern": "Prototype",
+        "distinction": "Prototype begins with an existing configured object and clones it. Builder begins with construction choices and assembles them; either can be simpler for different setup needs."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Expose incomplete state",
+        "action": "Begin with a public draft struct. Ask what happens if another function treats its empty title as a finished session."
+      },
+      {
+        "stage": "Trace both policies",
+        "action": "Trace conceptual GetProduct through ownership transfer and reset, then trace build through copying without reset. Compare what the next step changes."
+      },
+      {
+        "stage": "Reuse a recipe",
+        "action": "Identify introduction as the director. Propose an outline-producing builder and decide which common steps the recipe would need before introducing an interface."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Must a Builder use method chaining or have a Director class?",
+        "answer": "Neither is required. Separate assembly steps and a result contract matter; clients can call steps directly, and a function can hold a repeated recipe."
+      },
+      {
+        "question": "Why does adding a third activity leave the first 60-minute Plan unchanged?",
+        "answer": "build copied the title and durations into an independent product. The builder and first Plan do not share mutable duration storage."
+      }
+    ]
+  }
+}

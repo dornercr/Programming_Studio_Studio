@@ -1,0 +1,369 @@
+{
+  "number": 19,
+  "title": "State",
+  "part": "III - Behavioral design patterns",
+  "topics": [
+    "State",
+    "state machines",
+    "transition contracts",
+    "safe state replacement"
+  ],
+  "objectives": [
+    "Map permitted events to explicit state transitions.",
+    "Separate rejected events from accepted transitions.",
+    "Replace a state only after its current handler has returned."
+  ],
+  "sections": [
+    {
+      "heading": "The problem: one session, different rules at different times",
+      "paragraphs": [
+        "A local data-import session begins idle. A begin event makes it active. A finish event is accepted only while active and moves it to done. A reset event is accepted only while done and returns it to idle. Every other event is rejected without changing the session. These rules form a finite-state machine: a system with a limited set of named states and permitted changes between them. A state is the current mode; a transition is an allowed change of mode in response to an event.",
+        "The simplest implementation uses an enum for the current mode and a switch for each event. That is a good choice for this three-state machine if behavior stays small. The difficulty appears when each state gains different begin, finish, status, timeout, and cleanup behavior, and those decisions spread across many switches. A maintainer can update one switch but forget another. Grouping behavior by state becomes useful when the behavior that belongs together is easier to review in one place. The object-based solution here shows that growth path without claiming it is the shortest solution to three transitions."
+      ],
+      "code": "if (mode == Mode::idle && event == Event::begin) {\n    mode = Mode::active;\n}",
+      "code_label": "Excerpt - simplest starting point"
+    },
+    {
+      "heading": "A state object supplies behavior for the current mode",
+      "paragraphs": [
+        "State declares two operations: name and next. name describes the current mode. next receives an Event and returns either an owned proposed next state or no state for rejection. Idle, Active, and Done each implement this interface. Each class therefore gathers the rules for events received while that state is current. The Session context owns exactly one State through unique_ptr and delegates event decisions to it.",
+        "enum class Event creates named event values whose type stays distinct from ordinary integers. Event::begin uses the scope operator to select one name from that enum. A unique_ptr<State> return value expresses exclusive ownership of a proposed state. Returning nullptr means no proposed object and therefore no accepted transition. This is a contract chosen for this example. Another design could return an explicit result with accepted, rejected, or accepted-without-change cases when internal actions need to succeed without leaving a state."
+      ]
+    },
+    {
+      "heading": "Understand the two times when choices are made",
+      "paragraphs": [
+        "The compiler checks that each concrete state supplies compatible name and next overrides. The class declarations can announce functions before their complete definitions appear. Definitions such as Active::next use the scope operator to identify the class whose member is being defined. Defining the transition functions after all three classes are complete lets make_unique construct their destination types. Forward declarations alone would not provide enough information to allocate a complete object.",
+        "During execution, state_->next uses virtual dispatch to call the current object’s implementation. If that object is Active, the event is compared with Event::finish. A match constructs Done; a different event returns no object. make_unique creates the destination and returns its owning pointer. The proposed pointer remains local to send until the operation decides whether to commit. If allocation throws, the old state still exists and Session has not changed its pointer. That failure differs from a rejected event, which returns false normally."
+      ]
+    },
+    {
+      "heading": "Do not destroy the state while its method is still running",
+      "paragraphs": [
+        "A dangerous implementation lets a state call a context setter that immediately deletes the current state. That setter may delete the very object whose member function is still executing. Some carefully restricted cases can avoid further access, but it is a fragile rule to maintain: adding a log that reads a member afterward can use a dead object. This design avoids the entire hazard. next only returns a proposal. Session waits for the virtual call to finish and then replaces state_.",
+        "The assignment state_ = std::move(proposed) transfers ownership of the new state into Session and destroys the previously owned state. std::move does not itself move bytes or call a transition; it enables the unique pointer’s move assignment. The old handler has already returned at this point. If there is no proposal, send returns false without changing state_. Session deletes copying and assignment and provides no move operation, keeping the non-null state invariant straightforward. A movable Session would need a documented rule for its moved-from state or a safe reinitialization strategy."
+      ]
+    },
+    {
+      "heading": "Rejected events are part of the model",
+      "paragraphs": [
+        "There are three states and three event values, so the primary behavior table has nine state-event combinations. Only three are accepted. The other six are not omissions; they are defined rejections. main checks all nine combinations while moving through the normal cycle. In idle, finish and reset are false. In active, begin and reset are false. In done, begin and finish are false. Each accepted event is followed by a state-name check, so a return value alone cannot hide a wrong destination.",
+        "This model does not perform a real import, start a thread, or wait for a file. It isolates transition logic for study. A real asynchronous import needs a rule for who sends finish and how a late completion is handled after cancellation. A generation identifier can distinguish a completion from the current run and one from an old run. Adding that protection requires a concrete asynchronous requirement; it should not be implied by a state diagram that only contains begin and finish arrows."
+      ]
+    },
+    {
+      "heading": "State and Strategy solve different change problems",
+      "paragraphs": [
+        "A strategy is a selected way to perform a task, such as choosing a sorting or compression rule. It is normally selected because a caller wants a different algorithm. State represents a mode governed by the object’s history and permitted events. Their class shapes can look alike because both delegate through an interface. Their contracts differ: selecting any next strategy may be acceptable, while jumping from idle to done without begin and finish would violate this session’s protocol.",
+        "For a tiny stable machine, a transition table or switch remains easier to scan than several classes and heap allocations. Choose State when state-specific behavior grows enough to justify grouping it, or when ownership of mode-specific data becomes important. The lab adds cancel only from active to idle. The key work is not adding one enum word; it is preserving the existing transitions, rejecting cancel from idle and done, and documenting what cancellation means. Testing the full expanded table reveals accidental new transitions that a single happy-path test would miss."
+      ]
+    }
+  ],
+  "example": {
+    "title": "A session with three permitted transitions",
+    "requirements": [
+      "Start idle; accept begin only from idle.",
+      "Accept finish only from active and reset only from done.",
+      "Reject other state/event pairs without mutation.",
+      "Replace old state objects only after their handlers return."
+    ],
+    "design": "Each state returns a proposed next state. Session owns the current state and commits the replacement after the call completes. Returning no pointer is an ordinary rejected event.",
+    "alternative": "An enum and switch are likely simpler for this exact three-state example. A table works especially well when transitions are data and behavior is small. State objects earn their cost when several state-specific operations or resources would otherwise be scattered.",
+    "invariants": [
+      "Session owns exactly one live state during public calls.",
+      "Rejected events preserve the current state.",
+      "A state handler cannot destroy its own receiver through Session.",
+      "Only declared transitions are accepted."
+    ],
+    "failures": [
+      {
+        "mistake": "Destroy the current state inside its still-running next method.",
+        "consequence": "A later member access in that method can access a destroyed object.",
+        "reason": "Replacing ownership can end the lifetime of the object whose method is active."
+      },
+      {
+        "mistake": "Treat every reset event as a transition to idle.",
+        "consequence": "reset becomes accepted while active, bypassing the defined finish path.",
+        "reason": "Events mean different things in different states; a global shortcut changes the protocol."
+      }
+    ],
+    "verification": "The program checks all nine primary state/event combinations, normal destination names, rejection cases, and return to idle. It does not force allocation failure or exercise asynchronous import work. The ownership sequence nevertheless leaves the old state unchanged until a proposal exists.",
+    "maintenance": "A new state or event changes a behavior table, not only a class list. Review permitted transitions, state-owned resources, failure behavior, and late events together.",
+    "file": "examples/ch19/main.cpp"
+  },
+  "diagram": {
+    "kind": "state",
+    "title": "State: permitted transitions in the Session context",
+    "nodes": [
+      {
+        "id": "I",
+        "label": "Concrete State: Idle",
+        "code": [
+          "return \"idle\";"
+        ]
+      },
+      {
+        "id": "A",
+        "label": "Concrete State: Active",
+        "code": [
+          "// Active accepts finish."
+        ]
+      },
+      {
+        "id": "D",
+        "label": "Concrete State: Done",
+        "code": [
+          "// Done accepts reset."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "A",
+        "kind": "transition",
+        "label": "begin accepted",
+        "from": "I"
+      },
+      {
+        "to": "D",
+        "kind": "transition",
+        "label": "finish accepted",
+        "from": "A"
+      },
+      {
+        "to": "I",
+        "kind": "transition",
+        "label": "reset accepted",
+        "from": "D"
+      }
+    ],
+    "explanation": "Transition arrows represent only accepted changes of current mode. Missing state/event edges mean rejection with no state change; they do not mean an unspecified behavior. These are state nodes, not class-ownership nodes, even though the implementation uses corresponding C++ classes."
+  },
+  "focus": [
+    {
+      "title": "An active session proposes only a permitted destination",
+      "start": "// Only finish may leave Active.",
+      "end": "return nullptr;",
+      "what": "This state-specific branch accepts finish and rejects every other event.",
+      "where": "Active::next runs only when Session currently owns an Active object.",
+      "why": "The permitted transition is kept with active-state behavior.",
+      "invariant": "A non-null proposal exists only for an allowed event.",
+      "risk": "Accepting reset here silently widens the protocol even if the destination seems reasonable.",
+      "explain": [
+        "The comment states the active-state transition rule.",
+        "Compare the incoming event with the scoped finish value.",
+        "Create and return an owned Done object for the accepted event.",
+        "Close the accepted-event branch.",
+        "Return no proposal for all other events."
+      ]
+    },
+    {
+      "title": "Commit after the current handler returns",
+      "start": "bool send(Event event) {",
+      "end": "} // send",
+      "what": "The context asks its current state for a proposal, then commits it.",
+      "where": "Every public event passes through this Session operation.",
+      "why": "Keeping replacement outside next prevents the state from deleting itself during its call.",
+      "invariant": "The old state stays owned until a valid proposal has returned.",
+      "risk": "Replacing before the call returns can end the active receiver lifetime too early.",
+      "explain": [
+        "Define the public event operation with a success result.",
+        "The comment explains the lifetime ordering.",
+        "Call the current state virtually and retain the proposed owner.",
+        "Return false for a rejected event without changing state_.",
+        "Transfer the proposed owner and destroy the old state after the call.",
+        "Return true for an accepted transition.",
+        "Close send and label its source boundary."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "idle + finish -> rejected; still idle.",
+      "reason": "Only begin is permitted in Idle."
+    },
+    {
+      "step": "2",
+      "state": "idle + begin -> active.",
+      "reason": "Idle returns an owned Active proposal."
+    },
+    {
+      "step": "3",
+      "state": "active + finish -> done.",
+      "reason": "Active returns Done after recognizing finish."
+    },
+    {
+      "step": "4",
+      "state": "done + reset -> idle.",
+      "reason": "Done returns Idle for reset."
+    },
+    {
+      "step": "5",
+      "state": "Old state destroyed only during assignment in send.",
+      "reason": "Its next member function has already returned."
+    }
+  ],
+  "summary": [
+    "A state machine includes its rejected events.",
+    "State-dependent behavior can be grouped behind one interface.",
+    "Returning a transition proposal separates deciding from committing.",
+    "Replace owned states after active member calls finish.",
+    "Choose a table or switch when it remains the clearest design."
+  ],
+  "exercises": [
+    {
+      "id": "19.1",
+      "level": "Guided modification",
+      "prompt": "Change the display name idle to ready without changing transitions. Which tests and output lines change?",
+      "hint": "A state label and a transition rule are different concerns.",
+      "answer": "Both primary printed idle lines become ready, and name comparisons must use ready. The accepted and rejected events stay the same; renaming a label should not modify next."
+    },
+    {
+      "id": "19.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Starting with a fresh Session, send begin, begin, finish, reset, finish. List return values and final state.",
+      "hint": "Use the current state after each accepted event.",
+      "answer": "The return values are true, false, true, true, false. The final state is idle because the last finish is rejected after reset."
+    },
+    {
+      "id": "19.3",
+      "level": "Diagnose a bug",
+      "prompt": "A developer assigns state_=state_->next(event) without checking for a null result. What happens after finish in idle?",
+      "hint": "The rejection pointer is empty.",
+      "answer": "The old Idle is destroyed and state_ becomes null. A later name or send dereferences an empty unique pointer and has undefined behavior. Keep the proposal local and reject it before assignment."
+    },
+    {
+      "id": "19.4",
+      "level": "Choose a design",
+      "prompt": "For a fixed vending controller with four modes and one event function, choose classes or a table and explain your preference.",
+      "hint": "Count state-specific behavior, not only states.",
+      "answer": "A table or switch is likely clearer when transitions dominate and per-state behavior is tiny. State classes become useful when each mode owns meaningful behavior or resources. Either choice must cover all state/event pairs."
+    },
+    {
+      "id": "19.5",
+      "level": "Extend without regressions",
+      "prompt": "Add cancel from active to idle only. Which three new state/event cases are required?",
+      "hint": "One new event creates one case in every state.",
+      "answer": "Cancel must be rejected in idle, accepted in active with destination idle, and rejected in done. Preserve all nine original checks. The solution also verifies that normal finish/reset still works after cancellation."
+    },
+    {
+      "id": "19.6",
+      "level": "Justify a decision",
+      "prompt": "Explain why choosing a compression Strategy differs from selecting a Session State even if both use unique_ptr to an interface.",
+      "hint": "Look at who is allowed to choose and why.",
+      "answer": "A caller may choose a compression algorithm based on size or speed. Session modes follow event history and permitted transitions. Exposing arbitrary state replacement would allow callers to violate the protocol, so this Session exposes events instead."
+    }
+  ],
+  "lab": {
+    "task": "Add Event::cancel. Active accepts cancel and proposes Idle; Idle and Done reject it. Preserve all original transitions, state checks, and printed output, then print cancel: idle after the extension tests.",
+    "checks": [
+      "Cancel in idle returns false.",
+      "Begin then cancel returns to idle.",
+      "Begin then finish reaches done, where cancel remains rejected.",
+      "Reset after done still returns to idle."
+    ],
+    "answer": "The reference solution adds one branch to Active::next and leaves the context replacement sequence unchanged. The test covers every new event/state pair. A real import would also need to cancel owned work and reject stale completions; this local model makes no claim to implement those effects.",
+    "starter": "exercises/ch19/main.cpp",
+    "solution": "solutions/ch19/main.cpp"
+  },
+  "glossary": [
+    {
+      "term": "State",
+      "definition": "A current mode whose rules affect an object behavior."
+    },
+    {
+      "term": "Transition",
+      "definition": "A permitted change from one state to another in response to an event."
+    },
+    {
+      "term": "Context",
+      "definition": "The object that owns current state and delegates state-dependent work."
+    },
+    {
+      "term": "Transition proposal",
+      "definition": "A next-state value prepared before the context commits a change."
+    }
+  ],
+  "pattern": "State",
+  "problem_title": "Make allowed states and transitions visible",
+  "attachment_alignment": {
+    "epub_section": "State — finite-state machines, context and state roles, transition rules, and the distinction from Strategy.",
+    "source_files": [
+      "C++/src/State/Conceptual/main.cc",
+      "C++/src/State/Conceptual/Output.txt"
+    ],
+    "intent": "Make the same public object respond differently as its current mode changes. The problem is not merely storing a mode name. It is keeping each mode’s behavior and transition rules together as state-dependent decisions spread across a growing program.",
+    "mechanism": "A context holds one current state object and delegates state-dependent work through a shared State interface. Concrete states supply the behavior for their modes and participate in choosing permitted next states. Replacing the current state changes later responses while the context itself keeps its identity. The pattern organizes a state machine; an enum and switch can still be the better implementation for a small, stable machine.",
+    "roles": [
+      {
+        "role": "Context",
+        "attached": "Context",
+        "example": "Session",
+        "responsibility": "Present the public event interface, own the current state, and delegate state-dependent decisions."
+      },
+      {
+        "role": "State interface",
+        "attached": "State::Handle1 and Handle2",
+        "example": "State::name and next",
+        "responsibility": "Declare the operations through which the context uses its current mode."
+      },
+      {
+        "role": "Concrete States",
+        "attached": "ConcreteStateA and ConcreteStateB",
+        "example": "Idle, Active, and Done",
+        "responsibility": "Keep the behavior and allowed outgoing transitions for each particular mode together."
+      },
+      {
+        "role": "Client",
+        "attached": "ClientCode",
+        "example": "main",
+        "responsibility": "Send requests through the context and observe its behavior without replacing its implementation."
+      }
+    ],
+    "source_walkthrough": [
+      "The supplied client constructs Context with ConcreteStateA. Construction calls TransitionTo, which stores the state and installs a back-reference to the context. Request1 delegates to the current state’s Handle1. ConcreteStateA prints that it handles the request, then asks the context to install ConcreteStateB. The next Request2 therefore reaches ConcreteStateB::Handle2, which changes the context back to A.",
+      "The output records transitions A to B to A around those two handled requests. Its transition lines include names from typeid(...).name(); the displayed numeric prefix is a compiler naming detail, not a state-machine rule. TransitionTo deletes the old object immediately, including when called from that object’s handler. That lifetime arrangement is delicate: any later access to the destroyed object would be invalid."
+    ],
+    "adaptation": "The new example gives the states meaningful import-session names and replaces two request methods with one Event value. Idle accepts begin, Active accepts finish, and Done accepts reset. Every other state/event combination is rejected without changing the session. Each next method returns a proposed owned state rather than calling back into Session. Session installs it only after the handler returns, so replacement cannot destroy an object while its handler is still executing. The example omits state-to-context back-references and adds explicit transition tests and stable printable names.",
+    "recognize": "Look for one current mode object, a context forwarding events to it, and state-dependent behavior or transition decisions. Ask whether sending the same event in two different modes can produce different results. Merely having classes named Idle and Active does not establish State unless the context actually delegates its mode-dependent work to them.",
+    "contrast": [
+      {
+        "pattern": "Strategy",
+        "distinction": "Strategies are interchangeable ways to perform a task, usually selected by the client. States describe stages or modes and the rules for moving among them. Here Active knows that finish permits Done."
+      },
+      {
+        "pattern": "Memento",
+        "distinction": "Memento records information needed to restore an earlier condition. State selects the behavior of the current mode. A saved snapshot is not itself a State implementation."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Write the behavior first",
+        "action": "Build a three-by-three table of modes and events. Fill accepted transitions and rejected events before writing any classes."
+      },
+      {
+        "stage": "Trace the supplied sample",
+        "action": "Keep one box labeled Context on the board. Change only its current-state link after Request1 and Request2; explain why the context is still the same object."
+      },
+      {
+        "stage": "Follow the adaptation",
+        "action": "Trace send(begin): call Idle::next, receive Active, return from next, replace state_, then return true. Mark the exact moment Idle is destroyed."
+      },
+      {
+        "stage": "Challenge the rules",
+        "action": "Send finish while idle and reset while active. Require students to predict both the returned boolean and the unchanged state name."
+      }
+    ],
+    "checks": [
+      {
+        "question": "If the current object stays a Session, how does its behavior change?",
+        "answer": "Session delegates the decision to the state object it currently owns. A different concrete state handles the next call through the same interface."
+      },
+      {
+        "question": "Why does next return nullptr for an invalid event?",
+        "answer": "The example defines that value as rejection. Session checks it and keeps the old state; it does not install a null current state."
+      }
+    ]
+  }
+}

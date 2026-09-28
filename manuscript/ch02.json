@@ -1,0 +1,385 @@
+{
+  "number": 2,
+  "title": "Abstract Factory",
+  "part": "I - Creational design patterns",
+  "topics": [
+    "Abstract Factory",
+    "product families",
+    "compatibility contracts",
+    "round-trip tests"
+  ],
+  "objectives": [
+    "Construct related products from one chosen family.",
+    "Explain why interfaces alone do not prove compatibility.",
+    "Test encoding and decoding together, including rejected cross-family input."
+  ],
+  "sections": [
+    {
+      "heading": "A writer and reader must agree",
+      "paragraphs": [
+        "A small teaching protocol transmits one decimal digit, from 0 through 9. A plain connection sends 7 as the string 7. A framed connection sends the same value as [7]. Each connection needs two objects: an encoder that writes a digit and a decoder that reads the resulting string. Every accepted digit must survive the trip unchanged. Invalid numbers and malformed strings must be rejected.",
+        "Constructing a PlainEncoder and PlainDecoder directly is enough for the first version. They have separate jobs, and their relationship is easy to see. The excerpt is a complete sequence of statements inside a caller, assuming the two types are available. It does not need a factory for its own sake."
+      ],
+      "code": "PlainEncoder encoder;\nPlainDecoder decoder;\nconst auto wire = encoder.write(7);\nconst int value = decoder.read(wire);",
+      "code_label": "Excerpt — simplest approach before the redesign"
+    },
+    {
+      "heading": "The failure is a mismatched pair",
+      "paragraphs": [
+        "When framed connections arrive, setup code selects both products independently. A copied branch can create FramedEncoder with PlainDecoder. Both objects implement the right C++ interfaces, so the compiler accepts the code. The encoder produces [7], but the plain decoder rejects its length. A more permissive decoder might silently misread the data instead. The problem is agreement between products, not merely selecting one product.",
+        "A family is a set of objects meant to work together. The Abstract Factory pattern gives the caller one object that creates all needed members of the selected family. CodecFactory offers encoder and decoder. PlainFactory creates the plain pair; FramedFactory creates the framed pair. The client chooses one factory, then asks that factory for both products. This reduces the number of places where incompatible choices can enter."
+      ]
+    },
+    {
+      "heading": "Two product roles are not one inheritance tree",
+      "paragraphs": [
+        "Encoder and Decoder have different operations, so they remain different interfaces. PlainEncoder and FramedEncoder implement Encoder. PlainDecoder and FramedDecoder implement Decoder. Each concrete factory creates one of each. Abstract Factory does not require these two products to inherit from each other, share a common catch-all interface, or own one another. Their useful relationship is a protocol contract: decoder.read(encoder.write(value)) equals value for every valid value.",
+        "The factory itself is borrowed as const CodecFactory&. The client does not delete it and does not save its address. Each returned unique_ptr owns a fresh product. The products contain no reference back to the factory, so this implementation does not require them to die before the factory. In round_trip they are local and are destroyed when the call ends. A different implementation with shared factory state would need a documented lifetime rule instead of assuming this one applies.",
+        "The compiler checks product method signatures and factory overrides. During execution, the actual factory type chooses the concrete products. Calling through Encoder and Decoder then chooses their actual method implementations. The client contains no switch on wire format. It still knows the abstract protocol duties: one writer, one reader, a valid integer, and a round-trip invariant."
+      ]
+    },
+    {
+      "heading": "Parsing is part of the contract",
+      "paragraphs": [
+        "PlainDecoder checks that wire has exactly one character before testing its content. The || operator stops as soon as an operand is true. This short-circuit rule skips unnecessary content tests after a bad length. FramedDecoder uses the same ordering for a stronger safety reason: front() and back() require a nonempty string. Its size check rejects empty input before either operation can run. C++17 permits reading string[string.size()] as a zero character, so PlainDecoder’s wire[0] on an empty string is not the same invalid-access case as front() or back().",
+        "The character tests compare the input with '0' and '9'. C++ guarantees the decimal digit characters form a consecutive sequence, so subtracting '0' from a checked digit yields its numeric value. The framed reader first checks a three-character shape with opening and closing brackets. Only then does it take the one-character substring and reuse PlainDecoder. That reuse is a local parsing dependency, not membership in the plain factory family.",
+        "The encoder checks numeric range before making a string. The framed decoder rejects [x] even though its outer brackets are correct. Structural validity and content validity are different rules. These deliberately tiny formats let the tests cover all ten accepted numeric values. They are teaching protocols, not general-purpose serialization formats with escaping, byte-order rules, versioning, or checksums."
+      ]
+    },
+    {
+      "heading": "A factory encourages compatibility; it does not prove it",
+      "paragraphs": [
+        "Nothing in the return types prevents a faulty FramedFactory from returning PlainDecoder. The family rule is a design contract backed by tests. round_trip checks the value after decoding. That catches mismatches or broken decoding for the tested values. It cannot certify all future protocol extensions by itself. If a family has many configuration values, test representative boundaries and generated cases, and consider carrying a shared immutable configuration object into both products.",
+        "A factory is most useful when clients need several related product roles and whole families change together. Adding a new family is local: provide its products and a factory implementing the existing creation operations. Adding a new product role is less local: a new creation method affects every factory and every family. This is the pattern’s main change-direction tradeoff. Choose it when new families are more likely than new roles.",
+        "For one encoder-decoder pair with no planned variants, direct construction is clearer. A function returning a struct containing both owning handles can also preserve pairing with less inheritance. Compile-time family types or a single codec object can enforce stronger relationships when runtime variation is unnecessary. Do not split one naturally cohesive codec into separate products solely to make an Abstract Factory diagram. Here separate send and receive components are the stated need; the factory coordinates their creation."
+      ]
+    }
+  ],
+  "example": {
+    "title": "Plain and framed digit codec families",
+    "file": "examples/ch02/main.cpp",
+    "requirements": [
+      "Round-trip every digit from 0 through 9 in either family.",
+      "Reject numbers outside the supported range and malformed wire strings.",
+      "Create both products from one selected factory and own them locally."
+    ],
+    "design": "CodecFactory groups two independent creation operations under one family choice. round_trip depends only on factory and product interfaces, and explicitly checks the compatibility invariant.",
+    "alternative": "A single Codec type with write and read methods avoids pairing entirely if send and receive need not be separate objects. A simple function returning an owning pair is also sufficient for a small closed set of families.",
+    "invariants": [
+      "For each supported digit, read(write(value)) equals value within one family.",
+      "Products returned by the supplied factories are non-null.",
+      "Decoders check structure before indexing or extracting content."
+    ],
+    "failures": [
+      {
+        "mistake": "Pair the framed writer with the plain reader.",
+        "consequence": "Writing 7 produces [7], which the plain reader rejects.",
+        "reason": "Matching interface types do not imply matching wire formats."
+      },
+      {
+        "mistake": "Check only brackets in FramedDecoder.",
+        "consequence": "[x] passes the structural check and could produce a non-digit value.",
+        "reason": "A correct frame does not prove that its enclosed character is valid."
+      }
+    ],
+    "verification": "main tests both displayed forms and all ten valid digits for each family, rejects a mixed pair, rejects 10, and rejects [x]. The client checks non-null handles. Tests do not model transport loss, Unicode, large numbers, or a production serialization protocol.",
+    "maintenance": "Choose a family at the application boundary and pass that choice inward. New transport variants can then reuse the round-trip workflow and its checks instead of adding independent switches throughout the code."
+  },
+  "diagram": {
+    "kind": "class",
+    "title": "One family choice creates two product roles",
+    "nodes": [
+      {
+        "id": "F",
+        "label": "Abstract factory\nCodecFactory",
+        "code": [
+          "encoder() const = 0;",
+          "decoder() const = 0;",
+          "// One selected family."
+        ]
+      },
+      {
+        "id": "C",
+        "label": "Client\nround_trip",
+        "code": [
+          "auto encoder = factory.encoder();",
+          "auto decoder = factory.decoder();"
+        ]
+      },
+      {
+        "id": "E",
+        "label": "Product A\nEncoder",
+        "code": [
+          "virtual ~Encoder() = default;",
+          "// Write one valid digit."
+        ]
+      },
+      {
+        "id": "D",
+        "label": "Product B\nDecoder",
+        "code": [
+          "virtual ~Decoder() = default;",
+          "// Read the matching format."
+        ]
+      },
+      {
+        "id": "P",
+        "label": "Concrete factory\nFramedFactory",
+        "code": [
+          "// Create FramedEncoder and Decoder."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "F",
+        "kind": "inheritance",
+        "label": "implements family creation",
+        "from": "P"
+      },
+      {
+        "to": "F",
+        "kind": "dependency",
+        "label": "borrows factory",
+        "from": "C"
+      },
+      {
+        "to": "E",
+        "kind": "dependency",
+        "label": "creates writer",
+        "from": "F"
+      },
+      {
+        "to": "D",
+        "kind": "dependency",
+        "label": "creates reader",
+        "from": "F"
+      }
+    ],
+    "explanation": "Inheritance points from FramedFactory to its interface. Dependencies describe calls and construction, not permanent ownership. round_trip locally owns the returned products; the factory is borrowed. The concrete product subclasses are shown in the complete source rather than crowded into this overview. The comments label teaching roles."
+  },
+  "focus": [
+    {
+      "title": "State both required product roles in one contract",
+      "start": "    // Create both members of one family.",
+      "end": "    decoder() const = 0;",
+      "what": "This interface requires each family to supply both product roles.",
+      "where": "The public part of CodecFactory.",
+      "why": "One chosen object coordinates what would otherwise be separate setup decisions.",
+      "invariant": "A concrete factory must implement both operations with compatible products.",
+      "risk": "The compiler checks the operations but cannot infer wire compatibility.",
+      "explain": [
+        "The comment states the family-level promise.",
+        "Declare an owning encoder return type.",
+        "Require an encoder creation operation; const prevents ordinary factory mutation.",
+        "Declare an owning decoder return type.",
+        "Require the matching decoder creation operation."
+      ]
+    },
+    {
+      "title": "Keep the family choice together in the client",
+      "start": "    // Borrow factory; own both products.",
+      "end": "    return wire;",
+      "what": "The client requests, uses, and releases one compatible pair.",
+      "where": "Inside round_trip, which receives a borrowed factory reference.",
+      "why": "The client can check round-trip behavior without naming concrete types.",
+      "invariant": "Successful decoding must recover the original integer exactly.",
+      "risk": "A broken factory can mix families despite the shared interface.",
+      "explain": [
+        "The comment distinguishes the factory’s borrowed lifetime from product ownership.",
+        "Request the selected family’s encoder and own it locally.",
+        "Request the same family’s decoder and own it locally.",
+        "Reject an empty owning handle from either creation operation.",
+        "Throw a logic error if the factory broke its contract.",
+        "Encode the validated-by-product integer into an owned string.",
+        "Decode with the paired reader and check exact equality.",
+        "Return the encoded string value; local products are then released."
+      ]
+    }
+  ],
+  "trace": [
+    {
+      "step": "1",
+      "state": "factory=FramedFactory; input=7",
+      "reason": "The application chooses a whole family."
+    },
+    {
+      "step": "2",
+      "state": "encoder=FramedEncoder; decoder=FramedDecoder",
+      "reason": "Both creation calls use that factory."
+    },
+    {
+      "step": "3",
+      "state": "wire=\"[7]\"",
+      "reason": "The writer validates the digit and adds its frame."
+    },
+    {
+      "step": "4",
+      "state": "decoded=7; equality check passes",
+      "reason": "The reader checks brackets and enclosed digit before converting."
+    }
+  ],
+  "summary": [
+    "Abstract Factory coordinates creation of related products.",
+    "Product interfaces describe roles; family contracts describe compatibility.",
+    "Use the same selected factory for all members of a family.",
+    "Adding a family is easier than adding a new product role.",
+    "Round-trip tests reveal agreement that C++ signatures cannot prove."
+  ],
+  "exercises": [
+    {
+      "id": "02.1",
+      "level": "Guided modification",
+      "prompt": "Change the demonstrated digit from 7 to 0. State the wire string for both families and the decoded value.",
+      "hint": "Zero is a valid boundary, not an empty value.",
+      "answer": "Plain produces \"0\" and framed produces \"[0]\". Both decode to 0. Preserve the explicit length checks; an empty wire string must still fail."
+    },
+    {
+      "id": "02.2",
+      "level": "Trace unfamiliar code",
+      "prompt": "Evaluate these independent calls: PlainDecoder{}.read(\"9\"), FramedDecoder{}.read(\"[2]\"), and PlainDecoder{}.read(\"[2]\"). Give values or exceptions.",
+      "hint": "Match each reader’s structure requirement first.",
+      "answer": "The first returns 9. The second validates a frame and returns 2. The third throws invalid_argument because the plain reader requires length 1. No implicit conversion strips the brackets."
+    },
+    {
+      "id": "02.3",
+      "level": "Diagnose a bug",
+      "prompt": "A FramedFactory accidentally returns make_unique<PlainDecoder>() from decoder. Does it compile, and what happens in round_trip(framed,7)?",
+      "hint": "A PlainDecoder still implements Decoder.",
+      "answer": "It compiles because the owning pointer converts to unique_ptr<Decoder>. The writer returns \"[7]\" and the plain reader throws before the equality check can finish. Repair the concrete product choice and rerun all valid-digit round trips."
+    },
+    {
+      "id": "02.4",
+      "level": "Choose a design",
+      "prompt": "One application always sends and reads through the same object. Another hands separate writer and reader objects to independent components and supports several format families. Choose a single codec or Abstract Factory.",
+      "hint": "Look for a real need for separately created related objects.",
+      "answer": "The first can use one Codec with write and read methods, eliminating pairing. The second can use Abstract Factory to create compatible separate roles from one choice. Both are sound when their object boundaries match the actual application."
+    },
+    {
+      "id": "02.5",
+      "level": "Extend without regressions",
+      "prompt": "Add a tagged family whose wire form is d= followed by one digit. Reject plain, bracketed, nondigit, empty, and multi-digit inputs. Keep round_trip unchanged.",
+      "hint": "Reuse the checked one-character digit decoder after validating the tag.",
+      "answer": "The solution adds TaggedEncoder, TaggedDecoder, and TaggedFactory. d=7 round-trips to 7. It checks all ten digits and rejects \"7\", \"[7]\", \"d=x\", \"d=77\", and the empty string while keeping old family tests."
+    },
+    {
+      "id": "02.6",
+      "level": "Justify a decision",
+      "prompt": "The team will add ten new protocol families but expects encoder and decoder to remain the only roles. Explain why this change direction supports Abstract Factory, and what requirement would weaken that choice.",
+      "hint": "Count which interfaces change for a family versus a role.",
+      "answer": "A new family implements the existing two methods and adds its own products, leaving callers stable. Frequently adding roles such as validator, compressor, and signer would force all factories to change, making a smaller family configuration object or another composition scheme worth considering. A strong answer ties the choice to expected change, not to the number of classes."
+    }
+  ],
+  "lab": {
+    "starter": "exercises/ch02/main.cpp",
+    "solution": "solutions/ch02/main.cpp",
+    "task": "Implement TaggedEncoder, TaggedDecoder, and TaggedFactory for the exact ASCII form d=0 through d=9. Do not change round_trip or existing families. Preserve all tests and append tagged=d=7 to the demonstration output.",
+    "checks": [
+      "Every integer 0–9 survives the new family’s round trip.",
+      "7, [7], d=x, d=77, and empty input are rejected by TaggedDecoder.",
+      "The encoded representation of 7 is exactly d=7.",
+      "Existing plain and framed checks still pass."
+    ],
+    "answer": "The tagged reader checks exact length and the two-character prefix before extracting one digit. It then delegates digit validation to PlainDecoder. This shares a small parsing rule without combining factory choices. A dedicated checked-digit helper would be another reasonable implementation."
+  },
+  "glossary": [
+    {
+      "term": "Abstract Factory",
+      "definition": "An interface for creating the different product roles in one compatible family."
+    },
+    {
+      "term": "Round trip",
+      "definition": "Writing a value and then reading it back to verify that its meaning is preserved."
+    },
+    {
+      "term": "Short-circuit evaluation",
+      "definition": "Skipping the remaining part of a logical expression when the result is already decided."
+    }
+  ],
+  "pattern": "Abstract Factory",
+  "problem_title": "Keep separately created parts compatible",
+  "attachment_alignment": {
+    "epub_section": "Abstract Factory — intent, matching product families, structure, applicability, and family-versus-product extension tradeoffs.",
+    "source_files": [
+      "C++/src/AbstractFactory/Conceptual/main.cc",
+      "C++/src/AbstractFactory/Conceptual/Output.txt"
+    ],
+    "intent": "Abstract Factory creates related products through one chosen family provider. The attached chapter uses furniture styles, then compatible interface controls. The central issue is agreement between different product roles: choosing a chair and a table is different from choosing two versions of the same chair.",
+    "mechanism": "Declare an interface for each product role and a factory interface with one creation operation per role. Each concrete factory implements every operation for one family. Pass one selected factory to the client; let the client request its products through that factory. The return types hide concrete classes. Compatibility remains a behavior contract: an incorrect factory can return mismatched implementations while satisfying the C++ types.",
+    "roles": [
+      {
+        "role": "Abstract factory",
+        "attached": "AbstractFactory",
+        "example": "CodecFactory",
+        "responsibility": "Declares both product creation operations as one family-level choice."
+      },
+      {
+        "role": "Concrete factories",
+        "attached": "ConcreteFactory1; ConcreteFactory2",
+        "example": "PlainFactory; FramedFactory",
+        "responsibility": "Return the matching variants of both product roles."
+      },
+      {
+        "role": "Abstract product A",
+        "attached": "AbstractProductA",
+        "example": "Encoder",
+        "responsibility": "Defines the first product role independently of its family variant."
+      },
+      {
+        "role": "Abstract product B",
+        "attached": "AbstractProductB",
+        "example": "Decoder",
+        "responsibility": "Defines the second product role, which must cooperate with the first."
+      },
+      {
+        "role": "Concrete product families",
+        "attached": "A1 with B1; A2 with B2",
+        "example": "PlainEncoder with PlainDecoder; FramedEncoder with FramedDecoder",
+        "responsibility": "Provide the actual cooperating behavior for each family."
+      },
+      {
+        "role": "Client",
+        "attached": "ClientCode(const AbstractFactory&)",
+        "example": "round_trip(const CodecFactory&, int)",
+        "responsibility": "Creates and uses the selected pair without naming concrete classes."
+      }
+    ],
+    "source_walkthrough": "main passes ConcreteFactory1 to ClientCode. CreateProductA returns ConcreteProductA1; CreateProductB returns ConcreteProductB1. The client first prints B1's own result. It then calls B1::AnotherUsefulFunctionB with A1 as an AbstractProductA reference. B1 invokes collaborator.UsefulFunctionA, which selects A1's implementation, and incorporates that string in its result. ClientCode deletes both products. The second pass uses ConcreteFactory2 and follows the same path through A2 and B2. Read the implementation carefully: neither B implementation checks its collaborator's family; a mixed pair can still produce a string. The attached Output.txt also has a wording/spacing mismatch: it inserts “the” before the collaboration parentheses, while main.cc builds “collaborating with ( ”. Use source-derived output when checking an actual build.",
+    "adaptation": "Our Encoder and Decoder make compatibility observable: a digit written by one family must be readable by its matching reader. PlainFactory produces plain digits; FramedFactory produces bracketed digits. This keeps the attachment's two product roles and two families while replacing descriptive strings with a real round-trip rule. unique_ptr replaces manual deletion, and exhaustive checks cover the ten accepted digits. A deliberately mixed framed-writer/plain-reader pair is rejected. The attachment's A-to-B collaboration is a direct object call; our products cooperate through the wire string. We omit furniture and graphical controls because neither is required to expose a family mismatch. The one-digit protocol deliberately omits general serialization concerns such as escaping and versions.",
+    "recognize": "Ask whether one factory choice supplies several related product roles. Point to both creation operations, both product interfaces, and the matching variants. A class that merely constructs several unrelated objects does not demonstrate the family requirement that motivates Abstract Factory.",
+    "contrast": [
+      {
+        "pattern": "Factory Method",
+        "distinction": "Factory Method varies creation within a creator hierarchy. Abstract Factory gives a client an object for choosing a whole product family; its operations may themselves use factory methods."
+      },
+      {
+        "pattern": "Builder",
+        "distinction": "Builder accumulates construction steps toward a finished result. Abstract Factory normally returns each usable family member directly."
+      }
+    ],
+    "checks": [
+      {
+        "question": "Why can a faulty FramedFactory returning PlainDecoder still compile?",
+        "answer": "PlainDecoder implements Decoder, so the return type matches. C++ checks the interface; the round-trip tests check the family behavior."
+      },
+      {
+        "question": "Which change affects every factory: adding another family or adding a third product role?",
+        "answer": "Adding a third role adds a factory operation each family must implement. A new family can implement the existing factory interface without changing existing families."
+      }
+    ],
+    "teach": [
+      {
+        "stage": "Make the mismatch visible",
+        "action": "Write [7] with FramedEncoder and attempt to read it with PlainDecoder. Ask why the compiler allowed the pair."
+      },
+      {
+        "stage": "Map families",
+        "action": "Draw two rows for families and two columns for product roles. Place attachment classes and codec classes into the corresponding cells."
+      },
+      {
+        "stage": "Extend and compare",
+        "action": "Design a third family, then propose a third product role. Compare which classes change and retain all old round-trip tests."
+      }
+    ]
+  }
+}
