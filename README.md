@@ -8,7 +8,7 @@ Open `dist/index.html` in a modern desktop browser. You can copy that one file a
 
 Select **Design Patterns in C++** in the curriculum dropdown. Choose a chapter in the chapter selector or sidebar. Switch between five views:
 
-1. **Outline:** explanations, requirements, alternatives, traces, failure cases, exercises, hints, and explained answers.
+1. **Outline:** a numbered chapter map with named sections and linked lessons. Every chapter opens with a concrete problem and a worked example. Follow code, expected output, an execution trace, a common mistake, alternatives, and a discussion with an explained answer. The sidebar follows the same chapter → section → lesson hierarchy.
 2. **Flashcards:** try to recall the answer, flip the card, then mark it Known or Again. The review queue collects cards marked Again; this is a manual review queue, not a time-scheduled repetition algorithm.
 3. **Scenarios:** choose among four designs or diagnoses, then read why each option is right or wrong. Retry or move to another case.
 4. **UML:** inspect the overview, open a larger version, and study each focused C++ block with its adjacent theory panel and expandable line-by-line explanation.
@@ -18,23 +18,68 @@ The chapter selector stays available in every view. **All chapters** makes the c
 
 A useful study session: read the problem, explain why the first design fails, recall the pattern without looking, trace its UML to the code, answer a scenario, then modify the lab. Use **My study material** to add personal study topics.
 
-## Systems Programming course
+## Systems Programming course — teaching revision 1.3
 
-Choose **Systems Programming and Machine Organization** from the curriculum dropdown. It contains all **61 chapters**, **1,775 slide lessons**, **805 recall cards**, and **61 new application cases**. Including the case lessons, its outline contains **1,836 lessons**. Each slide lesson preserves the student slide’s text and offers an expandable, matching professor transcript section. Chapter and subject-area navigation, search, bookmarks, personal notes, review marks, and practice progress work independently for this course.
+Choose **Systems Programming and Machine Organization** from the curriculum dropdown. Every one of its **61 chapters** now uses the same five-part learning route as Design Patterns: start with the problem, understand the mechanism, trace code and behavior, discuss and practice, then connect and review.
 
-The **Lectures** tab lets you jump to a slide lesson, read a complete chapter transcript, or download its original PowerPoint and transcript. PowerPoint downloads retain the supplied diagrams, images, equations, and notes. The app presents extracted slide text; it does not claim that a text extraction reproduces the visual slide canvas. Open a downloaded PowerPoint for the original visual layout.
+The Systems course includes:
 
-Lecture programs are teaching excerpts unless the supplied source identifies them as complete. No separate compilable systems-programming source package was supplied in the lecture ZIP, and this addition does not claim to compile its snippets. The verified C++ examples in the Design Patterns course remain available through its C++ tab.
+| Material | Count |
+| --- | ---: |
+| Original slide lessons, preserved with transcripts | 1,775 |
+| Original application cases | 61 |
+| New authored learning and exercise entries | 854 |
+| Independent progressive exercises with hints and explained answers | 366 |
+| Recall cards, including contextual vocabulary | 1,049 |
+| Glossary definitions with chapter links | 122 |
+| UML / activity / state / ownership / sequence views | 66 |
+| Focused code blocks with line-by-line explanations and adjacent theory | 64 |
+| Complete chapter demonstrations | 61 |
+| Complete lab starters and reference solutions | 122 |
 
-The full supplied lecture files are in `systems_source/`. The extraction and coverage script is `scripts/make_systems.py`; the newly authored application cases are in `scripts/systems_scenarios.py`. `docs/systems-coverage.json` maps every chapter and records the hashes of its source files. The normal `make_content.py` regeneration includes both courses. The combined standalone HTML is about 20 MB because it embeds all 61 original presentations as well as the text.
+There are 2,691 study entries including the glossary. Paired Deep Dive slides remain attached to their main source lesson, giving 2,007 entries in the default reading order. All original study IDs remain stable so saved notes, bookmarks, and progress still have their original targets. The approved Design Patterns curriculum is unchanged; its canonical digest is checked in the test suite.
 
-Study modes adapt to the selected course: Design Patterns offers UML and C++, and Systems Programming offers Lectures. Notes use the same local storage key as version 1.0. Existing Design Patterns topic IDs and backup compatibility are preserved. Export a backup before moving or renaming a locally opened HTML file, since browsers can associate local-file storage with its location.
+Systems now offers **all six views**: Outline, Flashcards, Scenarios, UML, C++, and Lectures. Its C++ tab has Example, Lab starter, and Lab solution choices. Each shows the exact packaged filename, complete source, build command, expected output, and verification or acceptance criteria. Downloaded files receive the short filename shown in the browser build command; package files keep their documented paths.
 
-To run the added browser checks after installing Playwright and Chromium:
+Begin with the chapter problem and its small demonstration. Read the selected code line by line and explain each state transition. Then attempt the six independent exercises: guided modification, tracing, bug diagnosis, design choice, extension, and justification. Hints and explained answers are separate disclosures. Each exercise names the required source material; none depends on another exercise’s edits. The full lab expands the chapter model into a reusable, checked operation.
+
+The capstone solution integrates a bounded work queue, two real workers, owned messages, input rejection, stable result ordering, and close-and-collect shutdown. Its deterministic output checks each indexed result as well as the aggregate totals and an empty-input run. Additional focused views explain queue waiting, admission, and exceptional cleanup.
+
+**Models and real operations.** Hardware and OS demonstrations are explicitly labeled C++ models. They do not implement a kernel, perform a real fork/exec/mmap, create a network server, or measure a processor cache. The thread, atomic, mutex, condition-variable, and concurrent queue labs do execute standard C++ synchronization. Their deterministic fixtures test stated contracts; they do not prove all possible schedules or provide performance benchmarks. The reference programs assume the bounded input ranges stated in each lab. Byte-sum fixtures check the required character values at compile time; the floating-point demonstration checks binary64 and assumes the ordinary round-to-nearest execution environment.
+
+**Original lectures.** The Lectures tab retains each supplied PowerPoint and complete matching transcript byte for byte, including the original slides, notes, diagrams, and equations. The study reader does not recreate a PowerPoint canvas. Original companion listings named by some source lectures were absent from the supplied files and are not claimed as tested; the added examples are independently authored programs. The visible correction to the source race-condition story remains: unsynchronized ordinary C++ increments have undefined behavior, while the single-threaded and atomic models demonstrate defined lost updates.
+
+## Edit and verify the Systems material
+
+- `scripts/teaching_examples.py`: chapter demonstrations, original traces, alternatives, and discussions.
+- `scripts/systems_labs.py`: lab requirements, complete reference programs, checks, failure explanations, and vocabulary.
+- `scripts/systems_focus.py`: exact code selections and authored line-by-line explanations.
+- `scripts/systems_relationships.py`: additional state, ownership, class, and sequence views plus expanded queue/capstone blocks.
+- `scripts/build_systems_depth.py`: the five-part learning sequence, exercises, and content assembly.
+- `teaching/systems-depth.json` and `teaching/systems-labs.json`: editable generated content for inspection; regenerate from the scripts to preserve changes across builds.
+- `systems_examples/chNN/`: complete demonstrations and exact output fixtures.
+- `systems_labs/chNN/`: starter, solution, separate expected outputs, and lab README.
+- `systems_source/`: unchanged original chapter presentations and transcripts.
+
+Compile with a C++17 compiler and standard threading support. The validated platform uses GCC 13.3 on Linux. Use the documented commands with assertions enabled; do not add `-DNDEBUG` because assertions contain verification fixtures. There are no third-party C++ dependencies. GNU-style compiler flags are used below; other toolchains need equivalent flags.
 
 ```sh
-node scripts/systems_browser_test.mjs
+python3 scripts/test_workshops.py
+python3 scripts/test_systems_labs.py
 ```
+
+The first command checks all 61 Systems demonstrations plus Design Patterns foundations. The second checks all 122 Systems lab files. Both build independent programs with `-std=c++17 -Wall -Wextra -Wpedantic -Werror -pthread`, execute them with timeouts, and compare stdout byte for byte. Lab results also record source hashes. Tests cover ordinary, boundary, and rejection cases named in each lab; their scope is not a general proof of correctness.
+
+After installing Playwright and Chromium, run:
+
+```sh
+node scripts/systems_depth_browser_test.mjs
+node scripts/systems_browser_test.mjs
+node scripts/teaching_browser_test.mjs
+node scripts/check_reading_text.mjs
+```
+
+These check the new Systems views, all original lecture downloads and slide records, chapter navigation, independent notes, backup compatibility, source text, and mobile overflow. Representative screenshots are in `docs/preview-systems-depth-*.png`. `docs/SYSTEMS_REVISION.md` and the JSON verification reports record the delivered checks.
 
 ## Design Patterns coverage
 
@@ -47,7 +92,7 @@ node scripts/systems_browser_test.mjs
 | Glossary entries | 92 |
 | Diagram views | 25 |
 | Focused code/theory blocks | 51 |
-| Complete C++ programs | 69: 23 examples, 23 starters, 23 solutions |
+| Complete C++ programs | 70: 23 examples, 23 starters, 23 solutions, 1 foundations program |
 
 The companion retains the named sections of the editable textbook manuscript, worked-example contracts and alternatives, execution traces, failure cases, focused explanations, chapter exercises and answers, labs, and summaries. The original manuscript JSON is included for editing and traceability. It is a study companion to the textbook, not a PDF viewer or a replacement for the textbook’s page design. Biography and print-only front matter are not turned into study questions. `docs/coverage.json` records the generated counts.
 
@@ -60,7 +105,7 @@ Every worked-example chapter has an overview diagram. The capstone also has stat
 - The exact source filename and line range.
 - An expandable explanation of every displayed source line.
 
-Read each view’s legend. Hollow triangle arrows point from a derived type toward its base type. A filled diamond marks the owner end of a composition relationship. Dashed arrows indicate dependencies; green dashed arrows are labeled shared relationships. Activity and state arrows represent execution or allowed transitions, as labeled. Sequence arrows are calls and time runs downward. Teaching panels are annotations, not additional UML relationships. Overview snippets can omit surrounding code; only the C++ view and `companion/**/main.cpp` files are complete programs.
+Read each view’s legend. Hollow triangle arrows point from a derived type toward its base type. A filled diamond marks the owner end of a composition relationship. Dashed arrows indicate dependencies; green dashed arrows are labeled shared relationships. Activity and state arrows represent execution or allowed transitions, as labeled. Sequence arrows are calls and time runs downward. Teaching panels are annotations, not additional UML relationships. Overview snippets can omit surrounding code; the C++ view, `companion/**/main.cpp`, `systems_examples/chNN/main.cpp`, and the Systems lab `.cpp` files are complete programs.
 
 On a phone, diagrams and long source lines scroll within their own panels. The focused theory panel follows its code block. A desktop screen provides the side-by-side layout.
 
@@ -99,6 +144,7 @@ Requirements: **Python 3.10 or newer**, Node.js 20+, and the pinned development 
 npm ci
 python3 scripts/make_content.py
 node scripts/render_diagrams.mjs
+node scripts/render_systems_diagrams.mjs
 node scripts/build.mjs
 npm test
 ```
@@ -107,7 +153,7 @@ Run these commands in this order. Content generation clears the embedded diagram
 
 Edit chapter prose and exercises in `manuscript/`, program files and expected output in `companion/`, and overview relationships plus focused explanations in `diagrams/chNN.json`. Edit scenario choices and rationales in `scripts/scenarios.py`. If source lines move, update `resolved_start` and `resolved_end` in the matching diagram JSON, plus the first/last marker text and line explanations. The generator and tests reject stale excerpts.
 
-Edit the application in `src/app.js` and `src/styles.css`, then run the basic rebuild. `src/content.json` is generated but may also be edited directly for a one-off study pack. Regeneration replaces direct JSON edits.
+Edit the application in `src/app.js`, `src/teaching.js`, and `src/styles.css`, then run the basic rebuild. `src/content.json` is generated but may also be edited directly for a one-off study pack. Regeneration replaces direct JSON edits.
 
 The included `vendor/tailwind.css` is compiled from Tailwind CSS 4.1.10 and is sufficient for every class currently used. Use `src/styles.css` for additional styles. `src/theme.css` preserves the original Tailwind theme source; the basic build does not rerun Tailwind. Its MIT license is in `docs/licenses/`.
 

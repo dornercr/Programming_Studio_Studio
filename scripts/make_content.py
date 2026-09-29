@@ -88,4 +88,8 @@ coverage={'chapters':len(c['chapters']),'patterns':22,'lessons':len(c['topics'])
 # Add the separate systems-programming lecture course from its supplied sources.
 from make_systems import build_systems
 data=build_systems(R,data)
+from build_teaching import build as build_teaching
+data=build_teaching(data)
+from build_systems_depth import build as build_systems_depth
+data=build_systems_depth(data)
 (R/'src/content.json').write_text(json.dumps(data,ensure_ascii=False,indent=2))

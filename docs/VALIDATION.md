@@ -1,3 +1,7 @@
+# Current revision
+
+The Systems parity revision is documented in [SYSTEMS_REVISION.md](SYSTEMS_REVISION.md), with the current lab, diagram, browser, preservation, and rebuild reports beside it. The records below describe earlier releases.
+
 # Validation record
 
 Validated on 27 September 2026.
@@ -21,3 +25,16 @@ Browser execution was checked in Chromium, not Safari or Firefox. The standard P
 - The additional browser report is `tests/systems-browser-results.json`. It checks all 61 chapters in all four applicable modes, separate course progress, source downloads, slide navigation, practice feedback, mobile layout, and restoring more than 1,000 reviewed lessons.
 
 The integrated version was rebuilt from the extracted source ZIP using both the basic build and the complete content/diagram regeneration. Both produced byte-identical standalone HTML, and all nine content-test groups passed. Desktop and phone-sized Systems Programming views were visually inspected.
+
+## Teaching revision (version 1.2, 28 September 2026)
+
+- Both courses now have chapter → section → lesson hierarchies: **85 chapter maps, 436 named sections, and 85 connected workshops**. All 2,375 original source/case topic records retain their IDs. The 684 paired Deep Dive entries are linked to their primary lessons; 1,690 primary lesson explanations plus the glossary remain in the default reading sequence.
+- **62 new complete C++17 programs** (61 systems workshops and one foundations program) compiled with GCC 13.3.0 and strict warnings. Every program's actual output exactly matched its expected-output file. See `docs/workshop-verification.json`. The existing 69 Design Patterns program files remain unchanged and retain their preceding verification.
+- **13 automated content-test groups passed.** They check original coverage, exact code and source references, hierarchy coverage, workshop code and outputs, discussion presence, and the visible correction to the race-condition explanation.
+- `scripts/check_reading_text.mjs` opened **all 1,690 primary reading lessons in Chromium** and checked every displayed explanation paragraph against its complete source text. This includes decimal values and C++ names; paragraph formatting must not discard them. See `tests/reading-text-results.json`.
+- The new outline browser suite exercised every chapter's map, linked reading view, example, trace, output, discussion, source disclosure, and notes. It verified downloadable C++ contents, course-outline navigation, the race correction, mobile width, and separate persistent course notes. See `tests/teaching-browser-results.json`.
+- Existing Design Patterns and Systems Programming browser regression suites passed with selectors scoped to the new nested navigation. They cover all chapters and modes, original lecture downloads, cards, scenarios, notes, search, diagrams, backups, imports, and more than 1,000 review records.
+- Desktop and phone-sized chapter maps, numbered sections, code/output pairs, trace tables, and discussion answers were visually inspected. Long code and tables scroll within their panels on small screens.
+- The final ZIP passed CRC integrity. Both the basic build and full content/diagram regeneration from its extracted files produced a byte-identical standalone HTML. Source content, source diagrams, new workshop generators, dependencies, and verification scripts are included.
+
+Limits remain: browser QA used Chromium, not Firefox or Safari; compiler QA used GCC, not every supported C++17 compiler. Hardware and OS demonstrations labeled **model** were checked as C++ programs, not as implementations or measured predictions of a real machine. Original systems companion listings absent from the supplied lecture archive were not compiled. New independent workshop programs provide executable examples alongside those original sources.

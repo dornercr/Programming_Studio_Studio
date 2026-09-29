@@ -1,0 +1,1608 @@
+{
+  "1": {
+    "title": "Separate calculation from presentation",
+    "task": "Extract a reusable sum operation and a formatter. Changing the label must not change the numeric result. Inputs are small integers whose sum fits in int.",
+    "checks": [
+      "sum(7,5) is 12; sum(-2,5) is 3.",
+      "The formatter accepts a caller-supplied label.",
+      "Both formatted results include the computed value."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nint sum(int first, int second) { return first + second; }\nstd::string format(const std::string& label, int value) {\n    return label + \"=\" + std::to_string(value);\n}\n\nint main() {\n    assert(sum(7,5) == 12 && sum(-2,5) == 3);\n    assert(format(\"sum\",3) == \"sum=3\");\n    std::cout << format(\"total\",sum(7,5)) << '\\n';\n    std::cout << format(\"sum\",sum(-2,5)) << '\\n';\n}\n",
+    "output": "total=12\nsum=3\n",
+    "reason": "The calculator returns a value and knows nothing about streams. The formatter turns that value into owned text. Tests can check each boundary independently; a different output destination need not alter addition. The compiler may inline both functions, so this source-level separation does not promise extra machine calls.",
+    "bug": "Put the label into the arithmetic function and return only formatted text. A numeric caller then has to parse the text again.",
+    "repair": "Return an int from calculation and create text at the presentation boundary. Keep the input range explicit; these tests do not prove signed addition cannot overflow for arbitrary inputs.",
+    "terms": [
+      {
+        "term": "Contract",
+        "definition": "The inputs, results, and rules that callers and implementations agree to."
+      },
+      {
+        "term": "Layer",
+        "definition": "A part of a system that performs one kind of work through a defined boundary."
+      }
+    ],
+    "starter": "systems_labs/ch01/starter.cpp",
+    "solution": "systems_labs/ch01/solution.cpp"
+  },
+  "2": {
+    "title": "Make copying and borrowing visible",
+    "task": "Write one function that returns a changed copy and one that changes the caller’s vector. Reject an empty vector before accessing its first element.",
+    "checks": [
+      "copy_changed leaves the caller unchanged.",
+      "change_in_place updates the caller.",
+      "Both functions reject an empty vector."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <vector>\n#include <stdexcept>\n\nstd::vector<int> copy_changed(std::vector<int> values, int replacement) {\n    if(values.empty()) throw std::invalid_argument(\"empty\");\n    values[0] = replacement;\n    return values;\n}\nvoid change_in_place(std::vector<int>& values, int replacement) {\n    if(values.empty()) throw std::invalid_argument(\"empty\");\n    values[0] = replacement;\n}\n\nint main() {\n    std::vector<int> source{2,4};\n    const auto copy = copy_changed(source,9);\n    assert(source[0] == 2 && copy[0] == 9);\n    change_in_place(source,7);\n    std::vector<int> empty;\n    int rejected = 0;\n    try { copy_changed(empty,1); } catch(const std::invalid_argument&) { ++rejected; }\n    try { change_in_place(empty,1); } catch(const std::invalid_argument&) { ++rejected; }\n    assert(rejected == 2 && source[0] == 7);\n    std::cout << \"source=\" << source[0] << \" copy=\" << copy[0] << \" rejected=\" << rejected << '\\n';\n}\n",
+    "output": "source=7 copy=9 rejected=2\n",
+    "reason": "A value parameter creates a separate vector object. A reference parameter, marked &, names the existing vector. The empty check is a precondition check performed before indexing; throwing leaves the original vector unchanged. Return-by-value lets the returned vector own its storage without a dangling reference.",
+    "bug": "Remove & from change_in_place. The function changes only its local copy, and the caller still sees 2.",
+    "repair": "Use a reference for the in-place operation and a value parameter for the copy operation. Name the operations so a caller can see the difference.",
+    "terms": [
+      {
+        "term": "Value parameter",
+        "definition": "A parameter object initialized from the argument; this vector has independent element storage."
+      },
+      {
+        "term": "Reference parameter",
+        "definition": "Another name for the caller’s object, with no new copy of that object."
+      }
+    ],
+    "starter": "systems_labs/ch02/starter.cpp",
+    "solution": "systems_labs/ch02/solution.cpp"
+  },
+  "3": {
+    "title": "Validate a packed-field setter",
+    "task": "Create a setter for bits 4–7 of an unsigned word. Reject values above 15 and preserve all bits outside that field.",
+    "checks": [
+      "0xA5 with field 3 becomes 0x35.",
+      "Writing 0 and 15 clears or fills the selected field.",
+      "16 is rejected and neighboring bits stay unchanged."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <stdexcept>\n\nunsigned set_field(unsigned word, unsigned value) {\n    if(value > 15u) throw std::invalid_argument(\"four-bit field\");\n    const unsigned mask = 0xFu << 4;\n    return (word & ~mask) | (value << 4);\n}\n\nint main() {\n    assert(set_field(0xA5u,3u) == 0x35u);\n    assert(set_field(0xA5u,0u) == 0x05u);\n    assert(set_field(0xA5u,15u) == 0xF5u);\n    assert((set_field(0x1234u,9u) & ~(0xFu << 4)) == (0x1234u & ~(0xFu << 4)));\n    bool rejected = false;\n    try { set_field(0,16); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << std::hex << set_field(0xA5u,3u) << \" rejected=\" << rejected << '\\n';\n}\n",
+    "output": "35 rejected=1\n",
+    "reason": "The setter clears the old four-bit field before inserting the new one. The two groups do not overlap, so bitwise OR combines them without carrying. Unsigned operations avoid sign-extension questions. The check belongs inside the setter because every caller must obey the same width rule.",
+    "bug": "Use word | (value << 4) without clearing. Setting 0xA5 to field 3 produces 0xB5.",
+    "repair": "Clear with word & ~mask, then insert with OR. Test clearing to zero, which immediately exposes a setter that can only add one-bits.",
+    "terms": [
+      {
+        "term": "Mask",
+        "definition": "A bit pattern selecting which bit positions an operation should affect."
+      },
+      {
+        "term": "Bit field",
+        "definition": "A fixed group of bits used to store one value within a larger word."
+      }
+    ],
+    "starter": "systems_labs/ch03/starter.cpp",
+    "solution": "systems_labs/ch03/solution.cpp"
+  },
+  "4": {
+    "title": "Return a checked byte count",
+    "task": "Write checked_bytes(count,width,limit). Return no value when multiplication would exceed limit; zero-width requests return zero.",
+    "checks": [
+      "8×12 with limit 100 returns 96.",
+      "9×12 is rejected.",
+      "Zero count and zero width are accepted as zero.",
+      "The maximum size_t count times two is rejected against the type maximum."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <optional>\n\nstd::optional<std::size_t> checked_bytes(std::size_t count, std::size_t width,\n                                        std::size_t limit) {\n    if(width != 0 && count > limit / width) return std::nullopt;\n    return count * width;\n}\n\nint main() {\n    const auto accepted = checked_bytes(8,12,100);\n    assert(accepted && *accepted == 96);\n    assert(!checked_bytes(9,12,100));\n    assert(checked_bytes(0,12,100) == 0 && checked_bytes(9,0,100) == 0);\n    const auto maximum = std::numeric_limits<std::size_t>::max();\n    assert(!checked_bytes(maximum,2,maximum));\n    std::cout << \"bytes=\" << *accepted << \" oversized=rejected\\n\";\n}\n",
+    "output": "bytes=96 oversized=rejected\n",
+    "reason": "The check divides before multiplying, so the product is formed only when it is within the caller’s limit. optional distinguishes a successful zero from rejection. A checked byte count still does not promise memory is available: allocation failure is a separate boundary.",
+    "bug": "Multiply first and compare the result with limit. An unsigned wrapped result can be small enough to pass.",
+    "repair": "When width is nonzero, require count <= limit/width before forming the product. Use a separate state to represent rejection.",
+    "terms": [
+      {
+        "term": "Unsigned wrap",
+        "definition": "Unsigned arithmetic reduces a result modulo one more than the type’s maximum value."
+      },
+      {
+        "term": "Precondition",
+        "definition": "A rule that must hold before an operation can safely perform its work."
+      }
+    ],
+    "starter": "systems_labs/ch04/starter.cpp",
+    "solution": "systems_labs/ch04/solution.cpp"
+  },
+  "5": {
+    "title": "Compare nearby floating-point results",
+    "task": "Implement a relative-and-absolute closeness test for finite doubles. Make the tolerances explicit and reject negative tolerances. Exact equality handles equal infinities before the finite-only calculation.",
+    "checks": [
+      "0.1+0.2 and 0.3 are close under 1e-12 tolerance.",
+      "A small absolute tolerance works near zero.",
+      "Distinct large values beyond the selected relative tolerance are not close.",
+      "NaN is not close to any value; negative tolerances are rejected."
+    ],
+    "code": "#include <algorithm>\n#include <cassert>\n#include <iostream>\n#include <limits>\n#include <cmath>\n#include <stdexcept>\n\nbool close(double a, double b, double absolute, double relative) {\n    if(!(absolute >= 0) || !(relative >= 0)) throw std::invalid_argument(\"tolerance\");\n    if(a == b) return true;\n    if(!std::isfinite(a) || !std::isfinite(b)) return false;\n    const double scale = std::max(std::abs(a),std::abs(b));\n    return std::abs(a-b) <= std::max(absolute,relative*scale);\n}\n\nint main() {\n    assert(close(0.1+0.2,0.3,1e-12,1e-12));\n    assert(close(0,1e-14,1e-12,0));\n    assert(!close(1000000,1000010,0,1e-8));\n    assert(!close(std::numeric_limits<double>::quiet_NaN(),0,1,1));\n    bool rejected = false;\n    try { close(1,1,-1,0); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"decimal=close near-zero=close far=distinct\\n\";\n}\n",
+    "output": "decimal=close near-zero=close far=distinct\n",
+    "reason": "An absolute tolerance gives a useful bound near zero; a relative tolerance scales with magnitude. The application chooses both from its error budget. Closeness is not a universal equivalence relation: it can fail transitivity, so it must not replace ordering in a sorted container. This lab covers modest finite magnitudes; a fully general comparator must also avoid overflow in difference and tolerance calculations.",
+    "bug": "Use a fixed epsilon as a universal rule for all magnitudes. A bound useful near 1 can be too tight or too loose elsewhere.",
+    "repair": "State an error budget and test both near-zero and scaled values. Keep NaN handling explicit rather than letting an accidental comparison decide policy.",
+    "terms": [
+      {
+        "term": "Rounding error",
+        "definition": "The difference caused when an exact result must be stored as one of the available floating-point values."
+      },
+      {
+        "term": "Relative tolerance",
+        "definition": "An allowed error scaled to the magnitude of the compared values."
+      }
+    ],
+    "starter": "systems_labs/ch05/starter.cpp",
+    "solution": "systems_labs/ch05/solution.cpp"
+  },
+  "6": {
+    "title": "Compute a checked row-major index",
+    "task": "Map a row and column into a flat vector with a known number of columns. Check dimensions and bounds before accessing the data.",
+    "checks": [
+      "The (1,2) element of a 2×3 array is 6.",
+      "Rows and columns outside the shape are rejected.",
+      "The data length must match the declared shape."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <stdexcept>\n#include <vector>\n#include <stdexcept>\n\nint at_grid(const std::vector<int>& data, std::size_t rows, std::size_t cols,\n            std::size_t row, std::size_t col) {\n    if(cols != 0 && rows > data.size()/cols) throw std::invalid_argument(\"shape\");\n    if(rows*cols != data.size()) throw std::invalid_argument(\"shape\");\n    if(row >= rows || col >= cols) throw std::out_of_range(\"coordinate\");\n    return data[row*cols+col];\n}\n\nint main() {\n    const std::vector<int> data{1,2,3,4,5,6};\n    assert(at_grid(data,2,3,1,2) == 6);\n    int rejected = 0;\n    try { at_grid(data,2,3,2,0); } catch(const std::out_of_range&) { ++rejected; }\n    try { at_grid(data,2,3,0,3); } catch(const std::out_of_range&) { ++rejected; }\n    try { at_grid(data,3,3,0,0); } catch(const std::invalid_argument&) { ++rejected; }\n    assert(rejected == 3);\n    std::cout << \"value=\" << at_grid(data,2,3,1,2) << \" rejected=\" << rejected << '\\n';\n}\n",
+    "output": "value=6 rejected=3\n",
+    "reason": "The logical shape is part of the indexing contract; a flat allocation alone cannot prove coordinates are valid. Once the shape and coordinates are checked, row*cols+col selects the row-major element. Multiplication is bounded by data.size() before it is used. The vector owns the storage while the const reference only borrows it.",
+    "bug": "Use row+col instead of row*cols+col. Coordinate (1,2) then reads 4 instead of 6.",
+    "repair": "Count complete rows before adding the position inside the selected row. Test a non-square grid so swapped dimensions do not hide the error.",
+    "terms": [
+      {
+        "term": "Row-major layout",
+        "definition": "Consecutive columns of one row occupy consecutive element positions."
+      },
+      {
+        "term": "Alignment",
+        "definition": "A rule about which addresses are valid starting points for an object type."
+      }
+    ],
+    "starter": "systems_labs/ch06/starter.cpp",
+    "solution": "systems_labs/ch06/solution.cpp"
+  },
+  "7": {
+    "title": "Traverse empty and nonempty ranges",
+    "task": "Implement a bounded sum using vector iterators. Use a wide accumulator for this small-int fixture and support an empty range without dereferencing its end.",
+    "checks": [
+      "{3,5,7} sums to 15.",
+      "The empty vector sums to zero.",
+      "{-4,4} sums to zero."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <vector>\n\nlong long sum_range(const std::vector<int>& values) {\n    long long total = 0;\n    for(auto cursor = values.begin(); cursor != values.end(); ++cursor)\n        total += *cursor;\n    return total;\n}\n\nint main() {\n    assert(sum_range({3,5,7}) == 15);\n    assert(sum_range({}) == 0);\n    assert(sum_range({-4,4}) == 0);\n    std::cout << \"nonempty=\" << sum_range({3,5,7}) << \" empty=\" << sum_range({}) << '\\n';\n}\n",
+    "output": "nonempty=15 empty=0\n",
+    "reason": "A half-open range stops before its end iterator. For an empty vector, begin equals end, so no dereference occurs. The const reference prevents this function from resizing the vector. That matters because reallocation could invalidate its iterators. A wider accumulator reduces overflow risk for small fixtures but does not make an unbounded sum safe.",
+    "bug": "Use <= instead of != on random-access iterators in this loop. It tries to dereference end.",
+    "repair": "Stop at end, and test the empty range before trusting a traversal. There is no valid element to read from an empty range.",
+    "terms": [
+      {
+        "term": "Half-open range",
+        "definition": "A range including its first position but excluding its end position."
+      },
+      {
+        "term": "Iterator",
+        "definition": "An object representing a position that a traversal can examine and advance."
+      }
+    ],
+    "starter": "systems_labs/ch07/starter.cpp",
+    "solution": "systems_labs/ch07/solution.cpp"
+  },
+  "8": {
+    "title": "Return an owner across a function boundary",
+    "task": "Create a unique owner in a factory function, return it, move it to a second owner, and show the original owner is empty afterward.",
+    "checks": [
+      "make_value(42) returns a non-null owner.",
+      "The value survives the factory’s local scope.",
+      "After a move, only the destination owner retains the object."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <memory>\n#include <utility>\n\nstd::unique_ptr<int> make_value(int value) { return std::make_unique<int>(value); }\n\nint main() {\n    auto first = make_value(42);\n    assert(first && *first == 42);\n    auto second = std::move(first);\n    assert(!first && second && *second == 42);\n    std::cout << \"value=\" << *second << \" first-empty=\" << !first << '\\n';\n}\n",
+    "output": "value=42 first-empty=1\n",
+    "reason": "The allocated int and the local unique_ptr are different objects. Returning the owner transfers responsibility without returning the address of a dying local int. std::move allows transfer; the unique_ptr operation performs it. The second owner releases the int when its scope ends, including during stack unwinding.",
+    "bug": "Return the address of a local int from the factory. It points at an object whose lifetime ends when the function returns.",
+    "repair": "Return the value itself when ownership is unnecessary, or return an owning handle for a separately allocated object. A raw address cannot extend lifetime.",
+    "terms": [
+      {
+        "term": "Object lifetime",
+        "definition": "The interval during which a constructed object may be used according to its type’s rules."
+      },
+      {
+        "term": "Ownership transfer",
+        "definition": "Moving responsibility for releasing a resource from one owner to another."
+      }
+    ],
+    "starter": "systems_labs/ch08/starter.cpp",
+    "solution": "systems_labs/ch08/solution.cpp"
+  },
+  "9": {
+    "title": "Grow a collection under a hard limit",
+    "task": "Append an element only when a vector is below a fixed maximum size. Rejection must leave the vector unchanged. Do not retain an element pointer while growing it.",
+    "checks": [
+      "A size-two vector accepts its third element with maximum three.",
+      "The next append is rejected without changing existing values.",
+      "A maximum of zero rejects even the first element."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <vector>\n\nbool append_bounded(std::vector<int>& values, int value, std::size_t maximum) {\n    if(values.size() >= maximum) return false;\n    values.push_back(value);\n    return true;\n}\n\nint main() {\n    std::vector<int> values{4,6};\n    assert(append_bounded(values,8,3));\n    const auto before = values;\n    assert(!append_bounded(values,10,3) && values == before);\n    std::vector<int> empty;\n    assert(!append_bounded(empty,1,0));\n    std::cout << \"size=\" << values.size() << \" last=\" << values.back() << \" limit=preserved\\n\";\n}\n",
+    "output": "size=3 last=8 limit=preserved\n",
+    "reason": "The limit is a bound on live elements, not on reserved capacity. A rejection occurs before push_back, so it cannot partially alter the sequence. The vector handles storage growth and release. This function may still throw if allocation fails; its Boolean reports only the explicit size-limit decision.",
+    "bug": "Compare capacity() with maximum. Reserving spare storage can then reject a valid append or confuse storage with live elements.",
+    "repair": "Use size() for an element-count rule. Keep allocation failures distinct from an intentional capacity policy.",
+    "terms": [
+      {
+        "term": "Size",
+        "definition": "The number of live elements in a container."
+      },
+      {
+        "term": "Capacity",
+        "definition": "The number of elements that fit in currently reserved vector storage without reallocation."
+      }
+    ],
+    "starter": "systems_labs/ch09/starter.cpp",
+    "solution": "systems_labs/ch09/solution.cpp"
+  },
+  "10": {
+    "title": "Build a bounded aligned arena model",
+    "task": "Implement reserve_bytes(used,capacity,request) for eight-byte-aligned starts. Return no start on failure and leave used unchanged. This models offsets, not actual object construction.",
+    "checks": [
+      "Requests 5 and 9 start at offsets 0 and 8.",
+      "A request that crosses the capacity is rejected.",
+      "A failed request leaves used unchanged."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <optional>\n\nstd::optional<std::size_t> reserve_bytes(std::size_t& used, std::size_t capacity,\n                                        std::size_t request) {\n    if(used > capacity) return std::nullopt;\n    const auto padding = (8 - used%8)%8;\n    if(padding > capacity-used) return std::nullopt;\n    const auto start = used+padding;\n    if(request > capacity-start) return std::nullopt;\n    used = start+request;\n    return start;\n}\n\nint main() {\n    std::size_t used = 0;\n    const auto first = reserve_bytes(used,32,5);\n    const auto second = reserve_bytes(used,32,9);\n    assert(first == 0 && second == 8 && used == 17);\n    const auto before = used;\n    assert(!reserve_bytes(used,32,20) && used == before);\n    std::cout << \"starts=\" << *first << ',' << *second << \" used=\" << used << '\\n';\n}\n",
+    "output": "starts=0,8 used=17\n",
+    "reason": "Padding is computed separately and checked against remaining space before addition. The state changes only after every bound passes, which makes failure leave the arena usable. Returning an optional offset distinguishes rejection from a valid start at zero. This bump model has no individual free operation and does not create C++ objects in raw storage.",
+    "bug": "Update used before checking the request. A rejected allocation then consumes or corrupts the remaining arena state.",
+    "repair": "Compute candidate offsets in local values and commit used only after the last bound check. Test failure after one successful allocation.",
+    "terms": [
+      {
+        "term": "Fragmentation",
+        "definition": "Space that exists but cannot be used for the desired request under an allocator’s rules."
+      },
+      {
+        "term": "Commit point",
+        "definition": "The operation at which a prepared change becomes the visible new state."
+      }
+    ],
+    "starter": "systems_labs/ch10/starter.cpp",
+    "solution": "systems_labs/ch10/solution.cpp"
+  },
+  "11": {
+    "title": "Check a copy before touching the destination",
+    "task": "Copy a source string into an existing character array only if the characters and trailing null fit. Return false without writing anything when the capacity is too small.",
+    "checks": [
+      "cat needs capacity four including its trailing null.",
+      "Capacity three rejects cat.",
+      "Rejection preserves every destination byte.",
+      "An empty string still needs one byte for the null."
+    ],
+    "code": "#include <algorithm>\n#include <array>\n#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <string>\n\nbool copy_text(char* destination, std::size_t capacity, const std::string& source) {\n    if(capacity == 0 || source.size() >= capacity) return false;\n    std::copy(source.begin(),source.end(),destination);\n    destination[source.size()] = '\\0';\n    return true;\n}\n\nint main() {\n    std::array<char,4> destination{'x','x','x','x'};\n    const auto before = destination;\n    assert(!copy_text(destination.data(),3,\"cat\") && destination == before);\n    assert(copy_text(destination.data(),4,\"cat\"));\n    assert(std::string(destination.data()) == \"cat\");\n    std::array<char,1> empty{'x'};\n    assert(copy_text(empty.data(),1,\"\") && empty[0] == '\\0');\n    assert(!copy_text(nullptr,0,\"\"));\n    std::cout << destination.data() << \" rejected=unchanged\\n\";\n}\n",
+    "output": "cat rejected=unchanged\n",
+    "reason": "The guard avoids computing source.size()+1, which could overflow at the type boundary. The caller must supply a live writable range of capacity bytes when capacity is nonzero. A check on a number cannot prove an arbitrary pointer is valid. An owned string is simpler when the external interface does not require a caller-owned buffer.",
+    "bug": "Accept source.size() <= capacity. An exactly full source then writes its null terminator one byte past the destination.",
+    "repair": "Require source.size() < capacity and test the exact-fit boundary including the terminator.",
+    "terms": [
+      {
+        "term": "Bounds error",
+        "definition": "An access outside the valid element range of an object."
+      },
+      {
+        "term": "Undefined behavior",
+        "definition": "A program operation for which the C++ standard imposes no behavior requirements."
+      }
+    ],
+    "starter": "systems_labs/ch11/starter.cpp",
+    "solution": "systems_labs/ch11/solution.cpp"
+  },
+  "12": {
+    "title": "Turn the instruction trace into a bounded interpreter",
+    "task": "Interpret Load, Add, and Halt in a tiny model. Reject a program that runs past its instruction array without halting. Arithmetic inputs are limited to small values with representable results.",
+    "checks": [
+      "LOAD 4, ADD 3, HALT returns 7.",
+      "HALT alone returns the initial zero.",
+      "A program without HALT is rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <vector>\n#include <stdexcept>\n\nenum class Op { Load, Add, Halt };\nstruct Instruction { Op op; int operand; };\nint execute(const std::vector<Instruction>& program) {\n    int accumulator = 0;\n    for(const auto& instruction : program) {\n        switch(instruction.op) {\n            case Op::Load: accumulator = instruction.operand; break;\n            case Op::Add: accumulator += instruction.operand; break;\n            case Op::Halt: return accumulator;\n        }\n    }\n    throw std::invalid_argument(\"missing halt\");\n}\n\nint main() {\n    const int result = execute({{Op::Load,4},{Op::Add,3},{Op::Halt,0}});\n    assert(result == 7 && execute({{Op::Halt,0}}) == 0);\n    bool rejected = false;\n    try { execute({{Op::Load,4}}); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"acc=\" << result << \" missing-halt=rejected\\n\";\n}\n",
+    "output": "acc=7 missing-halt=rejected\n",
+    "reason": "An enum gives each modeled operation a distinct name. A small struct now earns its place because an instruction consists of both an operation and an operand. The switch defines the instruction semantics while the vector traversal supplies the next instruction. The model is deliberately not a binary encoding or a real processor pipeline.",
+    "bug": "Fall through from Load into Add by omitting break. LOAD 4 then leaves 8 rather than 4 in the accumulator.",
+    "repair": "End each non-returning case explicitly and test a one-instruction effect before testing a whole program.",
+    "terms": [
+      {
+        "term": "Architectural state",
+        "definition": "The registers and other state whose behavior an instruction set promises to software."
+      },
+      {
+        "term": "Instruction set",
+        "definition": "The operations and rules a machine exposes to programs."
+      }
+    ],
+    "starter": "systems_labs/ch12/starter.cpp",
+    "solution": "systems_labs/ch12/solution.cpp"
+  },
+  "13": {
+    "title": "Make subregister width an explicit input",
+    "task": "Model writes of 16, 32, or 64 bits to a 64-bit x86 register. A 32-bit write clears the high half; a 16-bit write preserves the other bits. Reject unsupported widths.",
+    "checks": [
+      "Writing 7 at width 32 produces 7.",
+      "Writing 7 at width 16 preserves the old high bits.",
+      "Width 64 replaces the entire value.",
+      "Width 8 is rejected by this deliberately limited model."
+    ],
+    "code": "#include <cassert>\n#include <cstdint>\n#include <iostream>\n#include <stdexcept>\n\nstd::uint64_t write_register(std::uint64_t old, std::uint64_t value, unsigned width) {\n    if(width == 64) return value;\n    if(width == 32) return static_cast<std::uint32_t>(value);\n    if(width == 16) return (old & ~std::uint64_t{0xFFFF}) | (value & 0xFFFFu);\n    throw std::invalid_argument(\"unsupported width\");\n}\n\nint main() {\n    const std::uint64_t old = 0xFFFFFFFF00000000ULL;\n    assert(write_register(old,7,32) == 7);\n    assert(write_register(old,7,16) == 0xFFFFFFFF00000007ULL);\n    assert(write_register(old,9,64) == 9);\n    bool rejected = false;\n    try { write_register(old,7,8); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << std::hex << write_register(old,7,32) << ' ' << write_register(old,7,16) << '\\n';\n}\n",
+    "output": "7 ffffffff00000007\n",
+    "reason": "The write width is part of the operation, so the function receives it explicitly instead of guessing from the numeric value. Masking the new low bits prevents them from affecting preserved bits. Rejecting widths the model does not implement is more honest than silently applying a different rule. This models ISA behavior; it does not force the compiler to use a specific register.",
+    "bug": "Preserve the old high half for a 32-bit write. That models an AX-like partial update, not an EAX write.",
+    "repair": "Treat width 32 as zero extension of the low 32-bit value. Test with nonzero old high bits so the distinction is observable.",
+    "terms": [
+      {
+        "term": "Subregister",
+        "definition": "A named portion of a larger machine register."
+      },
+      {
+        "term": "Zero extension",
+        "definition": "Increasing a value’s width by filling the new high bits with zeros."
+      }
+    ],
+    "starter": "systems_labs/ch13/starter.cpp",
+    "solution": "systems_labs/ch13/solution.cpp"
+  },
+  "14": {
+    "title": "Check an effective-address calculation",
+    "task": "Compute base+index*scale+displacement under a caller-supplied upper bound. The result is a numeric model, not a dereferenceable C++ pointer.",
+    "checks": [
+      "1000 + 3×4 + 8 is 1020 under limit 2000.",
+      "Reject a scaled index or displacement that exceeds remaining range.",
+      "Zero index works without requiring a transfer of data."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <optional>\n\nstd::optional<std::size_t> effective(std::size_t base, std::size_t index,\n    std::size_t scale, std::size_t displacement, std::size_t limit) {\n    if(base > limit) return std::nullopt;\n    if(scale != 0 && index > (limit-base)/scale) return std::nullopt;\n    const auto partial = base+index*scale;\n    if(displacement > limit-partial) return std::nullopt;\n    return partial+displacement;\n}\n\nint main() {\n    const auto result = effective(1000,3,4,8,2000);\n    assert(result == 1020);\n    assert(!effective(1000,300,4,0,2000));\n    assert(!effective(1999,0,4,2,2000));\n    assert(effective(10,0,4,2,20) == 12);\n    std::cout << \"address=\" << *result << \" invalid=rejected\\n\";\n}\n",
+    "output": "address=1020 invalid=rejected\n",
+    "reason": "The model separates computing a value from accessing memory. Every addition is preceded by a remaining-range check, and multiplication is bounded before it occurs. A real addressing mode has its own width and validity rules. Passing these numeric checks alone does not create a live C++ object at the resulting number.",
+    "bug": "Dereference the computed integer by casting it to a pointer. Numeric arithmetic has not proved that such an object exists.",
+    "repair": "Keep this model numeric. Use a valid array or OS mapping when the task actually requires reading storage.",
+    "terms": [
+      {
+        "term": "Effective address",
+        "definition": "The address value formed from the components of a machine addressing mode."
+      },
+      {
+        "term": "Displacement",
+        "definition": "A fixed offset included in an address calculation."
+      }
+    ],
+    "starter": "systems_labs/ch14/starter.cpp",
+    "solution": "systems_labs/ch14/solution.cpp"
+  },
+  "15": {
+    "title": "Guard signed division boundaries",
+    "task": "Return quotient and remainder for int inputs. Reject division by zero and the minimum int divided by -1, whose quotient cannot fit in int.",
+    "checks": [
+      "-17/5 returns quotient -3 and remainder -2.",
+      "17/-5 returns -3 and 2.",
+      "Zero divisor and the unrepresentable minimum/-1 case are rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <limits>\n#include <optional>\n#include <utility>\n\nstd::optional<std::pair<int,int>> divide(int value, int divisor) {\n    if(divisor == 0) return std::nullopt;\n    if(value == std::numeric_limits<int>::min() && divisor == -1) return std::nullopt;\n    return std::pair<int,int>{value/divisor,value%divisor};\n}\n\nint main() {\n    const auto first = divide(-17,5);\n    const auto second = divide(17,-5);\n    assert(first && first->first == -3 && first->second == -2);\n    assert(second && second->first == -3 && second->second == 2);\n    assert(!divide(1,0));\n    assert(!divide(std::numeric_limits<int>::min(),-1));\n    std::cout << first->first << ' ' << first->second << \" invalid=rejected\\n\";\n}\n",
+    "output": "-3 -2 invalid=rejected\n",
+    "reason": "The guards run before either / or %, since both need a valid divisor and representable quotient. optional marks rejection separately from a legitimate zero quotient. For valid cases, quotient*divisor+remainder equals the dividend; the remainder follows the dividend’s sign unless it is zero.",
+    "bug": "Check only divisor != 0. The minimum-int/-1 case is still not representable.",
+    "repair": "Check the exceptional signed boundary as well as zero. Perform the checks before evaluating either arithmetic expression.",
+    "terms": [
+      {
+        "term": "Quotient",
+        "definition": "The integer result of division after truncation toward zero in this C++ operation."
+      },
+      {
+        "term": "Remainder",
+        "definition": "The part left after multiplying the integer quotient by the divisor."
+      }
+    ],
+    "starter": "systems_labs/ch15/starter.cpp",
+    "solution": "systems_labs/ch15/solution.cpp"
+  },
+  "16": {
+    "title": "Generalize a loop with a clear stopping rule",
+    "task": "Sum integers in [0,limit) for limits up to 1000. Reject larger limits so the accumulator’s range is easy to justify.",
+    "checks": [
+      "Limit zero returns zero without entering the body.",
+      "Limits one and four return zero and six.",
+      "Limit 1000 returns 499500; 1001 is rejected."
+    ],
+    "code": "#include <limits>\n#include <cassert>\n#include <iostream>\n#include <stdexcept>\n\nstatic_assert(std::numeric_limits<unsigned>::max() >= 499500u, \"32-bit unsigned required\");\nunsigned sum_before(unsigned limit) {\n    if(limit > 1000) throw std::invalid_argument(\"limit\");\n    unsigned total = 0;\n    for(unsigned i = 0; i < limit; ++i) total += i;\n    return total;\n}\n\nint main() {\n    assert(sum_before(0) == 0 && sum_before(1) == 0);\n    assert(sum_before(4) == 6 && sum_before(1000) == 499500);\n    bool rejected = false;\n    try { sum_before(1001); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"empty=\" << sum_before(0) << \" four=\" << sum_before(4) << '\\n';\n}\n",
+    "output": "empty=0 four=6\n",
+    "reason": "The invariant before each loop test is that total contains the sum of all indexes less than i. The body adds i once, and the increment moves the boundary forward. At termination i equals limit. The stated cap keeps the result representable on the required implementation, which this lab checks with a static assertion in the generated program if needed.",
+    "bug": "Use i <= limit. For limit four the result becomes ten instead of six.",
+    "repair": "Use the half-open condition i < limit. Include limit zero in the tests to expose extra-iteration mistakes.",
+    "terms": [
+      {
+        "term": "Loop invariant",
+        "definition": "A rule maintained before every repetition, used to explain the loop’s result."
+      },
+      {
+        "term": "Control flow",
+        "definition": "The order in which a program can execute its operations."
+      }
+    ],
+    "starter": "systems_labs/ch16/starter.cpp",
+    "solution": "systems_labs/ch16/solution.cpp"
+  },
+  "17": {
+    "title": "Represent a call contract in C++",
+    "task": "Write a helper that doubles a small integer and a caller that preserves a separate value across that call. Test positive, zero, and negative inputs.",
+    "checks": [
+      "caller(10,3) is 16.",
+      "caller(10,0) is 10.",
+      "caller(10,-3) is 4.",
+      "The caller’s saved value is never overwritten by the helper."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n\nint helper(int argument) { return argument*2; }\nint caller(int saved, int argument) {\n    const int returned = helper(argument);\n    return saved+returned;\n}\n\nint main() {\n    assert(caller(10,3) == 16 && caller(10,0) == 10 && caller(10,-3) == 4);\n    std::cout << caller(10,3) << ' ' << caller(10,0) << ' ' << caller(10,-3) << '\\n';\n}\n",
+    "output": "16 10 4\n",
+    "reason": "The caller relies on a returned value and its own preserved value. The C++ compiler chooses how to satisfy that rule under the target ABI, possibly by eliminating the machine call entirely. Studying callee-saved registers requires inspecting a concrete build; the source-level contract is still the same if the helper is inlined.",
+    "bug": "In handwritten assembly, keep saved only in a caller-saved register and assume a nested call preserves it.",
+    "repair": "Follow the actual ABI’s preservation duties or let ordinary C++ express the call. A source-variable name is not a register-preservation promise.",
+    "terms": [
+      {
+        "term": "ABI",
+        "definition": "The binary-level agreement for calls, object layout, symbols, and other machine interfaces."
+      },
+      {
+        "term": "Callee-saved register",
+        "definition": "A register whose incoming value a callee must restore when required by the relevant ABI."
+      }
+    ],
+    "starter": "systems_labs/ch17/starter.cpp",
+    "solution": "systems_labs/ch17/solution.cpp"
+  },
+  "18": {
+    "title": "Test an alias-sensitive rewrite",
+    "task": "Implement write_then_read(a,b) and verify both separate objects and two references to the same object. Do not move the read before the write.",
+    "checks": [
+      "Separate a=4,b=6 returns 6 and changes a to 9.",
+      "When a and b alias x=4, the return is 9.",
+      "A cached-before-write variant returns 4 for the aliasing case and is not equivalent."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n\nint write_then_read(int& a, const int& b) { a = 9; return b; }\nint cached_before(int& a, const int& b) { const int old = b; a = 9; return old; }\n\nint main() {\n    int a = 4, b = 6;\n    assert(write_then_read(a,b) == 6 && a == 9);\n    int x = 4;\n    const int correct = write_then_read(x,x);\n    x = 4;\n    const int changed = cached_before(x,x);\n    assert(correct == 9 && changed == 4);\n    std::cout << \"ordered=\" << correct << \" reordered=\" << changed << '\\n';\n}\n",
+    "output": "ordered=9 reordered=4\n",
+    "reason": "A const reference prevents mutation through that reference; it does not prove the underlying object cannot change through another name. The write through a can therefore affect the later read through b. Optimization must preserve this allowed input case unless an additional valid non-aliasing contract excludes it.",
+    "bug": "Cache b before assigning a and assume distinct parameter names mean distinct objects.",
+    "repair": "Preserve the order or supply and enforce a stronger non-overlap contract. Test both aliasing and non-aliasing arguments.",
+    "terms": [
+      {
+        "term": "Aliasing",
+        "definition": "Two access paths referring to the same underlying object or storage."
+      },
+      {
+        "term": "Observable behavior",
+        "definition": "The effects that a valid optimization must preserve under the language’s rules."
+      }
+    ],
+    "starter": "systems_labs/ch18/starter.cpp",
+    "solution": "systems_labs/ch18/solution.cpp"
+  },
+  "19": {
+    "title": "Validate a privileged-style range request",
+    "task": "Model a protected service that accepts a length only when a numeric offset and extent fit inside a 16-byte allowed region. Reject both oversized lengths and invalid starting offsets.",
+    "checks": [
+      "Offset 4,length 8 is allowed.",
+      "Offset 16,length 0 is allowed as an empty end range.",
+      "Offset 17 is rejected; offset 15,length 2 is rejected.",
+      "A maximum-size request cannot bypass the check by wrapping."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <limits>\n\nbool allowed(std::size_t offset, std::size_t length, std::size_t extent) {\n    return offset <= extent && length <= extent-offset;\n}\n\nint main() {\n    assert(allowed(4,8,16));\n    assert(allowed(16,0,16));\n    assert(!allowed(17,0,16) && !allowed(15,2,16));\n    assert(!allowed(1,std::numeric_limits<std::size_t>::max(),16));\n    std::cout << \"valid=accepted outside=rejected\\n\";\n}\n",
+    "output": "valid=accepted outside=rejected\n",
+    "reason": "The trusted boundary checks the whole requested range, not only its length. The offset check comes first so extent-offset cannot underflow. This numeric model still cannot verify a real caller pointer or prevent a concurrent change to a mapping; an actual kernel copy operation must use the OS’s access rules and failure handling.",
+    "bug": "Check offset+length <= extent without checking overflow. A very large length can wrap the sum.",
+    "repair": "Check offset <= extent, then compare length with extent-offset. State what an empty range at the end means.",
+    "terms": [
+      {
+        "term": "Privilege boundary",
+        "definition": "A boundary across which code must have different authority to access resources."
+      },
+      {
+        "term": "Validation",
+        "definition": "Checking that a request satisfies its required shape, range, and permissions before acting on it."
+      }
+    ],
+    "starter": "systems_labs/ch19/starter.cpp",
+    "solution": "systems_labs/ch19/solution.cpp"
+  },
+  "20": {
+    "title": "Distinguish recoverable and fatal faults",
+    "task": "Model a load with separate permitted and present flags. A permitted absent page may be resolved and retried; a forbidden access leaves the program counter unchanged and returns failure.",
+    "checks": [
+      "Present,permitted load completes without a fault.",
+      "Absent,permitted load records one fault then advances once.",
+      "Forbidden load fails and never advances the program counter."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n\nbool load(bool permitted, bool& present, int& pc, int& faults) {\n    if(!permitted) { ++faults; return false; }\n    if(!present) { ++faults; present = true; }\n    ++pc;\n    return true;\n}\n\nint main() {\n    bool present = false; int pc = 8, faults = 0;\n    assert(load(true,present,pc,faults) && pc == 9 && faults == 1);\n    assert(load(true,present,pc,faults) && pc == 10 && faults == 1);\n    bool absent = false; int stopped = 8, denied = 0;\n    assert(!load(false,absent,stopped,denied) && stopped == 8 && !absent);\n    std::cout << \"completed-pc=\" << pc << \" denied-pc=\" << stopped << '\\n';\n}\n",
+    "output": "completed-pc=10 denied-pc=8\n",
+    "reason": "The model separates permission from presence. Missing backing is recoverable only when the mapping policy allows the access. The instruction advances after success, preserving the restart point across a repair. This is a model of architectural control transfer, not a real exception handler or a promise that every page fault is repaired.",
+    "bug": "Advance pc before checking the load. On denial, the model silently skips an instruction that never completed.",
+    "repair": "Commit the new program counter only on the successful path. Test both denied and recoverable cases from the same starting pc.",
+    "terms": [
+      {
+        "term": "Fault",
+        "definition": "An exception associated with an instruction that could not complete under the current conditions."
+      },
+      {
+        "term": "Restart point",
+        "definition": "The saved execution position used to retry an operation after a recoverable condition is repaired."
+      }
+    ],
+    "starter": "systems_labs/ch20/starter.cpp",
+    "solution": "systems_labs/ch20/solution.cpp"
+  },
+  "21": {
+    "title": "Enforce scheduler state transitions",
+    "task": "Use an enum to model Ready, Running, and Waiting. Permit dispatch, blocking, and wakeup only from their valid starting states.",
+    "checks": [
+      "Ready→Running dispatch succeeds.",
+      "Running→Waiting block succeeds.",
+      "Waiting→Ready wakeup succeeds.",
+      "Dispatching a waiting process is rejected without changing it."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n\nenum class State { Ready, Running, Waiting };\nbool transition(State& state, State from, State to) {\n    if(state != from) return false;\n    state = to;\n    return true;\n}\n\nint main() {\n    State process = State::Ready;\n    assert(transition(process,State::Ready,State::Running));\n    assert(transition(process,State::Running,State::Waiting));\n    assert(!transition(process,State::Ready,State::Running) && process == State::Waiting);\n    assert(transition(process,State::Waiting,State::Ready));\n    std::cout << \"ready -> running -> waiting -> ready\\n\";\n}\n",
+    "output": "ready -> running -> waiting -> ready\n",
+    "reason": "A state machine makes the permitted change explicit at each call. Checking the source state prevents an event from pretending a blocked process can run. This generic transition helper trusts its caller to supply the allowed edge; a production scheduler would expose named operations or validate the edge set centrally.",
+    "bug": "Wake a waiting process directly into Running without considering which process owns the CPU.",
+    "repair": "Wakeup makes work eligible by moving it to Ready. Dispatch is a separate scheduling decision.",
+    "terms": [
+      {
+        "term": "Runnable",
+        "definition": "Eligible to receive CPU time, though not necessarily executing now."
+      },
+      {
+        "term": "State transition",
+        "definition": "A permitted change from one named state to another after an event."
+      }
+    ],
+    "starter": "systems_labs/ch21/starter.cpp",
+    "solution": "systems_labs/ch21/solution.cpp"
+  },
+  "22": {
+    "title": "Represent private and shared mappings",
+    "task": "Use two maps whose entries own backing integers. Private mappings must point to distinct objects; one intentionally shared mapping must point to the same object in both maps.",
+    "checks": [
+      "Writes to A’s private address leave B’s private address unchanged.",
+      "Writes to the shared address are visible through both maps.",
+      "The two shared handles identify the same backing object."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <map>\n#include <memory>\n\nusing Space = std::map<unsigned,std::shared_ptr<int>>;\n\nint main() {\n    Space a{{0x1000,std::make_shared<int>(7)}};\n    Space b{{0x1000,std::make_shared<int>(9)}};\n    const auto shared = std::make_shared<int>(2);\n    a[0x2000] = shared; b[0x2000] = shared;\n    *a.at(0x1000) = 11;\n    *a.at(0x2000) = 5;\n    assert(*b.at(0x1000) == 9 && *b.at(0x2000) == 5);\n    assert(a.at(0x2000) == b.at(0x2000));\n    std::cout << \"private=\" << *a.at(0x1000) << ',' << *b.at(0x1000)\n              << \" shared=\" << *b.at(0x2000) << '\\n';\n}\n",
+    "output": "private=11,9 shared=5\n",
+    "reason": "The maps model address spaces and the owned integers model backing storage. Equal address keys do not imply equal objects. Sharing is represented by two entries holding handles to one backing object. The smart pointers operate within this demonstration process; they are not a cross-process shared-memory mechanism.",
+    "bug": "Create a fresh integer for each supposed shared mapping. The initial values match, but later writes do not propagate.",
+    "repair": "Share the backing object when the contract calls for sharing. Do not infer sharing from equal values or equal numeric virtual addresses.",
+    "terms": [
+      {
+        "term": "Address space",
+        "definition": "The mapping context in which a program interprets its virtual addresses."
+      },
+      {
+        "term": "Backing storage",
+        "definition": "The underlying storage reached through a mapping or handle."
+      }
+    ],
+    "starter": "systems_labs/ch22/starter.cpp",
+    "solution": "systems_labs/ch22/solution.cpp"
+  },
+  "23": {
+    "title": "Translate through a checked page map",
+    "task": "Translate byte addresses using 4096-byte pages and a virtual-page-to-frame map. Reject an unmapped virtual page and guard the frame multiplication.",
+    "checks": [
+      "0x1234 maps through virtual page 1 to physical 29236 when frame is 7.",
+      "The next byte maps to 29237.",
+      "An unmapped page returns no result.",
+      "An oversized frame number is rejected."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <map>\n#include <optional>\n\nstd::optional<std::size_t> translate(std::size_t address,\n    const std::map<std::size_t,std::size_t>& pages) {\n    const std::size_t size = 4096;\n    const auto entry = pages.find(address/size);\n    if(entry == pages.end()) return std::nullopt;\n    const auto offset = address%size;\n    const auto maximum = std::numeric_limits<std::size_t>::max();\n    if(entry->second > (maximum-offset)/size) return std::nullopt;\n    return entry->second*size+offset;\n}\n\nint main() {\n    std::map<std::size_t,std::size_t> pages{{1,7}};\n    assert(translate(0x1234,pages) == 29236 && translate(0x1235,pages) == 29237);\n    assert(!translate(0x2000,pages));\n    pages[2] = std::numeric_limits<std::size_t>::max();\n    assert(!translate(0x2000,pages));\n    std::cout << \"physical=\" << *translate(0x1234,pages) << \" unmapped=rejected\\n\";\n}\n",
+    "output": "physical=29236 unmapped=rejected\n",
+    "reason": "The quotient selects a mapping and the remainder stays unchanged. A failed lookup is a defined outcome, not an accidental insertion of frame zero. This lab checks numeric mapping and overflow; permissions are added in the next chapter. A real OS may resolve some missing entries rather than simply reject them.",
+    "bug": "Use pages[page] when only looking up a map. That operation can insert a default entry and make an unmapped page appear to map to frame zero.",
+    "repair": "Use find for a read-only lookup and handle end explicitly. Keep absence distinct from a valid mapping to frame zero.",
+    "terms": [
+      {
+        "term": "Page",
+        "definition": "A fixed-size block in a virtual address space."
+      },
+      {
+        "term": "Frame",
+        "definition": "A fixed-size physical-memory block that can back a virtual page."
+      }
+    ],
+    "starter": "systems_labs/ch23/starter.cpp",
+    "solution": "systems_labs/ch23/solution.cpp"
+  },
+  "24": {
+    "title": "Make page permissions part of a lookup",
+    "task": "Represent a page entry with present, readable, and writable flags. A read and write request must use the corresponding permission, and an absent page denies both.",
+    "checks": [
+      "A present read-only entry accepts reads and rejects writes.",
+      "A present read-write entry accepts both.",
+      "An absent entry rejects both regardless of permission bits."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n\nstruct Entry { bool present; bool readable; bool writable; };\nenum class Access { Read, Write };\nbool allows(const Entry& entry, Access access) {\n    return entry.present && (access == Access::Write ? entry.writable : entry.readable);\n}\n\nint main() {\n    const Entry read_only{true,true,false}, read_write{true,true,true}, absent{false,true,true};\n    assert(allows(read_only,Access::Read) && !allows(read_only,Access::Write));\n    assert(allows(read_write,Access::Read) && allows(read_write,Access::Write));\n    assert(!allows(absent,Access::Read) && !allows(absent,Access::Write));\n    std::cout << \"read-only: read=yes write=no; absent: denied\\n\";\n}\n",
+    "output": "read-only: read=yes write=no; absent: denied\n",
+    "reason": "The entry groups flags that describe one mapping. Presence and permission answer different questions, so neither can replace the other. The pure allows function is easy to test and has no state changes. Architecture-specific user/supervisor and execute permissions are outside this limited model and would need explicit fields and checks.",
+    "bug": "Return entry.present for every access. A present read-only mapping then accepts a write.",
+    "repair": "Pass the requested access type and check its matching permission after presence. Test the same entry with two different operations.",
+    "terms": [
+      {
+        "term": "Page-table entry",
+        "definition": "A record containing mapping information and access-control state for a page."
+      },
+      {
+        "term": "Protection fault",
+        "definition": "An exception caused when an access violates the mapping’s permission rules."
+      }
+    ],
+    "starter": "systems_labs/ch24/starter.cpp",
+    "solution": "systems_labs/ch24/solution.cpp"
+  },
+  "25": {
+    "title": "Count TLB walks separately from data hits",
+    "task": "Model a translation cache over a fixed page table. The first lookup of a mapped page performs a walk; the second reuses the translation. An unmapped page must not enter the TLB.",
+    "checks": [
+      "Two lookups of page 1 produce one successful walk.",
+      "Page 2 is unmapped and is not cached.",
+      "Clearing the TLB forces another walk for page 1."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <map>\n#include <optional>\n\nstd::optional<unsigned> lookup(unsigned page, const std::map<unsigned,unsigned>& table,\n    std::map<unsigned,unsigned>& tlb, unsigned& walks) {\n    const auto hit = tlb.find(page);\n    if(hit != tlb.end()) return hit->second;\n    ++walks;\n    const auto entry = table.find(page);\n    if(entry == table.end()) return std::nullopt;\n    tlb.emplace(page,entry->second);\n    return entry->second;\n}\n\nint main() {\n    const std::map<unsigned,unsigned> table{{1,7}};\n    std::map<unsigned,unsigned> tlb; unsigned walks = 0;\n    assert(lookup(1,table,tlb,walks) == 7 && lookup(1,table,tlb,walks) == 7 && walks == 1);\n    assert(!lookup(2,table,tlb,walks) && tlb.count(2) == 0 && walks == 2);\n    tlb.clear();\n    assert(lookup(1,table,tlb,walks) == 7 && walks == 3);\n    std::cout << \"walks=\" << walks << \" cached=\" << tlb.size() << '\\n';\n}\n",
+    "output": "walks=3 cached=1\n",
+    "reason": "The two maps represent different levels of information: the page table is the model’s mapping authority, and the TLB is a derived cache. Invalidation is necessary when an authoritative mapping changes. Walk count includes the failed unmapped lookup, while data-cache behavior is intentionally not modeled by this function.",
+    "bug": "Update the page table while continuing to trust an old TLB entry. The next hit returns stale frame information.",
+    "repair": "Invalidate or update cached translations under the platform’s rules when mappings change. This lab uses clear to make that dependency observable.",
+    "terms": [
+      {
+        "term": "TLB",
+        "definition": "A cache of recently used virtual-to-physical translations and related access information."
+      },
+      {
+        "term": "Invalidation",
+        "definition": "Removing a cached fact when the authoritative state no longer supports it."
+      }
+    ],
+    "starter": "systems_labs/ch25/starter.cpp",
+    "solution": "systems_labs/ch25/solution.cpp"
+  },
+  "26": {
+    "title": "Detach a shared value before a private write",
+    "task": "Implement a single-threaded copy-on-write update for shared_ptr<int>. Reject a null handle, copy only when another owner shares the object, and preserve the other owner’s value.",
+    "checks": [
+      "The first private update detaches a shared object.",
+      "Updating an already-unique object keeps the same address.",
+      "A null handle is rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <memory>\n#include <stdexcept>\n\nvoid private_write(std::shared_ptr<int>& owner, int value) {\n    if(!owner) throw std::invalid_argument(\"null owner\");\n    if(!owner.unique()) owner = std::make_shared<int>(*owner);\n    *owner = value;\n}\n\nint main() {\n    auto parent = std::make_shared<int>(7);\n    auto child = parent;\n    private_write(child,9);\n    assert(*parent == 7 && *child == 9 && parent != child);\n    const int* address = child.get();\n    private_write(child,11);\n    assert(child.get() == address && *child == 11);\n    std::shared_ptr<int> empty; bool rejected = false;\n    try { private_write(empty,1); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"parent=\" << *parent << \" child=\" << *child << \" detached=yes\\n\";\n}\n",
+    "output": "parent=7 child=11 detached=yes\n",
+    "reason": "Copying the old value before assignment preserves the private-write contract. If allocation throws, the assignment to owner has not yet committed and the original shared value remains intact. unique() is suitable only under this lab’s single-threaded access rule; it does not establish a safe concurrent mutation protocol. OS copy-on-write applies similar intent at a different boundary.",
+    "bug": "Write through child before making the private copy. The parent observes the mutation before separation occurs.",
+    "repair": "Prepare private backing first, then write it. Keep the thread-safety and lifetime assumptions explicit.",
+    "terms": [
+      {
+        "term": "Copy on write",
+        "definition": "Sharing unchanged backing and making a private copy before a permitted private mutation."
+      },
+      {
+        "term": "Demand paging",
+        "definition": "Providing backing for a permitted page when an access first requires it."
+      }
+    ],
+    "starter": "systems_labs/ch26/starter.cpp",
+    "solution": "systems_labs/ch26/solution.cpp"
+  },
+  "27": {
+    "title": "Compare batching with separate transfers",
+    "task": "Under a serial transfer model, compare one 10,000-byte batch with 100 transfers of 100 bytes. Latency is 10 microseconds and bandwidth is 100 bytes per microsecond; reject nonpositive bandwidth.",
+    "checks": [
+      "The batch costs 110 microseconds.",
+      "Separate requests cost 1100 microseconds.",
+      "Zero and negative bandwidth are rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <stdexcept>\n\ndouble transfer(double bytes, double latency, double bandwidth) {\n    if(!(bytes >= 0) || !(latency >= 0) || !(bandwidth > 0))\n        throw std::invalid_argument(\"model parameters\");\n    return latency+bytes/bandwidth;\n}\n\nint main() {\n    const double batch = transfer(10000,10,100);\n    const double separate = 100*transfer(100,10,100);\n    assert(batch == 110 && separate == 1100);\n    int rejected = 0;\n    try { transfer(1,10,0); } catch(const std::invalid_argument&) { ++rejected; }\n    try { transfer(1,10,-1); } catch(const std::invalid_argument&) { ++rejected; }\n    assert(rejected == 2);\n    std::cout << \"batch=\" << batch << \"us separate=\" << separate << \"us\\n\";\n}\n",
+    "output": "batch=110us separate=1100us\n",
+    "reason": "Each separate transfer pays startup latency again. A larger batch pays it once, so batching can help even without faster hardware. The result relies on serialization, fixed latency, fixed bandwidth, and finite modest inputs. Real queueing, overlap, contention, and protocol limits can change the result.",
+    "bug": "Use bytes*bandwidth for the transfer time. The units become bytes squared per time rather than time.",
+    "repair": "Divide byte count by bytes per microsecond. Carry units through the arithmetic before trusting the number.",
+    "terms": [
+      {
+        "term": "Latency",
+        "definition": "The elapsed delay for a particular operation or request."
+      },
+      {
+        "term": "Bandwidth",
+        "definition": "The amount of data that can be transferred per unit time under stated conditions."
+      }
+    ],
+    "starter": "systems_labs/ch27/starter.cpp",
+    "solution": "systems_labs/ch27/solution.cpp"
+  },
+  "28": {
+    "title": "Generalize the traversal trace",
+    "task": "Count misses for a square row-major array in a one-line cache. The dimension and elements per line are inputs from 1 through 64; reject zero. Compare both traversal orders.",
+    "checks": [
+      "A 4×4 array with four elements per line gives 4 row-first and 16 column-first misses.",
+      "A 1×1 array gives one miss for either order.",
+      "Zero dimension or line length is rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <stdexcept>\n\nunsigned misses(unsigned size, unsigned elements_per_line, bool rows_first) {\n    if(size == 0 || size > 64 || elements_per_line == 0 || elements_per_line > 64)\n        throw std::invalid_argument(\"model dimensions\");\n    int resident = -1; unsigned count = 0;\n    for(unsigned outer=0; outer<size; ++outer)\n        for(unsigned inner=0; inner<size; ++inner) {\n            const unsigned index = rows_first ? outer*size+inner : inner*size+outer;\n            const int block = static_cast<int>(index/elements_per_line);\n            if(block != resident) { ++count; resident = block; }\n        }\n    return count;\n}\n\nint main() {\n    assert(misses(4,4,true) == 4 && misses(4,4,false) == 16);\n    assert(misses(1,1,true) == 1 && misses(1,1,false) == 1);\n    int rejected = 0;\n    try { misses(0,4,true); } catch(const std::invalid_argument&) { ++rejected; }\n    try { misses(4,0,true); } catch(const std::invalid_argument&) { ++rejected; }\n    assert(rejected == 2);\n    std::cout << \"rows=\" << misses(4,4,true) << \" columns=\" << misses(4,4,false) << '\\n';\n}\n",
+    "output": "rows=4 columns=16\n",
+    "reason": "Both traversals touch exactly the same indexes but in different orders. A line contains consecutive element positions, so row traversal uses nearby values before replacing the resident line. The input bounds also keep index arithmetic small. This miss count is a model result, not a timing benchmark or a prediction for all real cache sizes.",
+    "bug": "Swap the loop order but keep the same index formula using outer as the row. The supposed column traversal is still row traversal.",
+    "repair": "Define what outer and inner mean under each order, then calculate the resulting flat index. Inspect the first four indexes before counting misses.",
+    "terms": [
+      {
+        "term": "Spatial locality",
+        "definition": "Using nearby locations within a short interval."
+      },
+      {
+        "term": "Temporal locality",
+        "definition": "Using the same location again before its useful cached state is displaced."
+      }
+    ],
+    "starter": "systems_labs/ch28/starter.cpp",
+    "solution": "systems_labs/ch28/solution.cpp"
+  },
+  "29": {
+    "title": "Decompose a cache address for variable geometry",
+    "task": "Return block, set, and tag for nonzero line size and set count. Accept byte addresses as unsigned integers; reject zero geometry.",
+    "checks": [
+      "Address 64 with 16-byte lines and four sets gives block 4, set 0, tag 1.",
+      "Addresses within the same line have the same block, set, and tag.",
+      "A zero line size or set count is rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <stdexcept>\n\nstruct Parts { unsigned block; unsigned set; unsigned tag; };\nParts decompose(unsigned address, unsigned line_size, unsigned sets) {\n    if(line_size == 0 || sets == 0) throw std::invalid_argument(\"cache geometry\");\n    const unsigned block = address/line_size;\n    return {block,block%sets,block/sets};\n}\n\nint main() {\n    const auto first = decompose(64,16,4), last = decompose(79,16,4);\n    assert(first.block == 4 && first.set == 0 && first.tag == 1);\n    assert(first.block == last.block && first.set == last.set && first.tag == last.tag);\n    int rejected = 0;\n    try { decompose(0,0,4); } catch(const std::invalid_argument&) { ++rejected; }\n    try { decompose(0,16,0); } catch(const std::invalid_argument&) { ++rejected; }\n    assert(rejected == 2);\n    std::cout << \"block=\" << first.block << \" set=\" << first.set << \" tag=\" << first.tag << '\\n';\n}\n",
+    "output": "block=4 set=0 tag=1\n",
+    "reason": "Division removes the byte offset, modulo selects a set, and the remaining quotient distinguishes competing blocks. Powers of two allow bit-field extraction, but this numeric model also supports other positive sizes. Decomposition does not test whether the cache line is valid or resident; lookup needs that additional state.",
+    "bug": "Use address%sets directly for the set number. Byte offsets inside one cache line then appear to choose different sets.",
+    "repair": "Remove the line offset first by dividing by line_size, then compute the set from the block number.",
+    "terms": [
+      {
+        "term": "Set associativity",
+        "definition": "The number of entries in one cache set that can hold competing blocks."
+      },
+      {
+        "term": "Tag",
+        "definition": "The part of a block’s identity used to distinguish blocks selecting the same set."
+      }
+    ],
+    "starter": "systems_labs/ch29/starter.cpp",
+    "solution": "systems_labs/ch29/solution.cpp"
+  },
+  "30": {
+    "title": "Make cold-cache behavior a reusable function",
+    "task": "Simulate reads for a configurable direct-mapped cache. Each call begins cold; use explicit empty slots and return the hit count. Reject zero line size or zero slot count.",
+    "checks": [
+      "The chapter trace has two hits with four 16-byte slots.",
+      "An empty trace has zero hits.",
+      "Reading the same address three times has two hits.",
+      "Zero geometry is rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <optional>\n#include <vector>\n#include <stdexcept>\n\nunsigned hits(const std::vector<unsigned>& addresses, unsigned line_size, unsigned slots) {\n    if(line_size == 0 || slots == 0) throw std::invalid_argument(\"cache geometry\");\n    std::vector<std::optional<unsigned>> resident(slots);\n    unsigned count = 0;\n    for(unsigned address : addresses) {\n        const unsigned block = address/line_size, slot = block%slots;\n        if(resident[slot] && *resident[slot] == block) ++count;\n        resident[slot] = block;\n    }\n    return count;\n}\n\nint main() {\n    assert(hits({0,16,0,64,0,16},16,4) == 2);\n    assert(hits({},16,4) == 0 && hits({0,0,0},16,4) == 2);\n    bool rejected = false;\n    try { hits({0},0,4); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"trace-hits=\" << hits({0,16,0,64,0,16},16,4)\n              << \" repeat-hits=\" << hits({0,0,0},16,4) << '\\n';\n}\n",
+    "output": "trace-hits=2 repeat-hits=2\n",
+    "reason": "optional gives each slot an empty state separate from every unsigned block number, including zero. The vector is local to the simulation call, so repeated tests start cold rather than sharing hidden history. On a miss, the selected slot is replaced; the other slots keep their state. The function reports events, not elapsed time.",
+    "bug": "Initialize unsigned slots to zero and compare only the stored value. The first access to block zero is incorrectly called a hit.",
+    "repair": "Represent validity explicitly, with optional or a valid bit, and include block zero as the first cold access in a test.",
+    "terms": [
+      {
+        "term": "Cache hit",
+        "definition": "An access whose required block is already present and usable at the modeled cache level."
+      },
+      {
+        "term": "Conflict miss",
+        "definition": "A repeated miss caused by restricted placement relative to the chosen fully associative reference model."
+      }
+    ],
+    "starter": "systems_labs/ch30/starter.cpp",
+    "solution": "systems_labs/ch30/solution.cpp"
+  },
+  "31": {
+    "title": "Compare FIFO and LRU with the same trace",
+    "task": "Simulate a two-entry cache with either first-in-first-out or least-recently-used replacement. Return the final contents from oldest to newest under the selected policy.",
+    "checks": [
+      "Trace A,B,A,C leaves B,C under FIFO.",
+      "The same trace leaves A,C under LRU.",
+      "Repeated hits do not create duplicate entries."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <vector>\n#include <algorithm>\n\nstd::vector<char> simulate(const std::vector<char>& trace, bool lru) {\n    std::vector<char> resident;\n    for(char block : trace) {\n        const auto found = std::find(resident.begin(),resident.end(),block);\n        if(found != resident.end()) {\n            if(lru) { resident.erase(found); resident.push_back(block); }\n            continue;\n        }\n        if(resident.size() == 2) resident.erase(resident.begin());\n        resident.push_back(block);\n    }\n    return resident;\n}\n\nint main() {\n    const auto fifo = simulate({'A','B','A','C'},false);\n    const auto lru = simulate({'A','B','A','C'},true);\n    assert((fifo == std::vector<char>{'B','C'}));\n    assert((lru == std::vector<char>{'A','C'}));\n    assert(simulate({'A','A','A'},true).size() == 1);\n    std::cout << \"FIFO=\" << fifo[0] << fifo[1] << \" LRU=\" << lru[0] << lru[1] << '\\n';\n}\n",
+    "output": "FIFO=BC LRU=AC\n",
+    "reason": "The container order is the policy state. FIFO leaves it unchanged on a hit; LRU moves a hit to the recent end. Both insert a new block at the end and evict from the front when full. Using the same trace isolates the policy difference; it does not prove one policy wins on every workload.",
+    "bug": "Move a hit to the end in the FIFO branch. The implementation no longer preserves arrival order.",
+    "repair": "Update recency only for LRU. Use a hit between insertion and eviction to distinguish the policies.",
+    "terms": [
+      {
+        "term": "Replacement policy",
+        "definition": "The rule selecting which resident item to remove when space is needed."
+      },
+      {
+        "term": "Dirty line",
+        "definition": "A cached block containing changes that must be preserved before the block is discarded."
+      }
+    ],
+    "starter": "systems_labs/ch31/starter.cpp",
+    "solution": "systems_labs/ch31/solution.cpp"
+  },
+  "32": {
+    "title": "Use local miss rates in a two-level cost model",
+    "task": "Compute h1 + m1×(h2 + m2×memory). Miss rates must lie in [0,1]; times must be nonnegative. Assume serial costs and incremental penalties.",
+    "checks": [
+      "h1=1,m1=.1,h2=5,m2=.2,memory=50 gives 2.5.",
+      "No L1 misses gives h1 alone.",
+      "Rates outside [0,1] are rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <cmath>\n#include <stdexcept>\n\ndouble amat(double h1, double m1, double h2, double m2, double memory) {\n    if(!(h1 >= 0 && h2 >= 0 && memory >= 0 && m1 >= 0 && m1 <= 1 && m2 >= 0 && m2 <= 1))\n        throw std::invalid_argument(\"cost model\");\n    return h1+m1*(h2+m2*memory);\n}\n\nint main() {\n    const double result = amat(1,.1,5,.2,50);\n    assert(std::abs(result-2.5) < 1e-12);\n    assert(amat(1,0,5,.2,50) == 1);\n    bool rejected = false;\n    try { amat(1,.1,5,2,50); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"AMAT=\" << result << \"ns\\n\";\n}\n",
+    "output": "AMAT=2.5ns\n",
+    "reason": "Only L1 misses reach L2, and only the fraction m2 of those pay the memory penalty. Multiplying the rates preserves their denominators. The h1 and h2 terms are incremental lookup costs in this model; adding a miss penalty that already contains them would count time twice. Real overlapping accesses require a different performance interpretation.",
+    "bug": "Use h1+m1*h2+m2*memory. It treats the L2 local miss rate as a fraction of all original accesses.",
+    "repair": "Nest the L2 cost inside the L1 miss probability. Write the denominator of every rate before substituting numbers.",
+    "terms": [
+      {
+        "term": "Local miss rate",
+        "definition": "Misses divided by requests reaching a particular cache level."
+      },
+      {
+        "term": "AMAT",
+        "definition": "Average memory-access time calculated under a stated cost model."
+      }
+    ],
+    "starter": "systems_labs/ch32/starter.cpp",
+    "solution": "systems_labs/ch32/solution.cpp"
+  },
+  "33": {
+    "title": "Read a bounded record slice",
+    "task": "Return a substring only when offset and length fit within the file model. An empty slice at end is valid; an offset past end is not.",
+    "checks": [
+      "ABCDE at offset two,length three gives CDE.",
+      "Offset five,length zero gives an empty string.",
+      "Past-end offset and oversized length are rejected."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <optional>\n#include <string>\n\nstd::optional<std::string> read_slice(const std::string& file, std::size_t offset,\n                                     std::size_t length) {\n    if(offset > file.size() || length > file.size()-offset) return std::nullopt;\n    return file.substr(offset,length);\n}\n\nint main() {\n    assert(read_slice(\"ABCDE\",2,3) == \"CDE\");\n    assert(read_slice(\"ABCDE\",5,0) == \"\");\n    assert(!read_slice(\"ABCDE\",6,0));\n    assert(!read_slice(\"ABCDE\",2,std::numeric_limits<std::size_t>::max()));\n    std::cout << *read_slice(\"ABCDE\",2,3) << \" end-empty=valid\\n\";\n}\n",
+    "output": "CDE end-empty=valid\n",
+    "reason": "The slice owns its returned characters, so it does not depend on the original string’s later lifetime. The checks use the valid input extent, not its allocation capacity. An optional empty string is a success, while an empty optional is rejection. Real file reads can also fail or return fewer bytes; this memory model isolates the bounds contract.",
+    "bug": "Treat an empty returned string as failure. A valid zero-length slice then becomes indistinguishable from rejection.",
+    "repair": "Represent the success state separately from its data. Test the boundary at exactly end and just beyond end.",
+    "terms": [
+      {
+        "term": "File offset",
+        "definition": "A byte position used to locate data in a file."
+      },
+      {
+        "term": "Record boundary",
+        "definition": "A division between logical items imposed by a format above the byte stream."
+      }
+    ],
+    "starter": "systems_labs/ch33/starter.cpp",
+    "solution": "systems_labs/ch33/solution.cpp"
+  },
+  "34": {
+    "title": "Copy across short reads and writes",
+    "task": "Build a deterministic transfer model that limits each read to two bytes and each write to one byte. Advance by actual counts and reject a zero-progress configuration.",
+    "checks": [
+      "ABCDE arrives intact even though every write is partial.",
+      "Empty input produces empty output.",
+      "A zero read or write limit is rejected rather than looping forever."
+    ],
+    "code": "#include <algorithm>\n#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <string>\n#include <stdexcept>\n\nstd::string copy_chunks(const std::string& input, std::size_t read_limit, std::size_t write_limit) {\n    if(read_limit == 0 || write_limit == 0) throw std::invalid_argument(\"no progress\");\n    std::string output;\n    for(std::size_t pos=0; pos<input.size();) {\n        const auto count = std::min(read_limit,input.size()-pos);\n        const auto buffer = input.substr(pos,count);\n        for(std::size_t sent=0; sent<buffer.size();) {\n            const auto written = std::min(write_limit,buffer.size()-sent);\n            output.append(buffer,sent,written);\n            sent += written;\n        }\n        pos += count;\n    }\n    return output;\n}\n\nint main() {\n    assert(copy_chunks(\"ABCDE\",2,1) == \"ABCDE\");\n    assert(copy_chunks(\"\",2,1).empty());\n    bool rejected = false;\n    try { copy_chunks(\"A\",2,0); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << copy_chunks(\"ABCDE\",2,1) << \" short-writes=handled\\n\";\n}\n",
+    "output": "ABCDE short-writes=handled\n",
+    "reason": "Input progress and output progress are separate counters. A buffer must be fully written before it can be discarded or overwritten by another read. The inner loop advances by the actual write count. Real descriptor code must distinguish EOF, interruption, would-block, and permanent errors; this model supplies positive bounded transfers to isolate the progress rule.",
+    "bug": "Advance sent by buffer.size() after the first one-byte write. Only A, C, and E reach the destination for this trace.",
+    "repair": "Advance by written and loop over the untransferred suffix. Test read and write limits that differ so a one-call assumption cannot hide.",
+    "terms": [
+      {
+        "term": "File descriptor",
+        "definition": "A process-local handle used to request operations on an open resource."
+      },
+      {
+        "term": "Short transfer",
+        "definition": "A successful operation that moves fewer bytes than requested."
+      }
+    ],
+    "starter": "systems_labs/ch34/starter.cpp",
+    "solution": "systems_labs/ch34/solution.cpp"
+  },
+  "35": {
+    "title": "Flush the final partial buffer",
+    "task": "Combine characters into batches of four, then forward any remaining suffix at the end. Do not count an empty final flush as a data transfer.",
+    "checks": [
+      "ABCDE produces two forwarded batches and the complete text.",
+      "ABCD produces exactly one batch.",
+      "Empty input produces no batch."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n#include <utility>\n\nstd::pair<std::string,unsigned> buffered(const std::string& input) {\n    std::string pending, output; unsigned flushes = 0;\n    const auto flush = [&] {\n        if(pending.empty()) return;\n        output += pending; pending.clear(); ++flushes;\n    };\n    for(char ch : input) { pending += ch; if(pending.size() == 4) flush(); }\n    flush();\n    return {output,flushes};\n}\n\nint main() {\n    const auto result = buffered(\"ABCDE\");\n    assert(result.first == \"ABCDE\" && result.second == 2);\n    assert(buffered(\"ABCD\").second == 1 && buffered(\"\").second == 0);\n    std::cout << result.first << \" batches=\" << result.second << '\\n';\n}\n",
+    "output": "ABCDE batches=2\n",
+    "reason": "A partial final buffer still contains real data. The explicit final flush closes that gap, while the empty check prevents a misleading transfer count. This model counts forwarding to another memory string. Library flush, kernel acceptance, and durable storage are different boundaries in a real output path.",
+    "bug": "Flush only when pending.size()==4. The final E never reaches output.",
+    "repair": "Flush a nonempty suffix when the operation finishes. Test a size not divisible by the buffer capacity.",
+    "terms": [
+      {
+        "term": "Buffering",
+        "definition": "Temporarily collecting data so it can be passed onward in useful batches."
+      },
+      {
+        "term": "Flush",
+        "definition": "Requesting that buffered data move to the next layer defined by the API."
+      }
+    ],
+    "starter": "systems_labs/ch35/starter.cpp",
+    "solution": "systems_labs/ch35/solution.cpp"
+  },
+  "36": {
+    "title": "Return an owned mapping snapshot",
+    "task": "Contrast an independent snapshot with a shared reference to backing bytes. Then destroy the original handle and verify a copied owner still keeps the backing alive.",
+    "checks": [
+      "Private snapshot edits do not alter shared backing.",
+      "Shared edits are visible through both owners.",
+      "Resetting one owner does not destroy backing still owned by another."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <memory>\n#include <string>\n\n\n\nint main() {\n    auto backing = std::make_shared<std::string>(\"cat\");\n    auto shared = backing;\n    std::string snapshot = *backing;\n    snapshot[0] = 'b';\n    (*shared)[2] = 'r';\n    assert(*backing == \"car\" && snapshot == \"bat\");\n    backing.reset();\n    assert(shared && *shared == \"car\");\n    std::cout << \"shared=\" << *shared << \" snapshot=\" << snapshot << '\\n';\n}\n",
+    "output": "shared=car snapshot=bat\n",
+    "reason": "Shared ownership and shared data are related but different facts. A shared_ptr keeps this object alive; a separate string snapshot copies its characters. A real memory mapping is governed by OS mapping and file-lifetime rules rather than shared_ptr counts. The model makes the intended aliasing and cleanup relationships inspectable without pretending to implement mmap.",
+    "bug": "Store only a raw pointer from backing.get(), reset the last owner, then dereference that pointer.",
+    "repair": "Retain ownership for as long as the object must live, or ensure a borrowed view ends before its owner. A borrowed address cannot keep backing alive.",
+    "terms": [
+      {
+        "term": "Shared mapping",
+        "definition": "A mapping whose writes affect the shared backing according to the mapping API’s rules."
+      },
+      {
+        "term": "Private mapping",
+        "definition": "A mapping whose private modifications do not become shared file changes under its contract."
+      }
+    ],
+    "starter": "systems_labs/ch36/starter.cpp",
+    "solution": "systems_labs/ch36/solution.cpp"
+  },
+  "37": {
+    "title": "Separate a descriptor handle from its open-file state",
+    "task": "Model two inherited handles referring to one open-file description. Closing the child’s handle must not close the parent’s handle or reset their shared offset.",
+    "checks": [
+      "A child read advances the parent-visible offset.",
+      "Resetting the child handle leaves the parent usable.",
+      "A separately opened description has an independent offset."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <memory>\n\nstruct OpenFile { unsigned offset = 0; };\n\nint main() {\n    auto parent = std::make_shared<OpenFile>();\n    auto child = parent;\n    auto independent = std::make_shared<OpenFile>();\n    child->offset += 2;\n    assert(parent->offset == 2 && independent->offset == 0);\n    child.reset();\n    assert(parent && parent->offset == 2 && parent.use_count() == 1);\n    std::cout << \"parent-offset=\" << parent->offset << \" independent=\" << independent->offset << '\\n';\n}\n",
+    "output": "parent-offset=2 independent=0\n",
+    "reason": "The handle is not the open-file description. Each process can close its own inherited descriptor while the kernel object remains referenced by another descriptor. The description holds the shared offset in this model. These smart pointers exist in one C++ process and illustrate the relationship; they are not the implementation of fork.",
+    "bug": "Give the child a fresh OpenFile copy and assume its offset is shared just because its initial value matches.",
+    "repair": "Represent shared open-file state with one backing object. Keep independent opens distinct from duplicated or inherited references.",
+    "terms": [
+      {
+        "term": "Open-file description",
+        "definition": "Kernel-maintained state, such as a file offset, that multiple descriptors may reference."
+      },
+      {
+        "term": "Fork",
+        "definition": "A process-creation operation that creates a child with defined copies and shared references from its parent."
+      }
+    ],
+    "starter": "systems_labs/ch37/starter.cpp",
+    "solution": "systems_labs/ch37/solution.cpp"
+  },
+  "38": {
+    "title": "Keep failed replacement from destroying the current image",
+    "task": "Model exec as a prepared replacement. Validate the new program name before committing it; preserve process identity on success and the old image on failure.",
+    "checks": [
+      "Replacing shell with worker keeps pid 42.",
+      "An empty name is rejected without changing the image.",
+      "Success and failure are distinct results."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nbool replace_image(std::string& image, const std::string& candidate) {\n    if(candidate.empty()) return false;\n    std::string prepared = candidate;\n    image.swap(prepared);\n    return true;\n}\n\nint main() {\n    const int pid = 42; std::string image = \"shell\";\n    assert(!replace_image(image,\"\") && image == \"shell\");\n    assert(replace_image(image,\"worker\") && image == \"worker\" && pid == 42);\n    std::cout << \"pid=\" << pid << \" image=\" << image << '\\n';\n}\n",
+    "output": "pid=42 image=worker\n",
+    "reason": "Preparation can fail before the new state becomes visible. Swapping commits the prepared string while preserving the model’s process identifier. A real successful exec does not return into the old program; this returning function is only a state model. In actual code, the path after exec is the failure path.",
+    "bug": "Clear the current image before validating the replacement. An invalid request then destroys valid existing state.",
+    "repair": "Validate and prepare first, then commit. In real exec code, keep failure reporting on the path that returns from the call.",
+    "terms": [
+      {
+        "term": "Program image",
+        "definition": "The executable code and associated user-space state installed in a process."
+      },
+      {
+        "term": "Exec",
+        "definition": "An operation that replaces the calling process’s program image rather than creating a second process."
+      }
+    ],
+    "starter": "systems_labs/ch38/starter.cpp",
+    "solution": "systems_labs/ch38/solution.cpp"
+  },
+  "39": {
+    "title": "Classify termination before reading its value",
+    "task": "Use a tagged status model for normal exit and signal termination. Do not interpret a signal number as an exit code.",
+    "checks": [
+      "A normal exit value 7 formats as exit=7.",
+      "A signal termination value 15 formats as signal=15.",
+      "The tag controls the interpretation of the numeric field."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nenum class Termination { Exited, Signaled };\nstruct Status { Termination kind; int value; };\nstd::string describe(Status status) {\n    return (status.kind == Termination::Exited ? \"exit=\" : \"signal=\") + std::to_string(status.value);\n}\n\nint main() {\n    assert(describe({Termination::Exited,7}) == \"exit=7\");\n    assert(describe({Termination::Signaled,15}) == \"signal=15\");\n    std::cout << describe({Termination::Exited,7}) << ' ' << describe({Termination::Signaled,15}) << '\\n';\n}\n",
+    "output": "exit=7 signal=15\n",
+    "reason": "The enum says which interpretation of value is valid. A real wait status uses OS-defined macros to discover this category; its packed integer is not directly the exit code. Separating classification from formatting makes the result clear to callers and prevents accidental bit guesses.",
+    "bug": "Always print status.value as an exit code. A signal-killed child is then reported as if it returned normally.",
+    "repair": "Classify the termination kind first, then extract the corresponding value using the platform API. Do not invent a universal bit layout.",
+    "terms": [
+      {
+        "term": "Reaping",
+        "definition": "Collecting a terminated child’s status so its retained process record can be released."
+      },
+      {
+        "term": "Exit status",
+        "definition": "A result describing how a process terminated; its interpretation depends on the termination category."
+      }
+    ],
+    "starter": "systems_labs/ch39/starter.cpp",
+    "solution": "systems_labs/ch39/solution.cpp"
+  },
+  "40": {
+    "title": "Distinguish data, waiting, and EOF",
+    "task": "Return a pipe-read state from buffered-byte count and open-writer count. Buffered data must be delivered even after the last writer closes.",
+    "checks": [
+      "Buffered data takes priority over EOF.",
+      "An empty buffer with an open writer means wait in this blocking model.",
+      "An empty buffer with no writers means EOF."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n\nenum class ReadState { Data, Wait, End };\nReadState read_state(unsigned bytes, unsigned writers) {\n    if(bytes != 0) return ReadState::Data;\n    return writers == 0 ? ReadState::End : ReadState::Wait;\n}\n\nint main() {\n    assert(read_state(2,0) == ReadState::Data);\n    assert(read_state(0,1) == ReadState::Wait);\n    assert(read_state(0,0) == ReadState::End);\n    std::cout << \"buffered=data empty-with-writer=wait drained-and-closed=EOF\\n\";\n}\n",
+    "output": "buffered=data empty-with-writer=wait drained-and-closed=EOF\n",
+    "reason": "EOF describes a drained stream whose producer ends are closed. Closing the last writer does not erase already-buffered bytes. The three-state result prevents an empty buffer from being confused with a finished stream. A nonblocking real pipe would report would-block rather than waiting when writers still exist but no data is available.",
+    "bug": "Return EOF as soon as writer count reaches zero. This discards the final buffered bytes.",
+    "repair": "Check for available data before checking whether further data can arrive. Test a closed pipe that still has buffered bytes.",
+    "terms": [
+      {
+        "term": "EOF",
+        "definition": "End of stream: no more bytes will be delivered under the stream’s contract."
+      },
+      {
+        "term": "Backpressure",
+        "definition": "A limit that makes a producer wait or reduce output when a downstream consumer cannot keep up."
+      }
+    ],
+    "starter": "systems_labs/ch40/starter.cpp",
+    "solution": "systems_labs/ch40/solution.cpp"
+  },
+  "41": {
+    "title": "Separate pending state from an event count",
+    "task": "Model both a Boolean notification and a counted event queue. Deliver two events before consuming anything, then explain why the two representations produce different amounts of information.",
+    "checks": [
+      "Two Boolean notifications leave one true flag.",
+      "Two counted events leave count two.",
+      "Consuming the flag once clears it; consuming one count leaves one event."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n\n\n\nint main() {\n    bool pending = false; unsigned events = 0;\n    for(unsigned i=0; i<2; ++i) { pending = true; ++events; }\n    unsigned flag_actions = 0;\n    if(pending) { pending = false; ++flag_actions; }\n    --events;\n    assert(flag_actions == 1 && !pending && events == 1);\n    std::cout << \"flag-actions=\" << flag_actions << \" counted-events-left=\" << events << '\\n';\n}\n",
+    "output": "flag-actions=1 counted-events-left=1\n",
+    "reason": "A flag answers whether attention is needed; a counter can preserve multiplicity within its range. Neither this ordinary bool nor unsigned is a real concurrent signal-handling protocol. A real handler must obey async-signal-safety rules, and the main loop must close the check-then-sleep race using the OS’s waiting and mask operations.",
+    "bug": "Expect two standard signal notifications to behave like two items in a reliable work queue.",
+    "repair": "Treat a signal as a prompt to inspect authoritative state unless the API explicitly queues the required information. Use a suitable counted mechanism when every event matters.",
+    "terms": [
+      {
+        "term": "Signal",
+        "definition": "An asynchronous process notification with delivery and handling rules defined by the OS."
+      },
+      {
+        "term": "Async-signal-safe",
+        "definition": "Permitted for use in an asynchronous signal handler under the applicable API’s rules."
+      }
+    ],
+    "starter": "systems_labs/ch41/starter.cpp",
+    "solution": "systems_labs/ch41/solution.cpp"
+  },
+  "42": {
+    "title": "Reject an incomplete pipeline before launching it",
+    "task": "Parse a deliberately small grammar: word, pipe, word, separated by spaces. Reject missing stages, extra words, and multiple pipes. This parser has no quotes, expansions, or redirection.",
+    "checks": [
+      "emit | count returns the two stage names.",
+      "emit | and | count are rejected.",
+      "emit | count extra and a | b | c are rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <optional>\n#include <sstream>\n#include <string>\n#include <utility>\n\nstd::optional<std::pair<std::string,std::string>> parse(const std::string& line) {\n    std::istringstream input(line);\n    std::string left, pipe, right, extra;\n    if(!(input >> left >> pipe >> right) || input >> extra) return std::nullopt;\n    if(pipe != \"|\" || left == \"|\" || right == \"|\") return std::nullopt;\n    return std::pair<std::string,std::string>{left,right};\n}\n\nint main() {\n    const auto good = parse(\"emit | count\");\n    assert(good && good->first == \"emit\" && good->second == \"count\");\n    assert(!parse(\"emit |\") && !parse(\"| count\"));\n    assert(!parse(\"emit | count extra\") && !parse(\"a | b | c\"));\n    std::cout << \"left=\" << good->first << \" right=\" << good->second << \" invalid=rejected\\n\";\n}\n",
+    "output": "left=emit right=count invalid=rejected\n",
+    "reason": "Parsing produces an execution plan before any process is launched. The result owns its stage names, so it survives destruction of the input stream. Rejecting unsupported forms makes the small grammar explicit; it would be incorrect to advertise this whitespace parser as a general shell parser.",
+    "bug": "Launch the first stage as soon as the first word is read. Later syntax failure then occurs after side effects have already begun.",
+    "repair": "Separate parsing from execution. Validate the complete structure and only then allocate pipes or launch children.",
+    "terms": [
+      {
+        "term": "Token",
+        "definition": "A meaningful input unit such as a word or operator produced during parsing."
+      },
+      {
+        "term": "Execution plan",
+        "definition": "A validated description of the operations to perform before those operations are started."
+      }
+    ],
+    "starter": "systems_labs/ch42/starter.cpp",
+    "solution": "systems_labs/ch42/solution.cpp"
+  },
+  "43": {
+    "title": "Enumerate defined interleavings",
+    "task": "Enumerate every order of two read/write steps from A and two from B while preserving each participant’s read-before-write order. Count final values in this sequential model.",
+    "checks": [
+      "There are six distinct schedules.",
+      "Four lose an update and finish at one.",
+      "Two serialize the updates and finish at two.",
+      "No actual unsynchronized C++ threads are used to model the failure."
+    ],
+    "code": "#include <array>\n#include <cassert>\n#include <iostream>\n#include <map>\n#include <algorithm>\n\nstd::map<int,unsigned> outcomes() {\n    std::array<int,4> order{0,0,1,1};\n    std::map<int,unsigned> counts;\n    do {\n        int counter = 0;\n        std::array<int,2> local{0,0}, step{0,0};\n        for(int who : order) {\n            if(step[who]++ == 0) local[who] = counter;\n            else counter = local[who]+1;\n        }\n        ++counts[counter];\n    } while(std::next_permutation(order.begin(),order.end()));\n    return counts;\n}\n\nint main() {\n    const auto counts = outcomes();\n    assert(counts.at(1) == 4 && counts.at(2) == 2);\n    std::cout << \"lost=\" << counts.at(1) << \" serialized=\" << counts.at(2) << '\\n';\n}\n",
+    "output": "lost=4 serialized=2\n",
+    "reason": "Each participant’s first event reads and its second writes. Permuting the actor labels enumerates only schedules that keep this internal order. The sequential simulator has defined behavior, so its outcomes can be counted and inspected. Those counts do not assign probabilities to a real scheduler and do not describe the full set of behaviors of a C++ data race.",
+    "bug": "Run ordinary shared counter++ from two threads and claim the observed results enumerate all valid outcomes.",
+    "repair": "Use a defined model for interleaving reasoning, or synchronize the real program. Undefined behavior is not a scheduling model.",
+    "terms": [
+      {
+        "term": "Interleaving",
+        "definition": "One ordering of steps from activities whose lifetimes overlap."
+      },
+      {
+        "term": "Concurrency",
+        "definition": "Multiple activities in progress whose steps may be interleaved or run at the same time."
+      }
+    ],
+    "starter": "systems_labs/ch43/starter.cpp",
+    "solution": "systems_labs/ch43/solution.cpp"
+  },
+  "44": {
+    "title": "Partition an uneven range safely",
+    "task": "Sum a vector with two asynchronous workers, splitting at size/2. Keep the input alive until both results are obtained and support empty and odd-length inputs.",
+    "checks": [
+      "{1,2,3,4,5} totals 15 with no lost element.",
+      "An empty vector totals zero.",
+      "One element is assigned to exactly one partition."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <numeric>\n#include <vector>\n#include <future>\n\nlong long parallel_sum(const std::vector<int>& values) {\n    const auto middle = values.size()/2;\n    const auto part = [&](std::size_t begin, std::size_t end) {\n        return std::accumulate(values.begin()+begin,values.begin()+end,0LL);\n    };\n    auto first = std::async(std::launch::async,part,0,middle);\n    auto second = std::async(std::launch::async,part,middle,values.size());\n    return first.get()+second.get();\n}\n\nint main() {\n    assert(parallel_sum({1,2,3,4,5}) == 15);\n    assert(parallel_sum({}) == 0 && parallel_sum({7}) == 7);\n    std::cout << \"odd=\" << parallel_sum({1,2,3,4,5}) << \" empty=\" << parallel_sum({}) << '\\n';\n}\n",
+    "output": "odd=15 empty=0\n",
+    "reason": "The half-open ranges [0,middle) and [middle,size) meet without overlap or a gap. Futures return values, so workers need no shared mutable accumulator. get waits for completion and propagates worker exceptions. The input remains borrowed until both asynchronous tasks finish; this lab assumes the small input sums fit in long long. Parallelism is an implementation exercise, not a speed claim.",
+    "bug": "Give each worker size/2 elements starting at worker*(size/2). For five elements, the fifth is omitted.",
+    "repair": "Use the actual size as the second range’s end. Check empty, one-element, even, and odd sizes.",
+    "terms": [
+      {
+        "term": "Join",
+        "definition": "Waiting for a thread’s completion and establishing the completion relationship needed to use its results."
+      },
+      {
+        "term": "Partition",
+        "definition": "A division of work into ranges or tasks with explicit coverage and overlap rules."
+      }
+    ],
+    "starter": "systems_labs/ch44/starter.cpp",
+    "solution": "systems_labs/ch44/solution.cpp"
+  },
+  "45": {
+    "title": "Compare split updates with atomic read-modify-write",
+    "task": "Keep a deterministic split-load/store counterexample, then have two real workers perform 1000 atomic fetch_add operations each.",
+    "checks": [
+      "Two split loads followed by two stores finish at one.",
+      "Two workers using fetch_add finish at 2000.",
+      "The real counter is read for its final result only after both workers finish."
+    ],
+    "code": "#include <atomic>\n#include <cassert>\n#include <iostream>\n#include <future>\n\nint split_update() {\n    std::atomic<int> counter{0};\n    const int first = counter.load(), second = counter.load();\n    counter.store(first+1); counter.store(second+1);\n    return counter.load();\n}\nint combined_updates() {\n    std::atomic<int> counter{0};\n    const auto worker = [&] { for(int i=0;i<1000;++i) counter.fetch_add(1); };\n    auto first = std::async(std::launch::async,worker);\n    auto second = std::async(std::launch::async,worker);\n    first.get(); second.get();\n    return counter.load();\n}\n\nint main() {\n    const int split = split_update(), combined = combined_updates();\n    assert(split == 1 && combined == 2000);\n    std::cout << \"split=\" << split << \" atomic=\" << combined << '\\n';\n}\n",
+    "output": "split=1 atomic=2000\n",
+    "reason": "Every access to each shared atomic counter is atomic, but only fetch_add combines reading and updating into one indivisible operation. The split trace intentionally separates those steps and has a logical lost update without undefined behavior. Completion of both futures makes the final count meaningful; checking while workers run would observe a valid but incomplete total.",
+    "bug": "Replace fetch_add with load followed by store in each worker. The C++ accesses remain atomic, but increments can be lost.",
+    "repair": "Use one read-modify-write operation for the counter, or protect the entire logical update with a mutex when several objects must change together.",
+    "terms": [
+      {
+        "term": "Data race",
+        "definition": "Conflicting concurrent C++ accesses, at least one a write, without the required atomicity or happens-before ordering."
+      },
+      {
+        "term": "Logical race",
+        "definition": "A result that depends on an undesired ordering of otherwise defined operations."
+      }
+    ],
+    "starter": "systems_labs/ch45/starter.cpp",
+    "solution": "systems_labs/ch45/solution.cpp"
+  },
+  "46": {
+    "title": "Publish a caller-supplied payload",
+    "task": "Build a one-shot publication function. A worker writes a non-atomic payload then releases a ready flag; the caller acquires that flag before reading the payload.",
+    "checks": [
+      "Publishing 42 returns 42.",
+      "Publishing a negative small integer preserves its value.",
+      "Each invocation uses a fresh flag and payload."
+    ],
+    "code": "#include <atomic>\n#include <cassert>\n#include <iostream>\n#include <thread>\n#include <future>\n\nint publish(int value) {\n    int payload = 0;\n    std::atomic<bool> ready{false};\n    auto producer = std::async(std::launch::async,[&] {\n        payload = value;\n        ready.store(true,std::memory_order_release);\n    });\n    while(!ready.load(std::memory_order_acquire)) std::this_thread::yield();\n    const int observed = payload;\n    producer.get();\n    return observed;\n}\n\nint main() {\n    assert(publish(42) == 42 && publish(-7) == -7);\n    std::cout << \"first=\" << publish(42) << \" second=\" << publish(-7) << '\\n';\n}\n",
+    "output": "first=42 second=-7\n",
+    "reason": "The release store follows the payload write; the acquiring load that observes it orders the subsequent payload read. The local state outlives the producer because the future is completed before return. A fresh flag makes the protocol one-shot. Reusing one Boolean for several messages would need a richer protocol to prevent missed or overwritten publications.",
+    "bug": "Use relaxed ordering on both flag operations and still rely on the flag to publish a non-atomic payload.",
+    "repair": "Use the release/acquire handoff or a mutex-based protocol that supplies the required happens-before relation. Do not treat a successful test run as a memory-order proof.",
+    "terms": [
+      {
+        "term": "Release/acquire",
+        "definition": "A pair of atomic ordering operations that can establish visibility of preceding work when the acquire observes the release."
+      },
+      {
+        "term": "Happens-before",
+        "definition": "An ordering relation used by C++ to determine whether effects are properly ordered between evaluations."
+      }
+    ],
+    "starter": "systems_labs/ch46/starter.cpp",
+    "solution": "systems_labs/ch46/solution.cpp"
+  },
+  "47": {
+    "title": "Guard a conservation rule across real workers",
+    "task": "Two accounts begin with 100 each. Two workers make 100 opposite-direction transfers of one unit. Protect each complete transfer with the same mutex.",
+    "checks": [
+      "Every completed transfer preserves total 200.",
+      "Both workers finish with balances 100 and 100.",
+      "No balance is read or changed concurrently outside the common lock."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <mutex>\n#include <future>\n\n\n\nint main() {\n    int first = 100, second = 100;\n    std::mutex mutex;\n    const auto move = [&](bool forward) {\n        for(int i=0;i<100;++i) {\n            std::lock_guard<std::mutex> lock(mutex);\n            int& from = forward ? first : second;\n            int& to = forward ? second : first;\n            assert(from > 0);\n            --from; ++to;\n            assert(first+second == 200);\n        }\n    };\n    auto a = std::async(std::launch::async,move,true);\n    auto b = std::async(std::launch::async,move,false);\n    a.get(); b.get();\n    assert(first == 100 && second == 100);\n    std::cout << \"balances=\" << first << ',' << second << \" total=\" << first+second << '\\n';\n}\n",
+    "output": "balances=100,100 total=200\n",
+    "reason": "The invariant spans two variables, so the critical section spans both updates. The references from and to select direction while the lock is held. Each worker sends at most its account’s initial 100 units, so the positive-source assertion holds for every schedule in this fixture. Main reads the final state after both workers finish.",
+    "bug": "Give each worker its own mutex. Both can then enter their critical sections at the same time and race on the accounts.",
+    "repair": "Use the same synchronization object for every access governed by the invariant. Protect readers as well as writers if they can run concurrently.",
+    "terms": [
+      {
+        "term": "Critical section",
+        "definition": "A region whose operations require coordinated access to shared state."
+      },
+      {
+        "term": "Mutex",
+        "definition": "A synchronization object that permits one cooperating owner at a time."
+      }
+    ],
+    "starter": "systems_labs/ch47/starter.cpp",
+    "solution": "systems_labs/ch47/solution.cpp"
+  },
+  "48": {
+    "title": "Use a condition variable with a lasting predicate",
+    "task": "Implement a one-shot handoff using a mutex, condition variable, ready flag, and payload. It must work whether the producer sets ready before or after the consumer starts waiting.",
+    "checks": [
+      "The consumer sees payload 42.",
+      "The wait uses a predicate while holding the associated mutex.",
+      "The producer changes the state under that same mutex."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <mutex>\n#include <condition_variable>\n#include <future>\n\nint handoff() {\n    std::mutex mutex;\n    std::condition_variable changed;\n    bool ready = false; int payload = 0;\n    auto producer = std::async(std::launch::async,[&] {\n        { std::lock_guard<std::mutex> lock(mutex); payload = 42; ready = true; }\n        changed.notify_one();\n    });\n    int observed;\n    {\n        std::unique_lock<std::mutex> lock(mutex);\n        changed.wait(lock,[&] { return ready; });\n        observed = payload;\n    }\n    producer.get();\n    return observed;\n}\n\nint main() {\n    assert(handoff() == 42);\n    std::cout << \"payload=\" << handoff() << '\\n';\n}\n",
+    "output": "payload=42\n",
+    "reason": "The predicate is durable state; a notification is only a reason to recheck it. wait releases the lock while waiting and reacquires it before evaluating readiness and returning. If ready was already true, the consumer does not sleep. The final get ensures the notification call and producer lifetime finish before local synchronization objects are destroyed.",
+    "bug": "Call changed.wait(lock) once without a predicate, then read payload. A spurious wakeup or an earlier notification can break the intended protocol.",
+    "repair": "Use the predicate overload or an explicit while loop. Keep state reads and writes under the same mutex.",
+    "terms": [
+      {
+        "term": "Condition variable",
+        "definition": "A waiting mechanism used with a mutex and a predicate over shared state."
+      },
+      {
+        "term": "Spurious wakeup",
+        "definition": "A return from waiting that does not itself prove the desired condition is true."
+      }
+    ],
+    "starter": "systems_labs/ch48/starter.cpp",
+    "solution": "systems_labs/ch48/solution.cpp"
+  },
+  "49": {
+    "title": "Build a bounded, drainable queue",
+    "task": "Implement a capacity-two queue with blocking push and pop. close rejects new pushes, wakes waiting participants, and permits consumers to drain existing items before reporting end.",
+    "checks": [
+      "Values 1 through 5 are delivered in FIFO order.",
+      "The consumer drains all five after producer closure.",
+      "A closed empty queue returns no value; a push after close is rejected.",
+      "Zero capacity is rejected."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <mutex>\n#include <numeric>\n#include <optional>\n#include <vector>\n#include <condition_variable>\n#include <deque>\n#include <future>\n#include <stdexcept>\n\nclass Queue {\n    std::mutex mutex_;\n    std::condition_variable readable_, writable_;\n    std::deque<int> items_;\n    std::size_t capacity_;\n    bool closed_ = false;\npublic:\n    explicit Queue(std::size_t capacity) : capacity_(capacity) {\n        if(capacity == 0) throw std::invalid_argument(\"zero capacity\");\n    }\n    bool push(int value) {\n        std::unique_lock<std::mutex> lock(mutex_);\n        writable_.wait(lock,[&] { return closed_ || items_.size() < capacity_; });\n        if(closed_) return false;\n        items_.push_back(value);\n        readable_.notify_one();\n        return true;\n    }\n    std::optional<int> pop() {\n        std::unique_lock<std::mutex> lock(mutex_);\n        readable_.wait(lock,[&] { return closed_ || !items_.empty(); });\n        if(items_.empty()) return std::nullopt;\n        const int value = items_.front(); items_.pop_front();\n        writable_.notify_one();\n        return value;\n    }\n    void close() {\n        std::lock_guard<std::mutex> lock(mutex_);\n        closed_ = true;\n        readable_.notify_all(); writable_.notify_all();\n    }\n};\n\nint main() {\n    Queue queue(2);\n    std::vector<int> received;\n    received.reserve(5); // Allocate before a producer can block.\n    auto producer = std::async(std::launch::async,[&] {\n        try {\n            for(int i=1;i<=5;++i) assert(queue.push(i));\n            queue.close();\n        } catch(...) { queue.close(); throw; }\n    });\n    try {\n        while(const auto item = queue.pop()) received.push_back(*item);\n    } catch(...) {\n        queue.close();\n        try { producer.get(); } catch(...) {}\n        throw;\n    }\n    producer.get();\n    assert((received == std::vector<int>{1,2,3,4,5}));\n    assert(!queue.push(6) && !queue.pop());\n    bool rejected = false;\n    try { Queue invalid(0); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"items=\" << received.size() << \" sum=\"\n              << std::accumulate(received.begin(),received.end(),0) << \" closed=yes\\n\";\n}\n",
+    "output": "items=5 sum=15 closed=yes\n",
+    "reason": "A class is useful here because the mutex, predicates, queue, capacity, and closed flag must obey one shared rule across several operations. All shared state is accessed under the mutex. Separate conditions describe available items and available space. The producer closes on normal completion and on exceptions so the consumer cannot wait forever for more input. The queue must outlive every participant.",
+    "bug": "In pop, return no value whenever closed_ is true, even if items_ is nonempty. Buffered work is lost during shutdown.",
+    "repair": "After waiting, return no value only when the queue is empty. A closed queue can still contain items that the drain contract promises to deliver.",
+    "terms": [
+      {
+        "term": "Drain",
+        "definition": "Consume already-accepted work before ending a closed queue or stream."
+      },
+      {
+        "term": "Shutdown protocol",
+        "definition": "The rules for stopping new work, waking waiters, finishing or discarding old work, and ending lifetimes."
+      }
+    ],
+    "starter": "systems_labs/ch49/starter.cpp",
+    "solution": "systems_labs/ch49/solution.cpp"
+  },
+  "50": {
+    "title": "Avoid opposite lock-order deadlock",
+    "task": "Transfer between accounts with two mutexes using scoped_lock. Treat transfer to the same account as a no-op, reject insufficient funds, and preserve the total.",
+    "checks": [
+      "Two workers transfer 100 units in opposite directions without opposite manual lock order.",
+      "Total remains 200.",
+      "Transfer to self changes nothing.",
+      "For distinct accounts, a request greater than the source balance returns false."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <mutex>\n#include <future>\n\nstruct Account { int balance = 100; std::mutex mutex; };\nbool transfer(Account& from, Account& to, int amount) {\n    if(amount < 0) return false;\n    if(&from == &to) return true;\n    std::scoped_lock lock(from.mutex,to.mutex);\n    if(from.balance < amount) return false;\n    from.balance -= amount; to.balance += amount;\n    return true;\n}\n\nint main() {\n    Account first, second;\n    const auto worker = [&](bool forward) {\n        for(int i=0;i<100;++i)\n            assert(forward ? transfer(first,second,1) : transfer(second,first,1));\n    };\n    auto a = std::async(std::launch::async,worker,true);\n    auto b = std::async(std::launch::async,worker,false);\n    a.get(); b.get();\n    assert(first.balance == 100 && second.balance == 100);\n    assert(transfer(first,first,10) && first.balance == 100);\n    assert(!transfer(first,second,1000));\n    std::cout << \"total=\" << first.balance+second.balance << \" self-transfer=no-op\\n\";\n}\n",
+    "output": "total=200 self-transfer=no-op\n",
+    "reason": "scoped_lock acquires the two distinct mutexes using a deadlock-avoidance strategy and releases both at scope exit. Handling the same-account case first avoids passing the same non-recursive mutex twice. The small fixed total bounds arithmetic in this fixture. Other locks, callbacks, or I/O added inside the critical section would introduce new waiting relationships that still need review.",
+    "bug": "Lock the source mutex first and destination second in both transfer directions. Each thread can hold the lock the other needs.",
+    "repair": "Use a consistent global ordering or an appropriate multi-mutex acquisition operation. Separately handle repeated references to the same resource.",
+    "terms": [
+      {
+        "term": "Deadlock",
+        "definition": "A state in which participants cannot progress because each waits for conditions the waiting participants must supply."
+      },
+      {
+        "term": "Circular wait",
+        "definition": "A cycle of waiting dependencies, such as A waiting for B while B waits for A."
+      }
+    ],
+    "starter": "systems_labs/ch50/starter.cpp",
+    "solution": "systems_labs/ch50/solution.cpp"
+  },
+  "51": {
+    "title": "Parse complete frames without losing the next one",
+    "task": "Parse a one-byte length followed by that many payload bytes, with maximum length eight. Report incomplete input separately from an invalid length, and return the number of consumed bytes.",
+    "checks": [
+      "A fragmented cat frame stays incomplete until all three payload bytes arrive.",
+      "A complete frame reports four consumed bytes.",
+      "A following frame remains available to parse.",
+      "A length above eight is rejected before payload allocation."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <optional>\n#include <string>\n#include <vector>\n#include <stdexcept>\n\nstruct Frame { std::string payload; std::size_t consumed; };\nstd::optional<Frame> frame(const std::vector<unsigned char>& bytes) {\n    if(bytes.empty()) return std::nullopt;\n    const std::size_t length = bytes[0];\n    if(length > 8) throw std::invalid_argument(\"frame too large\");\n    if(bytes.size()-1 < length) return std::nullopt;\n    return Frame{std::string(bytes.begin()+1,bytes.begin()+1+length),1+length};\n}\n\nint main() {\n    std::vector<unsigned char> bytes{3,'c'};\n    assert(!frame(bytes));\n    bytes.insert(bytes.end(),{'a','t',1,'x'});\n    const auto first = frame(bytes);\n    assert(first && first->payload == \"cat\" && first->consumed == 4);\n    bytes.erase(bytes.begin(),bytes.begin()+first->consumed);\n    assert(frame(bytes)->payload == \"x\");\n    bool rejected = false;\n    try { frame({9}); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"first=\" << first->payload << \" next=\" << frame(bytes)->payload << '\\n';\n}\n",
+    "output": "first=cat next=x\n",
+    "reason": "A byte stream can split or combine application frames arbitrarily. The parser therefore returns both owned payload data and a consumed count. It does not erase unconsumed bytes itself. Bounds are checked before forming payload iterators, and invalid size is distinct from incomplete arrival. Network errors and end-of-stream handling belong to the surrounding connection state machine.",
+    "bug": "Clear the whole receive buffer after parsing the first frame. Any complete or partial second frame disappears.",
+    "repair": "Remove only consumed bytes and retain the suffix. Test two frames arriving in one read as well as one frame arriving in several reads.",
+    "terms": [
+      {
+        "term": "Framing",
+        "definition": "Rules that identify application message boundaries within a sequence of bytes."
+      },
+      {
+        "term": "Byte stream",
+        "definition": "An ordered sequence of bytes without a promise that transfer calls preserve message boundaries."
+      }
+    ],
+    "starter": "systems_labs/ch51/starter.cpp",
+    "solution": "systems_labs/ch51/solution.cpp"
+  },
+  "52": {
+    "title": "Enforce an admission budget",
+    "task": "Create a gate with a maximum active count. Admit only below the limit, release one existing permit at a time, and reject a release when none is held.",
+    "checks": [
+      "A limit-two gate admits twice and rejects a third request.",
+      "Releasing one permit allows another admission.",
+      "Active count never exceeds two or falls below zero.",
+      "An unmatched release is rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <mutex>\n\nclass Gate {\n    unsigned active_ = 0;\n    const unsigned limit_;\n    std::mutex mutex_;\npublic:\n    explicit Gate(unsigned limit) : limit_(limit) {}\n    bool admit() {\n        std::lock_guard<std::mutex> lock(mutex_);\n        if(active_ == limit_) return false;\n        ++active_; return true;\n    }\n    bool release() {\n        std::lock_guard<std::mutex> lock(mutex_);\n        if(active_ == 0) return false;\n        --active_; return true;\n    }\n};\n\nint main() {\n    Gate gate(2);\n    assert(gate.admit() && gate.admit() && !gate.admit());\n    assert(gate.release() && gate.admit());\n    assert(gate.release() && gate.release() && !gate.release());\n    Gate closed(0); assert(!closed.admit());\n    std::cout << \"limit=2 third=rejected released=reusable\\n\";\n}\n",
+    "output": "limit=2 third=rejected released=reusable\n",
+    "reason": "Checking the count and incrementing it form one critical section, otherwise two arrivals could both observe spare capacity. The gate bounds admitted work, not every byte the server owns. Callers must still pair successful admission with release on every completion and error path; a scope-based permit object is a useful next extension.",
+    "bug": "Check the count without a lock, then lock only while incrementing. Two callers can both pass the same old count.",
+    "repair": "Guard the check and state change together. Treat cleanup pairing as part of the admission contract.",
+    "terms": [
+      {
+        "term": "Admission control",
+        "definition": "A rule deciding whether new work can enter the system given current resource limits."
+      },
+      {
+        "term": "Overload policy",
+        "definition": "The chosen behavior when incoming work exceeds capacity, such as rejection, bounded waiting, or dropping."
+      }
+    ],
+    "starter": "systems_labs/ch52/starter.cpp",
+    "solution": "systems_labs/ch52/solution.cpp"
+  },
+  "53": {
+    "title": "Model nonblocking drain outcomes",
+    "task": "Consume a supplied trace of read results: positive counts add bytes, -1 means would-block in this model, and zero means EOF. Reject other negative values.",
+    "checks": [
+      "2,1,-1 buffers three bytes and reports blocked, not EOF.",
+      "2,0 buffers two bytes and reports EOF.",
+      "Results after would-block or EOF are not consumed in the same drain call."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <vector>\n#include <stdexcept>\n\nstruct Drain { unsigned bytes = 0; bool blocked = false; bool eof = false; };\nDrain drain(const std::vector<int>& results) {\n    Drain result;\n    for(int count : results) {\n        if(count == -1) { result.blocked = true; break; }\n        if(count == 0) { result.eof = true; break; }\n        if(count < 0) throw std::invalid_argument(\"read error\");\n        result.bytes += static_cast<unsigned>(count);\n    }\n    return result;\n}\n\nint main() {\n    const auto blocked = drain({2,1,-1,9}), ended = drain({2,0,9});\n    assert(blocked.bytes == 3 && blocked.blocked && !blocked.eof);\n    assert(ended.bytes == 2 && ended.eof && !ended.blocked);\n    bool rejected = false;\n    try { drain({-2}); } catch(const std::invalid_argument&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"blocked-bytes=\" << blocked.bytes << \" eof-bytes=\" << ended.bytes << '\\n';\n}\n",
+    "output": "blocked-bytes=3 eof-bytes=2\n",
+    "reason": "Would-block means the operation cannot make immediate progress; EOF means the stream has ended. Keeping them separate prevents a temporary lack of data from closing a connection. The model gives -1 one special meaning, while a real read returning -1 requires inspecting errno. The fixture uses small counts; production accumulation also needs an explicit buffer-size bound.",
+    "bug": "Treat every nonpositive result as EOF. A live connection is closed when it merely has no bytes ready now.",
+    "repair": "Distinguish success, EOF, would-block, interruption, and permanent errors according to the API. Return control to the event loop on would-block.",
+    "terms": [
+      {
+        "term": "Readiness",
+        "definition": "A notification that an I/O operation may be able to make progress under the API’s conditions."
+      },
+      {
+        "term": "Would-block",
+        "definition": "A nonblocking result indicating that immediate progress is unavailable without waiting."
+      }
+    ],
+    "starter": "systems_labs/ch53/starter.cpp",
+    "solution": "systems_labs/ch53/solution.cpp"
+  },
+  "54": {
+    "title": "Report a distribution as well as a mean",
+    "task": "For a nonempty list of finite nonnegative millisecond durations with positive total time, report mean, nearest-rank 95th percentile, and serial throughput.",
+    "checks": [
+      "2,8,5 gives mean 5, p95 8, throughput 200 per second.",
+      "A single 10 ms request gives p95 10 and throughput 100.",
+      "Empty input, all-zero time, and negative durations are rejected."
+    ],
+    "code": "#include <algorithm>\n#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <vector>\n#include <cmath>\n#include <stdexcept>\n\nstruct Stats { double mean; double p95; double per_second; };\nStats summarize(std::vector<double> times) {\n    if(times.empty()) throw std::invalid_argument(\"empty sample\");\n    double total = 0;\n    for(double time : times) {\n        if(!std::isfinite(time) || time < 0) throw std::invalid_argument(\"duration\");\n        total += time;\n    }\n    if(!std::isfinite(total) || total <= 0) throw std::invalid_argument(\"total time\");\n    std::sort(times.begin(),times.end());\n    const auto rank = static_cast<std::size_t>(std::ceil(.95*times.size()));\n    return {total/times.size(),times[rank-1],times.size()/(total/1000)};\n}\n\nint main() {\n    const auto result = summarize({2,8,5});\n    assert(result.mean == 5 && result.p95 == 8 && result.per_second == 200);\n    assert(summarize({10}).p95 == 10 && summarize({10}).per_second == 100);\n    int rejected = 0;\n    for(const auto& values : std::vector<std::vector<double>>{{},{0,0},{-1,2}}) {\n        try { summarize(values); } catch(const std::invalid_argument&) { ++rejected; }\n    }\n    assert(rejected == 3);\n    std::cout << \"mean=\" << result.mean << \" p95=\" << result.p95 << \" rate=\" << result.per_second << \"/s\\n\";\n}\n",
+    "output": "mean=5 p95=8 rate=200/s\n",
+    "reason": "The mean describes total time divided by count; the selected percentile describes an order statistic. Sorting a copy preserves the caller’s sample order. Three observations make a very weak basis for real tail-latency inference: the example teaches the calculation, not statistical confidence. Throughput here uses a serial interval; concurrent request durations cannot simply be added to infer wall time.",
+    "bug": "Report 3/15 as requests per second. The denominator is milliseconds, so the units are wrong by a factor of 1000.",
+    "repair": "Convert the interval to seconds and state the percentile convention. Preserve raw measurements for later checks.",
+    "terms": [
+      {
+        "term": "Throughput",
+        "definition": "Completed work divided by the elapsed measurement interval."
+      },
+      {
+        "term": "Percentile",
+        "definition": "A position in an ordered sample or distribution, interpreted using a stated convention."
+      }
+    ],
+    "starter": "systems_labs/ch54/starter.cpp",
+    "solution": "systems_labs/ch54/solution.cpp"
+  },
+  "55": {
+    "title": "Build reusable bounded range sums",
+    "task": "Precompute prefix sums for at most one million int values in [-1000,1000]. Answer half-open range queries and reject reversed or out-of-bounds endpoints.",
+    "checks": [
+      "[1,4) over 2,4,6,8 returns 18.",
+      "An empty range returns zero.",
+      "[0,4) returns 20.",
+      "Reversed endpoints and endpoints beyond size are rejected."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <stdexcept>\n#include <vector>\n#include <stdexcept>\n\nstd::vector<long long> prefix(const std::vector<int>& values) {\n    if(values.size() > 1000000) throw std::invalid_argument(\"count\");\n    std::vector<long long> result(values.size()+1,0);\n    for(std::size_t i=0;i<values.size();++i) {\n        if(values[i] < -1000 || values[i] > 1000) throw std::invalid_argument(\"value\");\n        result[i+1] = result[i]+values[i];\n    }\n    return result;\n}\nlong long query(const std::vector<long long>& sums, std::size_t left, std::size_t right) {\n    if(sums.empty() || left > right || right >= sums.size()) throw std::out_of_range(\"range\");\n    return sums[right]-sums[left];\n}\n\nint main() {\n    const auto sums = prefix({2,4,6,8});\n    assert(query(sums,1,4) == 18 && query(sums,2,2) == 0 && query(sums,0,4) == 20);\n    int rejected = 0;\n    try { query(sums,3,2); } catch(const std::out_of_range&) { ++rejected; }\n    try { query(sums,0,5); } catch(const std::out_of_range&) { ++rejected; }\n    assert(rejected == 2);\n    std::cout << \"range=\" << query(sums,1,4) << \" empty=\" << query(sums,2,2) << '\\n';\n}\n",
+    "output": "range=18 empty=0\n",
+    "reason": "A leading zero makes the same subtraction work for ranges starting at zero and for empty ranges. The bounds on count and element value keep every prefix sum representable in long long. Queries borrow an already-built valid prefix vector; exposing an arbitrary editable vector is a deliberate simplification that a value type could later protect.",
+    "bug": "Build a prefix array without the leading zero but keep the same query formula. Endpoint zero and the full-range query no longer follow the stated meaning.",
+    "repair": "Define sums[k] as the total strictly before k and keep that meaning in construction, bounds, and queries.",
+    "terms": [
+      {
+        "term": "Precomputation",
+        "definition": "Doing reusable work once so later operations require less repeated effort."
+      },
+      {
+        "term": "Complexity",
+        "definition": "How a program’s required work or storage grows with input size."
+      }
+    ],
+    "starter": "systems_labs/ch55/starter.cpp",
+    "solution": "systems_labs/ch55/solution.cpp"
+  },
+  "56": {
+    "title": "Validate an Amdahl calculation",
+    "task": "Compute whole-program speedup from a fraction in [0,1] and a finite positive local speedup. Reject invalid fractions and nonpositive factors.",
+    "checks": [
+      "Fraction .4 and local factor 2 gives 1.25.",
+      "Fraction zero gives one; fraction one gives the local factor.",
+      "A factor below one correctly predicts a slowdown.",
+      "Invalid fractions and factor zero are rejected."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <cmath>\n#include <stdexcept>\n\ndouble speedup(double fraction, double local) {\n    if(!std::isfinite(fraction) || fraction < 0 || fraction > 1 || !std::isfinite(local) || local <= 0)\n        throw std::invalid_argument(\"speedup model\");\n    return 1/((1-fraction)+fraction/local);\n}\n\nint main() {\n    assert(std::abs(speedup(.4,2)-1.25) < 1e-12);\n    assert(speedup(0,2) == 1 && speedup(1,2) == 2 && speedup(1,.5) == .5);\n    int rejected = 0;\n    try { speedup(1.1,2); } catch(const std::invalid_argument&) { ++rejected; }\n    try { speedup(.4,0); } catch(const std::invalid_argument&) { ++rejected; }\n    assert(rejected == 2);\n    std::cout << \"whole=\" << speedup(.4,2) << \" unchanged=\" << speedup(0,2) << '\\n';\n}\n",
+    "output": "whole=1.25 unchanged=1\n",
+    "reason": "Normalize the old execution time to one, reduce only the affected fraction, and invert the new time to express a speed ratio. The model assumes the workload and unaffected costs stay fixed. Moving work across boundaries, changing input sizes, or adding coordination can invalidate the measured fraction even when the algebra is correct.",
+    "bug": "Use 1 + fraction*(local-1). That averages speed factors instead of adding execution times.",
+    "repair": "Combine time contributions first, then take their reciprocal. Check the fraction-zero and fraction-one boundaries.",
+    "terms": [
+      {
+        "term": "Amdahl’s law",
+        "definition": "A time-based bound on whole-system speedup when only a stated fraction of work changes."
+      },
+      {
+        "term": "Bottleneck",
+        "definition": "A resource or phase that limits the performance of the current workload."
+      }
+    ],
+    "starter": "systems_labs/ch56/starter.cpp",
+    "solution": "systems_labs/ch56/solution.cpp"
+  },
+  "57": {
+    "title": "Validate a complete bounded frame extent",
+    "task": "Return whether a header and claimed payload fit inside a received extent, with a separate maximum payload of eight. Check the header before subtracting.",
+    "checks": [
+      "Header 2,payload 3,received 5 is valid.",
+      "A missing header and a truncated payload are invalid.",
+      "A payload above eight is invalid even if the buffer is larger.",
+      "A maximum-size claim cannot wrap past the checks."
+    ],
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <limits>\n\nbool valid_frame(std::size_t received, std::size_t header, std::size_t payload) {\n    return header <= received && payload <= 8 && payload <= received-header;\n}\n\nint main() {\n    assert(valid_frame(5,2,3));\n    assert(!valid_frame(1,2,0) && !valid_frame(4,2,3));\n    assert(!valid_frame(100,2,9));\n    assert(!valid_frame(10,2,std::numeric_limits<std::size_t>::max()));\n    std::cout << \"complete=valid truncated=rejected oversized=rejected\\n\";\n}\n",
+    "output": "complete=valid truncated=rejected oversized=rejected\n",
+    "reason": "A parser needs both a received-extent check and an application resource limit. A large backing allocation does not imply that unread bytes are valid input, and a valid extent does not authorize an arbitrarily large message. Short-circuit evaluation ensures subtraction occurs only after the header is known to fit.",
+    "bug": "Compare against buffer capacity rather than the number of bytes actually received. Uninitialized or stale bytes can be mistaken for input.",
+    "repair": "Carry valid extent with the data and validate against it. Keep allocation capacity as a separate property.",
+    "terms": [
+      {
+        "term": "Trust boundary",
+        "definition": "A point where data or actions cross between different levels of trust or authority."
+      },
+      {
+        "term": "Valid extent",
+        "definition": "The portion of a buffer that the current operation may treat as meaningful input."
+      }
+    ],
+    "starter": "systems_labs/ch57/starter.cpp",
+    "solution": "systems_labs/ch57/solution.cpp"
+  },
+  "58": {
+    "title": "Show both detection and its limit",
+    "task": "Model a record with payload and guard. Demonstrate that changing the guard is detected while a payload-only change can leave the guard check satisfied. Do not perform an invalid memory access.",
+    "checks": [
+      "The initial guard passes.",
+      "A deliberate guard-variable change fails the check.",
+      "Changing only the payload leaves the guard check passing."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n\nstruct Guarded { int payload; unsigned guard; };\nbool intact(const Guarded& value) { return value.guard == 0xA55Au; }\n\nint main() {\n    Guarded record{7,0xA55Au};\n    assert(intact(record));\n    record.payload = 99;\n    assert(intact(record));\n    const bool payload_only = intact(record);\n    record.guard ^= 1u;\n    assert(!intact(record));\n    std::cout << \"payload-only=\" << payload_only << \" guard-change=\" << intact(record) << '\\n';\n}\n",
+    "output": "payload-only=1 guard-change=0\n",
+    "reason": "A check proves only the fact it actually checks. This guard comparison can notice a changed guard value; it does not validate payload semantics or enforce bounds. The deliberate assignments are legal C++ operations, so the demonstration does not rely on undefined overflow behavior. Real mitigations add distinct defenses but do not replace a correct memory-access contract.",
+    "bug": "Treat a passing guard check as proof that no memory-safety bug occurred anywhere in the operation.",
+    "repair": "State the mitigation’s coverage and test its limitations. Keep length validation, lifetime rules, and build hardening as separate protections.",
+    "terms": [
+      {
+        "term": "Mitigation",
+        "definition": "A measure that reduces certain consequences or detects certain failures without necessarily preventing the underlying bug."
+      },
+      {
+        "term": "Defense in depth",
+        "definition": "Using protections with different coverage so one failed assumption does not remove every defense."
+      }
+    ],
+    "starter": "systems_labs/ch58/starter.cpp",
+    "solution": "systems_labs/ch58/solution.cpp"
+  },
+  "59": {
+    "title": "Validate then commit a configuration update",
+    "task": "Accept exactly version=N with decimal N in [1,99]. Parse into temporary state and change the live string only after complete validation.",
+    "checks": [
+      "version=2 replaces version=1.",
+      "A missing number, trailing junk, zero, or 100 is rejected.",
+      "Every rejected update preserves the previous live configuration."
+    ],
+    "code": "#include <cassert>\n#include <iostream>\n#include <optional>\n#include <string>\n#include <charconv>\n#include <system_error>\n\nstd::optional<int> parse_version(const std::string& candidate) {\n    const std::string prefix = \"version=\";\n    if(candidate.compare(0,prefix.size(),prefix) != 0) return std::nullopt;\n    int value = 0;\n    const char* first = candidate.data()+prefix.size();\n    const char* last = candidate.data()+candidate.size();\n    const auto parsed = std::from_chars(first,last,value);\n    if(parsed.ec != std::errc{} || parsed.ptr != last || value < 1 || value > 99) return std::nullopt;\n    return value;\n}\nbool update(std::string& live, const std::string& candidate) {\n    const auto value = parse_version(candidate);\n    if(!value) return false;\n    std::string prepared = \"version=\"+std::to_string(*value);\n    live.swap(prepared);\n    return true;\n}\n\nint main() {\n    std::string live = \"version=1\";\n    for(const std::string candidate : {\"version=\",\"version=2x\",\"version=0\",\"version=100\"}) {\n        assert(!update(live,candidate) && live == \"version=1\");\n    }\n    assert(update(live,\"version=2\") && live == \"version=2\");\n    std::cout << live << \" rejected-updates=unchanged\\n\";\n}\n",
+    "output": "version=2 rejected-updates=unchanged\n",
+    "reason": "from_chars reports both an error and the point where parsing stopped, so accepting a numeric prefix alone is not enough. The candidate must fit the entire grammar and range. A separately built string provides a commit point through swap; invalid input leaves the old value untouched. This is process-local exception-safe state replacement, not a durable file transaction.",
+    "bug": "Accept version=2x because the numeric parser found an initial 2. The unconsumed suffix violates the format.",
+    "repair": "Require successful conversion and parsed.ptr==last, then enforce the range before committing.",
+    "terms": [
+      {
+        "term": "Strong exception guarantee",
+        "definition": "A promise that a failed operation leaves the relevant observable state unchanged."
+      },
+      {
+        "term": "Durability",
+        "definition": "A guarantee about state surviving the failures specified by a storage protocol, distinct from atomic visibility."
+      }
+    ],
+    "starter": "systems_labs/ch59/starter.cpp",
+    "solution": "systems_labs/ch59/solution.cpp"
+  },
+  "60": {
+    "title": "Build a byte-summary component with a clear contract",
+    "task": "Summarize a string of up to one million bytes by its byte count and unsigned-byte sum. Treat embedded zero bytes as data and reject oversized input.",
+    "checks": [
+      "cat has three bytes and sum 312.",
+      "A two-byte string containing 0 and 255 has sum 255.",
+      "Empty input is valid.",
+      "The byte-count cap is enforced."
+    ],
+    "code": "#include <climits>\n#include <cassert>\n#include <cstddef>\n#include <cstdint>\n#include <iostream>\n#include <string>\n#include <stdexcept>\n\nstatic_assert(CHAR_BIT == 8, \"8-bit bytes required\");\nstruct Summary { std::size_t bytes; std::uint64_t sum; };\nSummary summarize_bytes(const std::string& data) {\n    if(data.size() > 1000000) throw std::length_error(\"input limit\");\n    std::uint64_t sum = 0;\n    for(unsigned char byte : data) sum += byte;\n    return {data.size(),sum};\n}\n\nstatic_assert('A' == 65 && 'c' == 99 && 'a' == 97 && 't' == 116);\nint main() {\n    const auto word = summarize_bytes(\"cat\");\n    assert(word.bytes == 3 && word.sum == 312);\n    const std::string binary{char(0),char(255)};\n    assert(summarize_bytes(binary).bytes == 2 && summarize_bytes(binary).sum == 255);\n    assert(summarize_bytes(\"\").bytes == 0);\n    bool rejected = false;\n    try { summarize_bytes(std::string(1000001,'x')); } catch(const std::length_error&) { rejected = true; }\n    assert(rejected);\n    std::cout << \"bytes=\" << word.bytes << \" sum=\" << word.sum << \" binary-sum=\" << summarize_bytes(binary).sum << '\\n';\n}\n",
+    "output": "bytes=3 sum=312 binary-sum=255\n",
+    "reason": "A string stores a count as well as characters, so an embedded null does not end this range-based traversal. Converting each element to unsigned char makes the byte value nonnegative. The length cap bounds the sum well below uint64_t’s maximum. The lab isolates a computation that can later be used behind a file, pipe, or network input boundary.",
+    "bug": "Use strlen on the binary input. It stops at the first zero byte and reports zero rather than two.",
+    "repair": "Carry an explicit byte count and iterate the whole valid range. Keep text terminators separate from binary framing.",
+    "terms": [
+      {
+        "term": "Translation unit",
+        "definition": "A source unit after preprocessing that the compiler processes under the language’s rules."
+      },
+      {
+        "term": "Linking",
+        "definition": "Combining compiled definitions and resolving references to build a program or library."
+      }
+    ],
+    "starter": "systems_labs/ch60/starter.cpp",
+    "solution": "systems_labs/ch60/solution.cpp"
+  },
+  "61": {
+    "title": "Capstone: bounded concurrent byte processing",
+    "task": "Integrate a capacity-two work queue, two workers, byte validation, owned payloads, ordered results, and shutdown. Accept payloads of at most four bytes; rejected items must receive a result without contributing to totals.",
+    "checks": [
+      "cat, A, empty, tools produce three accepted results and one rejection.",
+      "Accepted totals are four bytes and byte sum 377.",
+      "Results are printed in input order regardless of worker schedule.",
+      "An empty input list shuts down cleanly.",
+      "Workers finish before the queue and result storage leave scope."
+    ],
+    "code": "#include <array>\n#include <cassert>\n#include <cstddef>\n#include <cstdint>\n#include <iostream>\n#include <mutex>\n#include <optional>\n#include <string>\n#include <utility>\n#include <vector>\n#include <condition_variable>\n#include <deque>\n#include <future>\n#include <stdexcept>\n\nstruct Work { std::size_t index; std::string bytes; };\nstruct Result { bool accepted; std::size_t bytes; std::uint64_t sum; };\nclass WorkQueue {\n    std::mutex mutex_;\n    std::condition_variable readable_, writable_;\n    std::deque<Work> work_;\n    const std::size_t capacity_;\n    bool closed_ = false;\npublic:\n    explicit WorkQueue(std::size_t capacity) : capacity_(capacity) {\n        if(capacity == 0) throw std::invalid_argument(\"capacity\");\n    }\n    bool push(Work work) {\n        std::unique_lock<std::mutex> lock(mutex_);\n        writable_.wait(lock,[&] { return closed_ || work_.size() < capacity_; });\n        if(closed_) return false;\n        work_.push_back(std::move(work));\n        readable_.notify_one();\n        return true;\n    }\n    std::optional<Work> pop() {\n        std::unique_lock<std::mutex> lock(mutex_);\n        readable_.wait(lock,[&] { return closed_ || !work_.empty(); });\n        if(work_.empty()) return std::nullopt;\n        Work result = std::move(work_.front()); work_.pop_front();\n        writable_.notify_one();\n        return result;\n    }\n    void close() {\n        std::lock_guard<std::mutex> lock(mutex_);\n        closed_ = true; readable_.notify_all(); writable_.notify_all();\n    }\n};\nResult process(const std::string& bytes) {\n    if(bytes.size() > 4) return {false,0,0};\n    std::uint64_t sum = 0;\n    for(unsigned char byte : bytes) sum += byte;\n    return {true,bytes.size(),sum};\n}\nstd::vector<std::optional<Result>> pipeline(const std::vector<std::string>& inputs) {\n    WorkQueue queue(2);\n    std::vector<std::optional<Result>> results(inputs.size());\n    std::vector<std::future<void>> workers;\n    workers.reserve(2); // Allocate before any worker can wait on the queue.\n    const auto worker = [&] {\n        try {\n            while(auto work = queue.pop()) results[work->index] = process(work->bytes);\n        } catch(...) { queue.close(); throw; }\n    };\n    try {\n        workers.push_back(std::async(std::launch::async,worker));\n        workers.push_back(std::async(std::launch::async,worker));\n        for(std::size_t i=0;i<inputs.size();++i)\n            if(!queue.push({i,inputs[i]})) throw std::runtime_error(\"queue closed early\");\n        queue.close();\n        for(auto& future : workers) future.get();\n    } catch(...) {\n        queue.close();\n        for(auto& future : workers) if(future.valid()) {\n            try { future.get(); } catch(...) {} // Preserve the original failure.\n        }\n        throw;\n    }\n    return results;\n}\n\nstatic_assert('A' == 65 && 'c' == 99 && 'a' == 97 && 't' == 116);\nint main() {\n    const std::vector<std::string> inputs{\"cat\",\"A\",\"\",\"tools\"};\n    const auto results = pipeline(inputs);\n    const std::array<Result,4> expected{{{true,3,312},{true,1,65},{true,0,0},{false,0,0}}};\n    std::size_t accepted = 0, rejected = 0, bytes = 0;\n    std::uint64_t sum = 0;\n    for(std::size_t i=0;i<results.size();++i) {\n        assert(results[i]);\n        const auto result = *results[i];\n        assert(result.accepted == expected[i].accepted && result.bytes == expected[i].bytes\n               && result.sum == expected[i].sum);\n        std::cout << i << \" accepted=\" << result.accepted << \" bytes=\" << result.bytes\n                  << \" sum=\" << result.sum << '\\n';\n        if(result.accepted) { ++accepted; bytes += result.bytes; sum += result.sum; }\n        else ++rejected;\n    }\n    assert(accepted == 3 && rejected == 1 && bytes == 4 && sum == 377);\n    assert(pipeline({}).empty());\n    std::cout << \"accepted=\" << accepted << \" rejected=\" << rejected\n              << \" bytes=\" << bytes << \" sum=\" << sum << '\\n';\n}\n",
+    "output": "0 accepted=1 bytes=3 sum=312\n1 accepted=1 bytes=1 sum=65\n2 accepted=1 bytes=0 sum=0\n3 accepted=0 bytes=0 sum=0\naccepted=3 rejected=1 bytes=4 sum=377\n",
+    "reason": "Work items own their strings, so queue operations do not leave borrowed input pointers behind. Main assigns each index once; workers therefore write distinct result elements without resizing the vector. Queue predicates and close are protected by one mutex. Every normal and exceptional path closes the queue and collects workers before local shared state dies. Main prints after collection, so scheduling does not reorder the report. Queue capacity bounds queued jobs; it does not bound the already-loaded input vector’s total memory. A streaming input layer would need its own size and backpressure contract.",
+    "bug": "Let workers push_back into the shared results vector without a lock, or let main return before collecting workers. The first can race on container internals; the second can leave dangling references.",
+    "repair": "Allocate the result slots before starting workers, assign each slot to one input, and keep all shared objects alive through worker completion. Preserve close-and-collect cleanup if any operation fails.",
+    "terms": [
+      {
+        "term": "Backpressure boundary",
+        "definition": "The point at which bounded downstream capacity makes an upstream producer wait or reject work."
+      },
+      {
+        "term": "End-to-end invariant",
+        "definition": "A rule spanning several components, such as every accepted input producing exactly one recorded result."
+      }
+    ],
+    "starter": "systems_labs/ch61/starter.cpp",
+    "solution": "systems_labs/ch61/solution.cpp"
+  }
+}
