@@ -1,0 +1,108 @@
+{
+  "source": "cpp_series/book_07/listings/L0002.cpp",
+  "listingId": "B07-L0002",
+  "overview": {
+    "title": "Reject bad work before changing the queue",
+    "kind": "activity",
+    "nodes": [
+      {
+        "id": "queue",
+        "label": "Initial queue",
+        "code": [
+          "std::vector<int> jobs{4};",
+          "constexpr std::size_t capacity=2;",
+          "// One slot is initially used."
+        ]
+      },
+      {
+        "id": "guard",
+        "label": "Check value and capacity",
+        "code": [
+          "if(x<0||x>100||jobs.size()==capacity)",
+          "    return false;",
+          "// Failure leaves the vector unchanged."
+        ]
+      },
+      {
+        "id": "append",
+        "label": "Commit accepted work",
+        "code": [
+          "jobs.push_back(x);",
+          "return true;",
+          "// Mutation follows the admission check."
+        ]
+      },
+      {
+        "id": "check",
+        "label": "Check the final state",
+        "code": [
+          "if(jobs!=std::vector<int>{4,7})return 1;",
+          "// 101 is invalid; 8 is rejected as full."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "queue",
+        "to": "guard",
+        "kind": "flow",
+        "label": "calls with 7, 101, 8"
+      },
+      {
+        "from": "guard",
+        "to": "append",
+        "kind": "flow",
+        "label": "only when all guards pass"
+      },
+      {
+        "from": "append",
+        "to": "check",
+        "kind": "flow",
+        "label": "after all three calls"
+      },
+      {
+        "from": "guard",
+        "to": "check",
+        "kind": "flow",
+        "label": "rejected calls do not append"
+      }
+    ],
+    "explanation": "Solid arrows show conditional execution and the final check. Each submit call returns before the next call begins; this example has no concurrent producer."
+  },
+  "extra_overviews": [],
+  "focus": [
+    {
+      "title": "Check first, mutate second",
+      "file": "cpp_series/book_07/listings/L0002.cpp",
+      "lineStart": 6,
+      "lineEnd": 7,
+      "code": "    std::vector<int> jobs{4};constexpr std::size_t capacity=2;\n    auto submit=[&](int x){if(x<0||x>100||jobs.size()==capacity)return false;jobs.push_back(x);return true;};",
+      "explain": [
+        "The queue starts with 4. constexpr makes capacity a compile-time constant equal to two.",
+        "[&] borrows jobs and capacity. || means logical OR; if any guard is true, return false ends the call. Only a passing call reaches push_back and returns true."
+      ],
+      "what": "Admission is a boundary: reject inputs outside 0–100 and requests that would exceed capacity.",
+      "where": "The lambda runs three times from the next source line.",
+      "why": "Keeping checks before mutation makes rejection easy to reason about and test.",
+      "invariant": "At this boundary, jobs.size() never exceeds two and a rejected call preserves its previous state.",
+      "risk": "Pushing first and checking later would briefly or permanently violate capacity. Concurrent callers would need synchronization; this code is a single-thread model."
+    },
+    {
+      "title": "Test results and state together",
+      "file": "cpp_series/book_07/listings/L0002.cpp",
+      "lineStart": 8,
+      "lineEnd": 10,
+      "code": "    bool a=submit(7),b=submit(101),c=submit(8);\n    if(jobs!=std::vector<int>{4,7})return 1;\n    std::cout<<std::boolalpha<<\"accepted=\"<<a<<\" invalid=\"<<b<<\" full=\"<<c<<\" count=\"<<jobs.size()<<'\\n';",
+      "explain": [
+        "The calls run in order: 7 is accepted, 101 is invalid, and 8 finds the queue full.",
+        "The explicit comparison returns failure status 1 unless the vector is exactly {4,7}.",
+        "boolalpha prints true/false. The observed results are accepted=true, invalid=false, full=false, count=2."
+      ],
+      "what": "The test checks both returned decisions and the state those decisions leave behind.",
+      "where": "The fixture is inside main, after all three submissions.",
+      "why": "A boolean alone could hide an unwanted state change; checking the vector catches it.",
+      "invariant": "Only one additional job is stored. Invalid and full calls leave it unchanged.",
+      "risk": "Calling false an error category loses the distinction between invalid input and temporary saturation; Book VIII’s outcome type addresses that need."
+    }
+  ]
+}

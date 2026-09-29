@@ -1,0 +1,24 @@
+import {chooseBook,currentBook} from './book_test_helpers.mjs';
+import {chromium} from 'playwright';import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';import assert from 'node:assert/strict';import crypto from 'node:crypto';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=JSON.parse(await fs.readFile(path.join(root,'src/content.json'),'utf8'));
+let options={headless:true};if(process.env.CHROMIUM_MODULE){const{default:ch}=await import(pathToFileURL(process.env.CHROMIUM_MODULE));options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
+const browser=await chromium.launch(options),p=await browser.newPage({viewport:{width:1512,height:1100},reducedMotion:'reduce',acceptDownloads:true}),errors=[],results=[];
+p.on('pageerror',e=>errors.push(e.message));p.on('console',e=>{if(e.type()==='error')errors.push(e.text());});
+await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);await p.waitForSelector('.book-chapter-dropdown');assert.equal((await p.locator('.book-chapter-dropdown').count())+1,11);
+for(const c of data.courses.filter(c=>c.series)){
+ await chooseBook(p,c.id);await p.locator('#mode-tabs [data-mode="book"]').click();assert.equal(await p.locator('.roadmap-chapter').count(),c.chapters.length);
+ for(const ch of c.chapters){await p.selectOption('#chapter-select',String(ch.number));await p.locator('#mode-tabs [data-mode="outline"]').click();assert.equal(await p.locator('.map-section').count(),c.teaching[ch.number].sections.length);}
+ await p.selectOption('#chapter-select','1');const e=c.series.listings.find(e=>e.chapter===1&&e.completeCandidate),t=c.topics.find(t=>t.id===e.topicId);await p.locator(`.chapter-map-list [data-id="${t.id}"]`).click();assert.equal(await p.locator('.source-reader [id^="series-"]').count(),t.blocks.length);assert.ok((await p.locator('.source-reader').textContent()).includes('main'));
+ await p.locator('#mode-tabs [data-mode="code"]').click();await p.selectOption('#series-code-select',e.id);assert.ok((await p.locator('.full-code').textContent()).includes('main'));if(e.validation?.stdout)assert.equal(await p.locator('.series-check .expected-output code').textContent(),e.validation.stdout);
+ await p.locator('#mode-tabs [data-mode="scenarios"]').click();assert.ok(await p.locator('#series-response').count());await p.fill('#series-response',`My evidence for ${c.id}`);await p.locator('.series-answer summary').click();await p.locator('[data-action="series-rate"][data-rating="known"]').click();assert.ok((await p.locator('.series-self-check').textContent()).includes('can explain'));
+ await p.locator('#mode-tabs [data-mode="flashcards"]').click();await p.selectOption('#scope-select','all');assert.ok(await p.locator('.deck-card').count());await p.locator('[data-action="flip"]').first().click();assert.equal(await p.locator('.deck-card').getAttribute('aria-pressed'),'true');
+ await p.locator('#mode-tabs [data-mode="book"]').click();const pending=p.waitForEvent('download');await p.locator('[data-action="series-download-book"][data-kind="epub"]').click();const d=await pending;const bytes=await fs.readFile(await d.path());assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),c.series.assets.epub.sha256);
+ results.push(`${c.id}: all chapter maps, source blocks, code result, saved practice, recall, and exact EPUB download`);console.log('PASS',results.at(-1));
+}
+assert.deepEqual(errors,[]);
+await chooseBook(p,'cpp-book-06');await p.selectOption('#chapter-select','1');await p.locator('#mode-tabs [data-mode="outline"]').click();await p.screenshot({path:path.join(root,'docs/preview-cpp-series-map.png')});
+await p.locator('#mode-tabs [data-mode="code"]').click();await p.screenshot({path:path.join(root,'docs/preview-cpp-series-code.png')});
+await p.locator('#mode-tabs [data-mode="scenarios"]').click();await p.locator('.series-answer summary').click();await p.screenshot({path:path.join(root,'docs/preview-cpp-series-practice.png')});
+await p.setViewportSize({width:390,height:844});for(const mode of ['book','outline','code','scenarios','flashcards']){await p.locator(`#mode-tabs [data-mode="${mode}"]`).click();assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),mode);await p.screenshot({path:path.join(root,`docs/preview-cpp-series-mobile-${mode}.png`)});}
+await p.reload();assert.ok((await currentBook(p)).includes('cpp-book-06'));await p.locator('#mode-tabs [data-mode="scenarios"]').click();await p.selectOption('#scope-select','chapter');assert.ok((await p.locator('#series-response').inputValue()).includes('My evidence'));results.push('Mobile layouts and persisted practice answers');
+assert.deepEqual(errors,[]);await fs.writeFile(path.join(root,'tests/series-browser-results.json'),JSON.stringify({results,errors},null,2));await browser.close();

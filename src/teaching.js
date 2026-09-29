@@ -61,6 +61,7 @@
     return `<article class="panel teaching-reader">${guideTrail(t,g)}<div class="teaching-lesson-head"><div class="flex items-center justify-between gap-3"><div>${topicBadge(t)}</div>${bookmarkButton(t)}</div><h2 class="lesson-heading">${escape(t.reading?.title||t.title)}</h2><div class="lesson-jumps"><a href="#lesson-idea">Understand</a><a href="#chapter-workshop">See an example</a><a href="#lesson-discuss">Discuss</a><button data-action="chapter-map">Chapter map</button></div></div><section class="lesson-explanation" id="lesson-idea"><span class="teaching-kicker">UNDERSTAND THE IDEA</span>${lessonTheory(t)}</section><section class="context-link"><h3>Connect it to a complete example</h3><p>This lesson belongs to the <strong>${escape(g.title)}</strong> chapter. Use the shared example below to connect its rules to code and observable behavior.</p></section>${workshopPanel(g,{compact:true})}<div id="lesson-discuss">${discussionPanel(d,t.reading?.discussion?'Discuss this lesson':'Discuss the chapter example')}</div>${sourceMaterial(t)}${bookSourceLine(t)}${teachingNotes(t)}${readingFooter(t)}</article>`;
   }
   function renderOutline(t){
+    if(course().series)return renderSeriesOutline(t);
     const g=chapterGuide(t.chapter);if(!g)return renderLegacyOutline(t);
     const showMap=state.lessonView==='map'||(state.lessonView!=='lesson'&&t.id===g.startTopicId);
     return showMap?renderChapterMap(t,g):renderGuidedLesson(t,g);
@@ -83,6 +84,7 @@
     }).join('')+(allowed.has('REF.GLOSSARY')?'<button class="nav-map-link" data-action="book-glossary">Book glossary</button>':'');
   }
   function showCoverage(){
+    if(course().series)return showSeriesCoverage();
     if(!course().teaching)return showLegacyCoverage();
     let part='';modal('Course outline',`<p>Choose a chapter. Its map shows the sections in order, the problem to solve, a working example, and the practice that follows.</p><div class="course-roadmap">${course().chapters.map(ch=>{const g=course().teaching[String(ch.number)];if(!g)return '';let heading='';if(ch.partTitle!==part){part=ch.partTitle;heading=`<h3 class="roadmap-part">${escape(part)}</h3>`;}return heading+`<details class="roadmap-chapter"><summary><span>${ch.number===0?'00':String(ch.number).padStart(2,'0')}</span><strong>${escape(ch.title)}</strong><small>${g.sections.length} sections</small></summary><p>${escape(g.workshop.problem)}</p><ol>${g.sections.map(s=>`<li>${escape(s.title)} <small>(${s.topics.length} reading entries)</small></li>`).join('')}</ol><button class="btn btn-primary" data-action="map-chapter" data-chapter="${ch.number}">Open chapter map ${icon('right')}</button></details>`}).join('')}</div>`);DIALOG.classList.add('wide-dialog');
   }

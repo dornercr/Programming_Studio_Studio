@@ -92,4 +92,8 @@ from build_teaching import build as build_teaching
 data=build_teaching(data)
 from build_systems_depth import build as build_systems_depth
 data=build_systems_depth(data)
+from make_cpp_series import build as build_cpp_series
+data=build_cpp_series(data)
+from build_cpp_series_diagrams import build as build_cpp_series_diagrams
+data=build_cpp_series_diagrams(data)
 (R/'src/content.json').write_text(json.dumps(data,ensure_ascii=False,indent=2))

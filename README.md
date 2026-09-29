@@ -1,12 +1,16 @@
-# Study Studio — Design Patterns and Systems Programming
+# Study Studio — Design Patterns, Systems, and the C++ Book Series
 
-An offline study companion with two separate courses credited to **Dr. Charles Dorner**: Design Patterns in C++ and Systems Programming and Machine Organization. It uses the supplied Study Studio design, chapter navigation, notes, bookmarks, progress, and practice tools.
+An offline study companion with ten courses credited to **Dr. Charles Dorner**: Design Patterns in C++, Systems Programming and Machine Organization, and the eight corrected C++ books. It uses the supplied Study Studio design, chapter navigation, notes, bookmarks, progress, and practice tools.
+
+## Navigation correction — version 1.4.1
+
+Design Patterns, Systems Programming, and each of Books I–VIII now have independent chapter dropdowns. All ten menus are labeled with their book titles. Each dropdown contains only that book’s chapters, reference sections, and glossary. Selecting a chapter opens its map directly. “Resume this book” restores its saved position. The chapter outline below the book menus follows the selected book, and personal material has its own button.
 
 ## Start studying
 
 Open `dist/index.html` in a modern desktop browser. You can copy that one file anywhere; the content, CSS, JavaScript, and SVG diagrams are embedded. No account, web server, internet connection, or installation is needed to study. A separately supplied `Design_Patterns_Study_Studio.html` is the same app.
 
-Select **Design Patterns in C++** in the curriculum dropdown. Choose a chapter in the chapter selector or sidebar. Switch between five views:
+Use the **Design Patterns in C++** dropdown in the sidebar. Choose a chapter in the chapter selector or sidebar. Switch between five views:
 
 1. **Outline:** a numbered chapter map with named sections and linked lessons. Every chapter opens with a concrete problem and a worked example. Follow code, expected output, an execution trace, a common mistake, alternatives, and a discussion with an explained answer. The sidebar follows the same chapter → section → lesson hierarchy.
 2. **Flashcards:** try to recall the answer, flip the card, then mark it Known or Again. The review queue collects cards marked Again; this is a manual review queue, not a time-scheduled repetition algorithm.
@@ -18,9 +22,91 @@ The chapter selector stays available in every view. **All chapters** makes the c
 
 A useful study session: read the problem, explain why the first design fails, recall the pattern without looking, trace its UML to the code, answer a scenario, then modify the lab. Use **My study material** to add personal study topics.
 
+
+## Eight corrected C++ books — added in version 1.4
+
+Each book has its **own labeled chapter dropdown** in the sidebar. Scroll the book menus to reach Book I through Book VIII, then choose a chapter directly. Choose “Resume this book” to return to its saved reading position. All **186 chapters**, front matter, appendices, and reference sections are included. A whole-spine XML comparison confirms that the reader retains every text character apart from presentation whitespace. Original PDF/EPUB bytes are also embedded for offline download.
+
+| Book | Subject | Chapters |
+| --- | --- | ---: |
+| I | C++ Foundations | 20 |
+| II | Modern C++ Programming | 21 |
+| III | Data Structures and Algorithms in C++ | 20 |
+| IV | Systems Programming with C++ | 21 |
+| V | Professional and High-Performance C++ | 21 |
+| VI | Expert C++, Parallel Computing, CUDA, and Real-Time Systems | 22 |
+| VII | Advanced C++ Architecture and Distributed Systems | 28 |
+| VIII | Production C++ Services and Cloud-Native Infrastructure | 33 |
+
+The new courses include **4,173 reading entries, 1,482 source listings, 1,066 recall cards, and 729 self-reviewed practice prompts**. Each book has these views:
+
+- **Outline:** chapter → section → lesson navigation. Lessons retain headings, paragraphs, lists, tables, inline syntax, worked examples, and internal source links. Chapter maps offer direct links to the opening and a worked example. Notes, bookmarks, search, and review marks use the same controls as the existing courses.
+- **Flashcards:** source question-and-answer pairs and section recall prompts. A section recall answer is a source explanation, not an invented model answer.
+- **Practice:** original review questions, chapter labs, and concrete experiments. Record an answer before revealing the book’s explanation. Baseline guidance is labeled separately where the book gives no answer to the changed experiment. “I can explain it” and “Practice again” are self-assessments, not automatic grading. Answers and review records are included in backups.
+- **Code & labs:** browse every code, command, output, and configuration listing by chapter; copy or download exact source; inspect build commands, observed output, source expectations, and diagnostics. Programs do not execute in the browser.
+- **UML:** one added Chapter 1 example study per book, eight studies total. Each has an overview, two focused source selections, exact filenames and line references, line explanations, and adjacent theory panels. Other chapters retain their own source explanations and code; they are not claimed to have added diagrams.
+- **Book:** the whole-book outline, original PDF and EPUB downloads, and study guidance.
+
+The existing approved Design Patterns and Systems course content is unchanged; `tests/series.test.mjs` checks both baseline digests.
+
+### Source and code checks
+
+The attached ZIP contains eight ebook pairs and three manifest/readme files. Separate companion directories mentioned inside the books were not included. All listings are extracted into `cpp_series/book_NN/listings/`; `catalog.json` maps them back to their EPUB files and reading topics. Explicitly labeled multi-file examples are also separated into `projects/` where the compile checker can reconstruct them. Listings preserve source wording and code, adding a final newline to a downloaded file when needed.
+
+Source checks used **GCC 13.3.0, C++20**, standard Linux tooling and `-Wall -Wextra -Wpedantic -pthread`. Of **590 C++/CUDA entry-point candidates**:
+
+| Recorded result | Count | Meaning |
+| --- | ---: | --- |
+| Compiled and ran; prose expectations only | 233 | Observed output recorded; no exact fixture claimed |
+| Compiled, ran, exact expected output matched | 112 | Supplied textual output fixture matched byte for byte |
+| Compiled; external input/OS fixture needed | 20 | Execution not attempted by the checker |
+| Compiled and ran; source output block differs | 5 | Both outputs retained for review |
+| Compiled; bounded run timed out | 34 | Source waits for a signal/stop fixture; no successful shutdown run claimed |
+| Needs context or source repair | 156 | Independent compilation failed; diagnostics identify the reason |
+| CUDA setup required | 30 | No nvcc/device validation performed |
+
+This is a source audit, not a silent repair of the book. Some compile failures name companion headers not supplied in the attachment. Other examples require a different project configuration. Shell, container, cluster, and infrastructure commands are displayed but were not executed. Real distributed deployments, CUDA kernels, and externally stopped service fixtures were not validated. A successful small run does not prove thread safety, general correctness, or performance.
+
+`docs/cpp-series-code-verification.json` records each check, output, source hash, and limitation. The app attaches a record only when its hash matches the packaged listing. Code-view build commands are relative to the source ZIP root. A browser download contains just that listing; for multi-file examples use the packaged project directory. Read platform and dependency requirements in the source lesson before attempting it.
+
+### Rebuild or edit the new courses
+
+Basic rebuilding still needs only Node.js 20+: `node scripts/build.mjs`. The supplied `src/content.json` contains the complete editable study data. For a full content rebuild use the regeneration commands above; they now regenerate all ten courses. The Python and diagram generators use the original packaged EPUBs and source files, so no additional attachments are needed.
+
+- `scripts/make_cpp_series.py`: source import, rich-text parsing, chapter mapping, recall, practice, and listing extraction.
+- `scripts/build_cpp_series_diagrams.py`: authored diagrams and source-line theory.
+- `scripts/render_cpp_series_diagrams.mjs`: SVG and DOT output.
+- `src/series.js`: source reader, book downloads, code catalog, self-reviewed practice, and safe text rendering.
+- `docs/cpp-series-coverage.json` and `docs/cpp-series-text-coverage.json`: counts and whole-spine text checks.
+
+Run coverage and interface checks:
+
+```sh
+python3 scripts/check_cpp_series_coverage.py
+node --test tests/*.test.mjs
+node scripts/series_browser_test.mjs
+node scripts/series_advanced_browser_test.mjs
+```
+
+The browser checks require `npm ci` and `npx playwright install chromium`. They cover all 243 reading maps (186 chapters plus front/reference groups), saved practice, recall, internal references, all eight PDF/EPUB and source downloads, diagrams, backup/restore, study-pack export/import, and mobile width.
+
+To repeat the source-code audit on a Linux machine with GCC:
+
+```sh
+python3 scripts/check_cpp_series_code.py
+python3 scripts/make_cpp_series.py
+python3 scripts/build_cpp_series_diagrams.py
+node scripts/render_cpp_series_diagrams.mjs
+node scripts/build.mjs
+```
+
+The checker compiles candidates independently, applies bounded execution limits, and avoids detected OS/network/input/signal fixtures. It records failures as data so every listing remains available. The exit status alone does not mean every source compiled: inspect its result counts and JSON report. A later checker run skips known signal-wait examples and records them as compiled/fixture-needed, so its category counts can differ from the included first audit. Additional dependencies and CUDA require a separate, appropriately configured environment.
+
+Large study packs can exceed a browser’s local-storage quota. Built-in books are embedded in the HTML and do not use that quota; importing a second copy does. If the app reports “Session only,” export a backup before closing it. For stable saved progress, keep the same HTML path or use the optional localhost server at the same port.
+
 ## Systems Programming course — teaching revision 1.3
 
-Choose **Systems Programming and Machine Organization** from the curriculum dropdown. Every one of its **61 chapters** now uses the same five-part learning route as Design Patterns: start with the problem, understand the mechanism, trace code and behavior, discuss and practice, then connect and review.
+Use the **Systems Programming and Machine Organization** chapter dropdown in the sidebar. Every one of its **61 chapters** now uses the same five-part learning route as Design Patterns: start with the problem, understand the mechanism, trace code and behavior, discuss and practice, then connect and review.
 
 The Systems course includes:
 
@@ -145,6 +231,7 @@ npm ci
 python3 scripts/make_content.py
 node scripts/render_diagrams.mjs
 node scripts/render_systems_diagrams.mjs
+node scripts/render_cpp_series_diagrams.mjs
 node scripts/build.mjs
 npm test
 ```
@@ -153,13 +240,13 @@ Run these commands in this order. Content generation clears the embedded diagram
 
 Edit chapter prose and exercises in `manuscript/`, program files and expected output in `companion/`, and overview relationships plus focused explanations in `diagrams/chNN.json`. Edit scenario choices and rationales in `scripts/scenarios.py`. If source lines move, update `resolved_start` and `resolved_end` in the matching diagram JSON, plus the first/last marker text and line explanations. The generator and tests reject stale excerpts.
 
-Edit the application in `src/app.js`, `src/teaching.js`, and `src/styles.css`, then run the basic rebuild. `src/content.json` is generated but may also be edited directly for a one-off study pack. Regeneration replaces direct JSON edits.
+Edit the application in `src/app.js`, `src/teaching.js`, `src/series.js`, and `src/styles.css`, then run the basic rebuild. `src/content.json` is generated but may also be edited directly for a one-off study pack. Regeneration replaces direct JSON edits.
 
 The included `vendor/tailwind.css` is compiled from Tailwind CSS 4.1.10 and is sufficient for every class currently used. Use `src/styles.css` for additional styles. `src/theme.css` preserves the original Tailwind theme source; the basic build does not rerun Tailwind. Its MIT license is in `docs/licenses/`.
 
 ## Build and verify the C++ programs
 
-Programs use **C++17 and the C++ standard library only**. A compiler with complete C++17 support is required. The supplied test harness uses GCC/Clang-style flags. This release was tested with GCC 13.3.0 on Linux. No extra C++ libraries are needed. Each `main.cpp` is independent; do not link all chapters together.
+The independently authored Design Patterns and Systems programs use **C++17 and the C++ standard library only**. The attached eight-book series has separate requirements and verification results described below. A compiler with complete C++17 support is required. The supplied test harness uses GCC/Clang-style flags. This release was tested with GCC 13.3.0 on Linux. No extra C++ libraries are needed. Each `main.cpp` is independent; do not link all chapters together.
 
 From the project root, build one chapter:
 
@@ -212,10 +299,11 @@ The browser test checks offline loading, every chapter in each applicable view, 
 - `src/`: editable app, styles, HTML shell, generated study pack, and theme source.
 - `manuscript/`: editable textbook content used to create the companion.
 - `diagrams/`: overview definitions, focused source references, and generated DOT sources.
-- `assets/`: all 25 generated SVG diagram views.
+- `assets/`: generated SVG views for all courses.
 - `companion/`: complete C++ examples, exercises, solutions, expected output, tests, and verification report.
 - `scripts/`: reproducible content, diagram, app-build, server, and browser-check scripts.
-- `tests/`: automated content tests for both courses and browser results.
+- `tests/`: automated content tests for all ten courses and browser results.
+- `cpp_series/`: the eight original PDF/EPUB pairs, all extracted listings, and separated multi-file examples.
 - `systems_source/`: all supplied original PowerPoints, transcripts, and the lecture-series coverage map.
 - `vendor/`: compiled CSS for an offline, dependency-free basic rebuild.
 - `docs/`: coverage, validation notes, previews, and third-party license.
