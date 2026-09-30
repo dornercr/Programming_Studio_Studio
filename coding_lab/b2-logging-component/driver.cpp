@@ -1,0 +1,1 @@
+struct Capture:Audit{int calls=0;void record(std::string_view s)override{if(s=="started")++calls;}};int main(){Capture log;Controller c(log);c.start();c.start();std::cout<<std::boolalpha<<c.running()<<" "<<log.calls<<"\n";}

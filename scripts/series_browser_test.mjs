@@ -1,10 +1,11 @@
+import {sourceData,sourceCoding} from './read-source.mjs';
 import {chooseBook,currentBook} from './book_test_helpers.mjs';
 import {chromium} from 'playwright';import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';import assert from 'node:assert/strict';import crypto from 'node:crypto';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=JSON.parse(await fs.readFile(path.join(root,'src/content.json'),'utf8'));
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=sourceData();
 let options={headless:true};if(process.env.CHROMIUM_MODULE){const{default:ch}=await import(pathToFileURL(process.env.CHROMIUM_MODULE));options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
 const browser=await chromium.launch(options),p=await browser.newPage({viewport:{width:1512,height:1100},reducedMotion:'reduce',acceptDownloads:true}),errors=[],results=[];
 p.on('pageerror',e=>errors.push(e.message));p.on('console',e=>{if(e.type()==='error')errors.push(e.text());});
-await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);await p.waitForSelector('.book-chapter-dropdown');assert.equal((await p.locator('.book-chapter-dropdown').count())+1,11);
+await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);await p.waitForSelector('.book-chapter-dropdown');assert.equal((await p.locator('.book-chapter-dropdown').count())+1,11);
 for(const c of data.courses.filter(c=>c.series)){
  await chooseBook(p,c.id);await p.locator('#mode-tabs [data-mode="book"]').click();assert.equal(await p.locator('.roadmap-chapter').count(),c.chapters.length);
  for(const ch of c.chapters){await p.selectOption('#chapter-select',String(ch.number));await p.locator('#mode-tabs [data-mode="outline"]').click();assert.equal(await p.locator('.map-section').count(),c.teaching[ch.number].sections.length);}

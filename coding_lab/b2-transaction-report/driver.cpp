@@ -1,0 +1,1 @@
+int main(){Report report;std::ostringstream text;std::string line;while(std::getline(std::cin,line))text<<line<<"\n";std::istringstream input(text.str());std::cout<<std::boolalpha<<report.load(input)<<" "<<report.size()<<" "<<report.total()<<"\n";}

@@ -1,0 +1,1 @@
+int main(){auto a=std::make_unique<Node>(1);a->next=std::make_unique<Node>(2);a->next->next=std::make_unique<Node>(3);auto r=reverseChain(std::move(a));for(auto p=r.get();p;p=p->next.get())std::cout<<p->value<<" ";std::cout<<"\n";}

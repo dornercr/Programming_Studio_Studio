@@ -1,10 +1,11 @@
+import {sourceData,sourceCoding} from './read-source.mjs';
 import {chooseBook,currentBook} from './book_test_helpers.mjs';
 import {chromium} from 'playwright';import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';import assert from 'node:assert/strict';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=JSON.parse(await fs.readFile(path.join(root,'src/content.json'),'utf8')),c=data.courses.find(c=>c.id==='systems-programming');
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=sourceData(),c=data.courses.find(c=>c.id==='systems-programming');
 let options={headless:true};if(process.env.CHROMIUM_MODULE){const{default:ch}=await import(pathToFileURL(process.env.CHROMIUM_MODULE));options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
 const b=await chromium.launch(options),p=await b.newPage({viewport:{width:1512,height:1100},reducedMotion:'reduce',acceptDownloads:true}),errors=[],results=[];
 p.on('pageerror',e=>errors.push(e.message));const ok=s=>{results.push(s);console.log('PASS',s)};
-await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);await chooseBook(p,c.id);assert.equal(await p.locator('#mode-tabs button').count(),6);
+await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);await chooseBook(p,c.id);assert.equal(await p.locator('#mode-tabs button').count(),6);
 for(let n=1;n<=61;n++){
  await p.selectOption('#chapter-select',String(n));await p.locator('#mode-tabs [data-mode="outline"]').click();assert.equal(await p.locator('.map-section').count(),5);
  await p.locator(`.chapter-map-list [data-id="SYS${String(n).padStart(2,'0')}.09"]`).click();assert.equal(await p.locator('.lesson-explanation .answer-reveal').count(),2);await p.locator('.lesson-explanation .answer-reveal').last().locator('summary').click();assert.ok((await p.locator('.lesson-explanation').textContent()).includes(c.examples[n].lab.checks[0]));

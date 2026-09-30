@@ -1,8 +1,9 @@
+import {sourceData,sourceCoding} from './read-source.mjs';
 import {chooseBook,currentBook} from './book_test_helpers.mjs';
 import {chromium} from 'playwright';import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';import assert from 'node:assert/strict';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=JSON.parse(await fs.readFile(path.join(root,'src/content.json'),'utf8'));
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=sourceData();
 let options={headless:true};if(process.env.CHROMIUM_MODULE){const{default:ch}=await import(pathToFileURL(process.env.CHROMIUM_MODULE));options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
-const b=await chromium.launch(options),p=await b.newPage({viewport:{width:1512,height:1000},reducedMotion:'reduce'});await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);let checked=0;
+const b=await chromium.launch(options),p=await b.newPage({viewport:{width:1512,height:1000},reducedMotion:'reduce'});await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);let checked=0;
 for(const c of data.courses.filter(c=>c.teaching)){
  await chooseBook(p,c.id);
  for(const ch of c.chapters){

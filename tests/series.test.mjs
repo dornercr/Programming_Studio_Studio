@@ -1,5 +1,6 @@
+import {sourceData,sourceCoding} from '../scripts/read-source.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import crypto from 'node:crypto';
-const root=new URL('../',import.meta.url),data=JSON.parse(fs.readFileSync(new URL('src/content.json',root))),books=data.courses.filter(c=>c.series),hash=s=>crypto.createHash('sha256').update(s).digest('hex');
+const root=new URL('../',import.meta.url),data=sourceData(),books=data.courses.filter(c=>c.series),hash=s=>crypto.createHash('sha256').update(s).digest('hex');
 const stable=x=>Array.isArray(x)?'['+x.map(stable).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+stable(x[k])).join(',')+'}':JSON.stringify(x);
 test('Existing approved curricula retain their full content',()=>{const before=JSON.parse(fs.readFileSync(new URL('docs/pre-series-approved.json',root)));for(const [id,digest] of Object.entries(before))assert.equal(hash(stable(data.courses.find(c=>c.id===id))),digest,id);});
 test('All eight books and 186 chapters retain unique mapped source blocks',()=>{

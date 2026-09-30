@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Compile supplied complete C++ candidates; run bounded, local standard-library cases."""
+from source_store import load_content, load_coding
 import concurrent.futures,hashlib,json,os,re,resource,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-data=json.loads((ROOT/'src/content.json').read_text());entries=[e for c in data['courses'] if c.get('series') for e in c['series']['listings'] if e['completeCandidate']]
+data=load_content();entries=[e for c in data['courses'] if c.get('series') for e in c['series']['listings'] if e['completeCandidate']]
 OUT=ROOT/'cpp_series/build';OUT.mkdir(exist_ok=True)
 def limits():
  resource.setrlimit(resource.RLIMIT_CPU,(5,5));resource.setrlimit(resource.RLIMIT_AS,(768*1024*1024,768*1024*1024));resource.setrlimit(resource.RLIMIT_FSIZE,(8*1024*1024,8*1024*1024))

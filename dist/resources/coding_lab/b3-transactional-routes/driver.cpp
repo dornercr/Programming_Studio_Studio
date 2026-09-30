@@ -1,0 +1,1 @@
+int main(){std::string text{std::istreambuf_iterator<char>(std::cin),{}};Request r;try{loadRequest(text,r);std::cout<<r.vertices<<" "<<r.source<<" "<<r.target<<" "<<r.edges.size()<<"\n";}catch(const std::invalid_argument&){std::cout<<"invalid request\n";}}

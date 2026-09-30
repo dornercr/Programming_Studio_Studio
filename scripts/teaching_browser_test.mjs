@@ -1,9 +1,10 @@
+import {sourceData,sourceCoding} from './read-source.mjs';
 import {chooseBook,currentBook} from './book_test_helpers.mjs';
 import {chromium} from 'playwright';import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';import assert from 'node:assert/strict';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');const data=JSON.parse(await fs.readFile(path.join(root,'src/content.json'),'utf8'));
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');const data=sourceData();
 let options={headless:true};if(process.env.CHROMIUM_MODULE){const{default:ch}=await import(pathToFileURL(process.env.CHROMIUM_MODULE));options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
 const b=await chromium.launch(options),p=await b.newPage({viewport:{width:1512,height:1000},reducedMotion:'reduce',acceptDownloads:true});const errors=[],results=[];p.on('pageerror',e=>errors.push(e.message));const ok=s=>{results.push(s);console.log('PASS',s)};
-await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);
+await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);
 assert.equal(await p.locator('.chapter-guide').count(),1);assert.equal(await p.locator('#personal-note').count(),1);await p.locator('#personal-note').fill('A function parameter may be enough.');
 for(const c of data.courses.filter(c=>c.teaching)){
  await chooseBook(p,c.id);

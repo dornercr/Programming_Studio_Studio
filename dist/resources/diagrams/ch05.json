@@ -1,0 +1,107 @@
+{
+  "chapter": 5,
+  "source": "examples/ch05/main.cpp",
+  "overview": {
+    "kind": "ownership",
+    "title": "The accessor lends a process-lifetime service",
+    "nodes": [
+      {
+        "id": "S",
+        "label": "Singleton instance\nTicketDispenser",
+        "code": [
+          "static TicketDispenser dispenser;",
+          "// Own the one local static object."
+        ]
+      },
+      {
+        "id": "A",
+        "label": "Client reference\nfirst",
+        "code": [
+          "auto& first = TicketDispenser::instance();",
+          "// Borrow; never delete."
+        ]
+      },
+      {
+        "id": "B",
+        "label": "Client reference\nsecond",
+        "code": [
+          "auto& second = TicketDispenser::instance();",
+          "// Same borrowed object."
+        ]
+      },
+      {
+        "id": "T",
+        "label": "Service operation\nTicketDispenser::take",
+        "code": [
+          "return next_++;",
+          "// Guard check and update together."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "to": "S",
+        "kind": "dependency",
+        "label": "borrows same instance",
+        "from": "A"
+      },
+      {
+        "to": "S",
+        "kind": "dependency",
+        "label": "borrows same instance",
+        "from": "B"
+      },
+      {
+        "to": "T",
+        "kind": "dependency",
+        "label": "offers locked operation",
+        "from": "S"
+      }
+    ],
+    "explanation": "Dashed dependency arrows are borrowed access, not ownership transfer. Neither first nor second owns or deletes the dispenser. The static local object has program-managed lifetime. The take box is an operation view, not another object; its comment explains the separate synchronization rule."
+  },
+  "extra_overviews": [],
+  "focus": [
+    {
+      "title": "Construct once, then lend the same object",
+      "start": "    static TicketDispenser& instance() {",
+      "end": "    int take() {",
+      "what": "This accessor creates one local static service and returns a borrowed reference.",
+      "where": "The public access point for the otherwise privately constructed type.",
+      "why": "Callers need one shared instance without becoming its owners.",
+      "invariant": "Every successful accessor return names the same live object in this executable.",
+      "risk": "Once-only initialization does not protect later changes to members.",
+      "explain": [
+        "Declare a class-level function returning a reference to the dispenser.",
+        "The comment identifies initialization on first use.",
+        "Create a local static object once and keep its storage beyond the call.",
+        "Return a borrowed reference to that object.",
+        "Close the accessor.",
+        "Begin the separate ticket operation; its lock is shown in the next block."
+      ],
+      "resolved_start": 16,
+      "resolved_end": 21
+    },
+    {
+      "title": "Protect the complete state change",
+      "start": "        // Guard every counter change.",
+      "end": "        return next_++;",
+      "what": "This critical section checks availability and reserves one ticket as one operation.",
+      "where": "Inside TicketDispenser::take.",
+      "why": "A unique instance still needs synchronized mutable access.",
+      "invariant": "No successful call can observe or reserve the same next_ value as another protected call.",
+      "risk": "Moving the increment outside the guarded scope separates checking from reservation.",
+      "explain": [
+        "The comment states the synchronization boundary.",
+        "Declare a scoped mutex guard type.",
+        "Acquire gate_ by constructing the guard named lock.",
+        "Check whether all three tickets have been issued.",
+        "Begin constructing an exhaustion exception.",
+        "Supply its message and throw; guard cleanup will release the lock.",
+        "Return the old counter value and increment it before leaving the guarded scope."
+      ],
+      "resolved_start": 22,
+      "resolved_end": 28
+    }
+  ]
+}

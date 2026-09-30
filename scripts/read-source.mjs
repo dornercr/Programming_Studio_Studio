@@ -1,0 +1,8 @@
+// Compatibility reader for source-verification tools. Nothing is fetched by the UI.
+import fs from 'node:fs';
+import path from 'node:path';
+const root=path.resolve(import.meta.dirname,'../content');let dataCache,codingCache;
+const read=p=>JSON.parse(fs.readFileSync(path.join(root,p),'utf8'));
+function assets(x){if(x?.$asset)return x.prefix+fs.readFileSync(path.join(root,x.$asset)).toString('base64');if(Array.isArray(x))return x.map(assets);if(x&&typeof x==='object')return Object.fromEntries(Object.entries(x).map(([k,v])=>[k,assets(v)]));return x;}
+export function sourceData(){if(dataCache)return dataCache;const m=read('manifest.json'),data={...m.root,courses:[]};for(const e of m.courses){const c=read(e.base);c.topics=[];for(const f of e.chunks){const x=read(f);c.topics.push(...x.topics);for(const k of ['teaching','examples','diagrams','lectures'])if(x[k])Object.assign(c[k],x[k]);if(x.listings)c.series.listings.push(...x.listings);}const order=new Map(e.topicOrder.map((id,i)=>[id,i]));c.topics.sort((a,b)=>order.get(a.id)-order.get(b.id));if(c.series){const order=new Map(e.listingOrder.map((id,i)=>[id,i]));c.series.listings.sort((a,b)=>order.get(a.id)-order.get(b.id));}data.courses.push(c);}return dataCache=assets(data);}
+export function sourceCoding(){if(codingCache)return codingCache;const m=read('manifest.json'),c={...m.codingRoot,questions:[],workedPrograms:[]};for(const f of m.coding){const x=read(f);c.questions.push(...x.questions);c.workedPrograms.push(...x.workedPrograms);}for(const k of ['questions','workedPrograms']){const order=new Map(m.codingOrder[k].map((id,i)=>[id,i]));c[k].sort((a,b)=>order.get(a.id)-order.get(b.id));}return codingCache=c;}

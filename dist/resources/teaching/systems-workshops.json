@@ -1,0 +1,1893 @@
+{
+  "1": {
+    "title": "One request crosses several layers",
+    "problem": "A program must print the sum of two readings. Follow the value from a C++ expression to a stream without assuming that one source line equals one CPU instruction.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <sstream>\n\nint main() {\n    const int first = 7;\n    const int second = 5;\n    const int total = first + second;\n    std::ostringstream message;\n    message << \"total=\" << total;\n    std::cout << message.str() << '\\n';\n    assert(total == 12);\n}\n",
+    "output": "total=12\n",
+    "steps": [
+      {
+        "action": "Evaluate the expression",
+        "state": "7 + 5 becomes 12",
+        "why": "The C++ expression describes a value; an optimizer may compute it before execution."
+      },
+      {
+        "action": "Format the value",
+        "state": "message contains total=12",
+        "why": "A stream converts the integer into text characters. This is separate from addition."
+      },
+      {
+        "action": "Write the text",
+        "state": "The output stream receives total=12 and a newline",
+        "why": "The library and operating system handle output. Buffering means a newline is not a universal promise of an immediate system call."
+      }
+    ],
+    "pitfall": "Counting three source statements does not tell you the number of machine instructions or system calls.",
+    "discussion": {
+      "question": "If output is slow, would replacing + with an assembly instruction necessarily help?",
+      "answer": "No. The addition may already be folded to a constant. Measure the output path and separate computation from formatting and I/O before choosing a change."
+    },
+    "alternative": "A direct std::cout expression is shorter. The intermediate stream is used here only to expose the boundary between a number and formatted text.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch01/main.cpp"
+  },
+  "2": {
+    "title": "A value copy and a borrowed reference",
+    "problem": "Change one local copy and one borrowed object. Predict which updates the caller can see.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <vector>\n\nint main() {\n    std::vector<int> readings{2, 4};\n    auto copy = readings;\n    auto& borrowed = readings;\n    copy[0] = 9;\n    borrowed[1] = 7;\n    for (const int value : readings) std::cout << value << ' ';\n    std::cout << '\\n';\n    assert(readings[0] == 2 && readings[1] == 7);\n}\n",
+    "output": "2 7 \n",
+    "steps": [
+      {
+        "action": "Copy readings",
+        "state": "copy has its own {2, 4}",
+        "why": "auto without & creates a separate vector here."
+      },
+      {
+        "action": "Bind borrowed",
+        "state": "borrowed names readings",
+        "why": "The & in this declaration means reference: no second vector is created."
+      },
+      {
+        "action": "Change both",
+        "state": "readings is {2, 7}; copy is {9, 4}",
+        "why": "Only the assignment through borrowed reaches the original. In the for loop, : means take each element from the range on the right."
+      }
+    ],
+    "pitfall": "A reference does not extend the vector’s lifetime. Returning a reference to a local vector would leave a dangling reference.",
+    "discussion": {
+      "question": "Would const auto& borrowed = readings still allow borrowed[1] = 7?",
+      "answer": "No. const prevents this change through borrowed. Another non-const name may still change readings, so const on one reference does not freeze every alias."
+    },
+    "alternative": "Copy when independent data is required; borrow when the caller retains ownership and the lifetime is clear.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch02/main.cpp"
+  },
+  "3": {
+    "title": "Replace only one packed field",
+    "problem": "Bits 4 through 7 hold a four-bit setting. Replace that field in 0xA5 with 3 while preserving every other bit.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const unsigned old_value = 0xA5u;\n    const unsigned field = 3u;\n    const unsigned mask = 0xFu << 4;\n    const unsigned result = (old_value & ~mask) | (field << 4);\n    std::cout << std::hex << result << '\\n';\n    assert(result == 0x35u);\n}\n",
+    "output": "35\n",
+    "steps": [
+      {
+        "action": "Make a mask",
+        "state": "0xF << 4 selects the four target bits",
+        "why": "F represents binary 1111; shifting moves that group to bit positions 4–7."
+      },
+      {
+        "action": "Clear the old field",
+        "state": "old_value & ~mask leaves the low 5",
+        "why": "~ reverses mask bits; & keeps only bits allowed by both operands."
+      },
+      {
+        "action": "Insert the replacement",
+        "state": "0x05 | 0x30 = 0x35",
+        "why": "| combines the two non-overlapping groups. field must fit in four bits."
+      }
+    ],
+    "pitfall": "Using old_value | (field << 4) leaves old one-bits in the field. It yields 0xB5, not 0x35.",
+    "discussion": {
+      "question": "What extra check is needed if field comes from user input?",
+      "answer": "Reject values above 15, or explicitly define truncation with field & 0xF. Silently spilling into nearby fields would violate the preservation requirement."
+    },
+    "alternative": "Separate integer members are simpler when compact storage or a device format is not required.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch03/main.cpp"
+  },
+  "4": {
+    "title": "Check multiplication before allocating",
+    "problem": "An artificial buffer limit is 100 bytes. Each record uses 12 bytes. Reject a request for 9 records without forming an overflowing product.",
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n\nint main() {\n    const std::size_t limit = 100;\n    const std::size_t count = 9;\n    const std::size_t width = 12;\n    const bool fits = width == 0 || count <= limit / width;\n    std::cout << (fits ? \"fits\" : \"reject\") << '\\n';\n    assert(!fits);\n}\n",
+    "output": "reject\n",
+    "steps": [
+      {
+        "action": "State the bound",
+        "state": "bytes must be at most 100",
+        "why": "A capacity check and the integer type limit are separate bounds; real code must respect both."
+      },
+      {
+        "action": "Divide before multiplying",
+        "state": "100 / 12 = 8",
+        "why": "Integer division discards the remainder. Nine records exceed the maximum safe count."
+      },
+      {
+        "action": "Handle zero width",
+        "state": "width == 0 short-circuits the ||",
+        "why": "The right side is not evaluated when the left is true, preventing division by zero."
+      }
+    ],
+    "pitfall": "Checking count * width only after multiplication may observe a wrapped unsigned result. Signed overflow is undefined behavior.",
+    "discussion": {
+      "question": "What replaces 100 when checking the representable range of std::size_t?",
+      "answer": "Use std::numeric_limits<std::size_t>::max(), then separately compare with any allocation or application limit. Arithmetic safety does not guarantee allocation success."
+    },
+    "alternative": "A fixed-size array avoids dynamic byte-count arithmetic when the bound is small and known.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch04/main.cpp"
+  },
+  "5": {
+    "title": "A small value can disappear in a large sum",
+    "problem": "Model a machine using IEEE 754 binary64 for double. Add one to 2^53 and test whether the stored value changes.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <limits>\n\nint main() {\n    static_assert(std::numeric_limits<double>::is_iec559);\n    static_assert(std::numeric_limits<double>::digits == 53);\n    const double large = 9007199254740992.0;\n    const double sum = large + 1.0;\n    std::cout << std::boolalpha << (sum == large) << '\\n';\n    assert(sum == large);\n}\n",
+    "output": "true\n",
+    "steps": [
+      {
+        "action": "Inspect the format",
+        "state": "double has 53 bits of precision in this program",
+        "why": "The static assertions make the example’s platform assumption explicit."
+      },
+      {
+        "action": "Look at neighboring values",
+        "state": "At 2^53, the next larger representable number is 2 away",
+        "why": "A fixed number of significant bits gives larger spacing at larger magnitudes."
+      },
+      {
+        "action": "Round the exact sum",
+        "state": "2^53 + 1 rounds to 2^53 under the default nearest-even mode",
+        "why": "The addition is rounded; the stored result is not the exact mathematical integer."
+      }
+    ],
+    "pitfall": "Exact equality can be valid for this deliberate demonstration. It is usually a poor universal test for the results of different floating-point calculations.",
+    "discussion": {
+      "question": "Would storing money as double fix this by printing only two decimal places?",
+      "answer": "No. Formatting changes displayed text, not stored arithmetic. Integer minor units or a suitable decimal representation may be better when the contract requires exact decimal amounts."
+    },
+    "alternative": "Use integers for exact bounded counts; use floating point for a wide range of approximate measurements. This example assumes the normal nearest-even rounding mode.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch05/main.cpp"
+  },
+  "6": {
+    "title": "Array addresses count elements, not raw bytes",
+    "problem": "Three int objects form an array. Find the third element and the number of elements between its address and the first.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const int values[]{10, 20, 30};\n    const int* first = values;\n    const int* third = first + 2;\n    std::cout << *third << ' ' << (third - first) << '\\n';\n    assert(*third == 30 && third - first == 2);\n}\n",
+    "output": "30 2\n",
+    "steps": [
+      {
+        "action": "Begin at element zero",
+        "state": "first points at 10",
+        "why": "An array expression converts to a pointer to its first element in this initialization."
+      },
+      {
+        "action": "Advance by two",
+        "state": "third points at 30",
+        "why": "Pointer addition scales by sizeof(int); it is not a two-byte move."
+      },
+      {
+        "action": "Subtract related pointers",
+        "state": "third - first is 2",
+        "why": "The difference counts elements and is defined here because both pointers refer into the same array."
+      }
+    ],
+    "pitfall": "Assuming sizeof(int) is always four confuses one common platform with the language rule.",
+    "discussion": {
+      "question": "Can the same subtraction be used for two separately allocated int objects?",
+      "answer": "No. Pointer subtraction requires the proper same-array relationship. Similar numeric addresses do not create that relationship."
+    },
+    "alternative": "Indexing values[2] is clearer when no pointer-based API is involved.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch06/main.cpp"
+  },
+  "7": {
+    "title": "Stop at the one-past pointer",
+    "problem": "Sum a bounded range of three integers. The end pointer must stop the loop and must never be read.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const int values[]{3, 5, 7};\n    const int* cursor = values;\n    const int* end = values + 3;\n    int total = 0;\n    while (cursor != end) {\n        total += *cursor;\n        ++cursor;\n    }\n    std::cout << total << '\\n';\n    assert(total == 15);\n}\n",
+    "output": "15\n",
+    "steps": [
+      {
+        "action": "Start",
+        "state": "cursor points at 3; total is 0",
+        "why": "The half-open range includes the first element and excludes end."
+      },
+      {
+        "action": "Read and advance",
+        "state": "totals become 3, then 8, then 15",
+        "why": "*cursor reads the live element; ++cursor moves by one element."
+      },
+      {
+        "action": "Stop",
+        "state": "cursor equals end",
+        "why": "Forming the one-past pointer is allowed. Dereferencing it is not."
+      }
+    ],
+    "pitfall": "Using cursor <= end performs one extra read and has undefined behavior. There is no reliable extra output to predict.",
+    "discussion": {
+      "question": "Why is [begin, end) convenient for an empty range?",
+      "answer": "begin equals end, so the loop executes zero times. The same rule works without a separate empty-range branch."
+    },
+    "alternative": "A range-based for loop or std::accumulate is simpler when you already have a standard container.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch07/main.cpp"
+  },
+  "8": {
+    "title": "Scope and object lifetime are different questions",
+    "problem": "Keep a heap-allocated integer alive after a temporary pointer variable leaves its block.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <memory>\n#include <utility>\n\nint main() {\n    std::unique_ptr<int> owner;\n    {\n        auto temporary = std::make_unique<int>(42);\n        owner = std::move(temporary);\n        assert(!temporary);\n    }\n    std::cout << *owner << '\\n';\n    assert(*owner == 42);\n}\n",
+    "output": "42\n",
+    "steps": [
+      {
+        "action": "Allocate",
+        "state": "temporary owns an int containing 42",
+        "why": "The pointer variable and the allocated int are different objects with different lifetimes."
+      },
+      {
+        "action": "Transfer ownership",
+        "state": "owner becomes responsible for the int",
+        "why": "std::move permits moving the unique_ptr. The object itself stays allocated."
+      },
+      {
+        "action": "Leave the inner block",
+        "state": "temporary dies; the int remains",
+        "why": "owner outlives the inner block and releases the int at the end of main."
+      }
+    ],
+    "pitfall": "Returning the address of an ordinary local int would not transfer its lifetime. That object would die on return.",
+    "discussion": {
+      "question": "Does this demonstrate a fixed numeric heap or stack address?",
+      "answer": "No. It demonstrates C++ storage duration and ownership. Actual process addresses and segment arrangements depend on the platform and execution."
+    },
+    "alternative": "An ordinary local int is sufficient when no lifetime needs to cross a scope boundary.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch08/main.cpp"
+  },
+  "9": {
+    "title": "Let a container own a growing sequence",
+    "problem": "Append three readings and keep their values correct as storage grows. Do not retain a pointer into storage across possible reallocation.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <numeric>\n#include <vector>\n\nint main() {\n    std::vector<int> values;\n    values.reserve(1);\n    values.push_back(4);\n    values.push_back(6);\n    values.push_back(8);\n    const int total = std::accumulate(values.begin(), values.end(), 0);\n    std::cout << values.size() << ' ' << total << '\\n';\n    assert(values.size() == 3 && total == 18);\n}\n",
+    "output": "3 18\n",
+    "steps": [
+      {
+        "action": "Reserve room",
+        "state": "capacity is at least 1, size remains 0",
+        "why": "Capacity describes storage; size counts constructed elements."
+      },
+      {
+        "action": "Append",
+        "state": "size becomes 1, 2, then 3",
+        "why": "The vector manages allocation and moves or copies elements when growth requires it."
+      },
+      {
+        "action": "Read after growth",
+        "state": "sum is 18",
+        "why": "Obtaining iterators after the changes avoids using an invalidated pointer or iterator."
+      }
+    ],
+    "pitfall": "Writing values[0] after reserve(1) but before push_back is out of bounds: reserve does not create an element.",
+    "discussion": {
+      "question": "Is calling reserve on every insertion a useful growth strategy?",
+      "answer": "Usually not. Repeatedly requesting just one more element can defeat efficient growth. Reserve a credible final bound once, or let the vector manage growth."
+    },
+    "alternative": "Use std::array for a fixed count; use vector when the count changes.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch09/main.cpp"
+  },
+  "10": {
+    "title": "Account for allocator alignment",
+    "problem": "A model arena aligns every allocation to an eight-byte boundary. Allocate requests of 5 and 9 bytes, tracking the consumed space.",
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n\nint main() {\n    const std::size_t capacity = 32;\n    std::size_t used = 0;\n    for (std::size_t request : {5u, 9u}) {\n        const std::size_t start = (used + 7) / 8 * 8;\n        assert(start <= capacity && request <= capacity - start);\n        std::cout << start << ' ';\n        used = start + request;\n    }\n    std::cout << \"used=\" << used << '\\n';\n}\n",
+    "output": "0 8 used=17\n",
+    "steps": [
+      {
+        "action": "Allocate 5 bytes",
+        "state": "start 0; used becomes 5",
+        "why": "The first address is already aligned."
+      },
+      {
+        "action": "Round the next start up",
+        "state": "5 becomes 8",
+        "why": "Three padding bytes satisfy the eight-byte alignment rule."
+      },
+      {
+        "action": "Allocate 9 bytes",
+        "state": "start 8; used becomes 17",
+        "why": "Only 14 bytes were requested, but 17 bytes of the arena span have been consumed."
+      }
+    ],
+    "pitfall": "Advancing by the requested byte count alone can violate alignment. The rounding formula also needs overflow checks for unbounded inputs.",
+    "discussion": {
+      "question": "Can this bump model release the first allocation while keeping the second and recover that hole?",
+      "answer": "Not with just the used counter. It supports simple allocation and whole-arena reset. General freeing needs extra state, such as a free list, and different guarantees."
+    },
+    "alternative": "Use normal containers or a standard allocator unless measured allocation costs or a shared lifetime justify a custom arena.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch10/main.cpp"
+  },
+  "11": {
+    "title": "Turn an off-by-one read into a checked failure",
+    "problem": "A three-element vector has valid indexes 0, 1, and 2. Show the consequence of asking for index 3 using a checked operation.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <stdexcept>\n#include <vector>\n\nint main() {\n    const std::vector<int> values{8, 9, 10};\n    try {\n        std::cout << values.at(3) << '\\n';\n    } catch (const std::out_of_range&) {\n        std::cout << \"out of range\\n\";\n    }\n    assert(values.size() == 3);\n}\n",
+    "output": "out of range\n",
+    "steps": [
+      {
+        "action": "State the range",
+        "state": "0 <= index < 3",
+        "why": "The count is not itself a valid element index."
+      },
+      {
+        "action": "Check index 3",
+        "state": "at throws std::out_of_range",
+        "why": "No element value is produced by the failed expression."
+      },
+      {
+        "action": "Handle the failure",
+        "state": "the catch prints out of range",
+        "why": "The handler makes the failure visible without performing an invalid access."
+      }
+    ],
+    "pitfall": "Replacing at(3) with operator[](3) removes the bounds check; it does not make the access valid. The resulting undefined behavior has no guaranteed output.",
+    "discussion": {
+      "question": "Is catching every bounds exception enough to make a parser correct?",
+      "answer": "No. Validate the expected format and length before using indexes. Exceptions catch this symptom, but the parser must still define what incomplete input means."
+    },
+    "alternative": "A range-based loop is less error-prone when every element should be visited.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch11/main.cpp"
+  },
+  "12": {
+    "title": "Trace an instruction-set model",
+    "problem": "An abstract machine has a program counter and one accumulator. Execute LOAD 4, ADD 3, then HALT.",
+    "code": "#include <array>\n#include <cassert>\n#include <cstddef>\n#include <iostream>\n\nint main() {\n    const std::array<int, 3> operands{4, 3, 0};\n    int accumulator = 0;\n    std::size_t pc = 0;\n    accumulator = operands[pc++];\n    accumulator += operands[pc++];\n    std::cout << \"pc=\" << pc << \" acc=\" << accumulator << '\\n';\n    assert(pc == 2 && accumulator == 7);\n}\n",
+    "output": "pc=2 acc=7\n",
+    "steps": [
+      {
+        "action": "LOAD 4",
+        "state": "accumulator 4; pc 1",
+        "why": "The operation changes architectural state: the state promised by the instruction set."
+      },
+      {
+        "action": "ADD 3",
+        "state": "accumulator 7; pc 2",
+        "why": "The next instruction sees the preceding result."
+      },
+      {
+        "action": "HALT at position 2",
+        "state": "No further state change in this model",
+        "why": "How real hardware pipelines or caches these operations is a separate implementation question."
+      }
+    ],
+    "pitfall": "This C++ program models an instruction sequence. Its C++ statements are not an encoding of any real ISA.",
+    "discussion": {
+      "question": "Could two CPUs execute the same ISA with different numbers of internal stages?",
+      "answer": "Yes. They must preserve the required architectural behavior, but their internal scheduling and performance may differ."
+    },
+    "alternative": "Use a real assembler and ISA manual when instruction encoding or exact machine effects matter.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch12/main.cpp"
+  },
+  "13": {
+    "title": "Model a 32-bit register write",
+    "problem": "Under x86-64 rules, writing EAX clears the upper half of RAX. Contrast this with merely replacing the low 16 bits.",
+    "code": "#include <cassert>\n#include <cstdint>\n#include <iostream>\n\nint main() {\n    const std::uint64_t old = 0xFFFFFFFF00000000ULL;\n    const std::uint32_t eax = 7;\n    const std::uint64_t after_eax = eax;\n    const std::uint64_t after_ax = (old & ~0xFFFFULL) | 7ULL;\n    std::cout << std::hex << after_eax << ' ' << after_ax << '\\n';\n    assert(after_eax == 7 && after_ax == 0xFFFFFFFF00000007ULL);\n}\n",
+    "output": "7 ffffffff00000007\n",
+    "steps": [
+      {
+        "action": "Initial RAX",
+        "state": "ffffffff00000000",
+        "why": "The upper half is deliberately nonzero."
+      },
+      {
+        "action": "Write EAX = 7",
+        "state": "RAX becomes 0000000000000007",
+        "why": "A 32-bit general-register destination zero-extends on x86-64."
+      },
+      {
+        "action": "Instead write AX = 7",
+        "state": "RAX becomes ffffffff00000007",
+        "why": "A 16-bit subregister write preserves the other bits."
+      }
+    ],
+    "pitfall": "Applying the EAX clearing rule to AX leads to an incorrect trace. Width is part of the instruction’s meaning.",
+    "discussion": {
+      "question": "Does assigning a C++ short variable force an AX write?",
+      "answer": "No. The compiler chooses registers and instructions. This is a numeric model of the ISA rule, not a guarantee about the generated code."
+    },
+    "alternative": "Inspect generated assembly when the actual register operations are the question.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch13/main.cpp"
+  },
+  "14": {
+    "title": "Decode base plus scaled index",
+    "problem": "An address model uses base 1000, index 3, scale 4, and displacement 8. Compute the effective address without reading memory.",
+    "code": "#include <cassert>\n#include <cstdint>\n#include <iostream>\n\nint main() {\n    const std::uint64_t base = 1000;\n    const std::uint64_t index = 3;\n    const std::uint64_t scale = 4;\n    const std::uint64_t displacement = 8;\n    const auto address = base + index * scale + displacement;\n    std::cout << address << '\\n';\n    assert(address == 1020);\n}\n",
+    "output": "1020\n",
+    "steps": [
+      {
+        "action": "Scale the index",
+        "state": "3 * 4 = 12",
+        "why": "The scale can represent an element width in an addressing mode."
+      },
+      {
+        "action": "Add base and displacement",
+        "state": "1000 + 12 + 8 = 1020",
+        "why": "The calculation produces an address-shaped value."
+      },
+      {
+        "action": "Separate address from load",
+        "state": "No byte at 1020 is read",
+        "why": "A real load uses the address to fetch data; LEA computes the effective address without that memory access."
+      }
+    ],
+    "pitfall": "Treating LEA as a load confuses the address with the value stored there. Dereferencing the integer 1020 in C++ would not be a valid portable demonstration.",
+    "discussion": {
+      "question": "If memory at address 1020 contained 99, what would LEA return in this model?",
+      "answer": "1020. A load from that address would return the stored data, subject to width and access validity."
+    },
+    "alternative": "Use array indexing in C++; use the effective-address model to understand the assembly it becomes.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch14/main.cpp"
+  },
+  "15": {
+    "title": "Signed division has a quotient and a remainder",
+    "problem": "Divide -17 by 5 and verify how C++17 relates the quotient and remainder.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const int value = -17;\n    const int divisor = 5;\n    const int quotient = value / divisor;\n    const int remainder = value % divisor;\n    std::cout << quotient << ' ' << remainder << '\\n';\n    assert(quotient * divisor + remainder == value);\n}\n",
+    "output": "-3 -2\n",
+    "steps": [
+      {
+        "action": "Divide",
+        "state": "quotient is -3",
+        "why": "Integer division truncates toward zero when the quotient is representable."
+      },
+      {
+        "action": "Find the remainder",
+        "state": "remainder is -2",
+        "why": "-3 * 5 + -2 reconstructs -17."
+      },
+      {
+        "action": "Check prerequisites",
+        "state": "divisor is nonzero; quotient fits",
+        "why": "Division by zero and an unrepresentable signed quotient are not valid operations."
+      }
+    ],
+    "pitfall": "Assuming division rounds down would predict -4, which is wrong for this C++ expression. Assembly signed division also requires the correct dividend preparation.",
+    "discussion": {
+      "question": "Can a signed right shift be substituted for division by 2 in every C++17 expression?",
+      "answer": "No. Negative values expose different rounding behavior, and signed right shift of negative values is implementation-defined in C++17. Preserve the required semantics before optimizing."
+    },
+    "alternative": "Write / and % first. Let the compiler select a valid machine sequence for known divisors.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch15/main.cpp"
+  },
+  "16": {
+    "title": "A loop is a repeated branch",
+    "problem": "Sum indexes from zero up to, but excluding, 4. Track the test, body, and increment.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    int sum = 0;\n    int i = 0;\n    while (i < 4) {\n        sum += i;\n        ++i;\n    }\n    std::cout << \"i=\" << i << \" sum=\" << sum << '\\n';\n    assert(i == 4 && sum == 6);\n}\n",
+    "output": "i=4 sum=6\n",
+    "steps": [
+      {
+        "action": "Test i < 4",
+        "state": "i = 0, 1, 2, 3 enter the body",
+        "why": "The condition decides whether control reaches the addition."
+      },
+      {
+        "action": "Accumulate and advance",
+        "state": "sum = 0, 1, 3, 6",
+        "why": "The update to i ensures progress toward the stopping condition."
+      },
+      {
+        "action": "Test once more",
+        "state": "i = 4 exits",
+        "why": "The condition is evaluated five times, though the body runs only four times."
+      }
+    ],
+    "pitfall": "Changing < to <= adds 4 and yields sum 10. Omitting ++i leaves this loop running forever.",
+    "discussion": {
+      "question": "Where would a conditional jump appear in a simple assembly translation?",
+      "answer": "Near the loop test or back edge, depending on layout. A taken or untaken branch selects the next instruction address; the exact arrangement is a compiler choice."
+    },
+    "alternative": "A for loop expresses initialization, test, and increment together; both forms can describe the same control flow.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch16/main.cpp"
+  },
+  "17": {
+    "title": "Keep a needed value across a call",
+    "problem": "A caller has a saved value of 10 and asks a helper to double 3. The final result must be 16 even if temporary registers are reused.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const auto helper = [](int argument) { return argument * 2; };\n    const int saved = 10;\n    const int returned = helper(3);\n    std::cout << saved + returned << '\\n';\n    assert(saved + returned == 16);\n}\n",
+    "output": "16\n",
+    "steps": [
+      {
+        "action": "Before the call",
+        "state": "saved = 10; argument = 3",
+        "why": "The compiler must preserve any value needed after the call."
+      },
+      {
+        "action": "In the callee",
+        "state": "return value = 6",
+        "why": "A calling convention defines how arguments and return values are passed at a machine boundary."
+      },
+      {
+        "action": "After the call",
+        "state": "10 + 6 = 16",
+        "why": "The preservation may use a callee-saved register, a spill, or another valid optimization."
+      }
+    ],
+    "pitfall": "Handwritten assembly cannot assume every register survives a call. Caller-saved and callee-saved duties depend on the target ABI.",
+    "discussion": {
+      "question": "Does this source guarantee that a stack frame or even a call instruction exists?",
+      "answer": "No. The compiler may inline the helper and fold constants. Inspect a particular build when studying its ABI-level call sequence."
+    },
+    "alternative": "Ordinary C++ functions let the compiler honor the platform ABI; assembly boundaries require explicit agreement.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch17/main.cpp"
+  },
+  "18": {
+    "title": "Aliasing changes the result of a rewrite",
+    "problem": "Two references may name the same integer. Compare updating then reading through the second reference with remembering its old value first.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    int x = 4;\n    int& a = x;\n    int& b = x;\n    const int remembered = b;\n    a = 9;\n    const int after = b;\n    std::cout << remembered << ' ' << after << '\\n';\n    assert(remembered == 4 && after == 9);\n}\n",
+    "output": "4 9\n",
+    "steps": [
+      {
+        "action": "Bind both references",
+        "state": "a and b name x",
+        "why": "Different variable names do not imply different storage."
+      },
+      {
+        "action": "Save the old read",
+        "state": "remembered = 4",
+        "why": "This value copy is independent of later changes."
+      },
+      {
+        "action": "Write a, then read b",
+        "state": "x = 9; after = 9",
+        "why": "Moving the read before the write changes observable behavior when the references alias."
+      }
+    ],
+    "pitfall": "A hand optimization that caches b before every write through a is wrong unless the design proves the storage cannot overlap.",
+    "discussion": {
+      "question": "Why can the compiler sometimes remove repeated loads anyway?",
+      "answer": "It can use proven facts about aliasing, control flow, and the language rules. It must preserve observable behavior for all defined inputs, not just one test."
+    },
+    "alternative": "Prefer clear code and measured compiler output before adding manual caches.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch18/main.cpp"
+  },
+  "19": {
+    "title": "Model a protected request boundary",
+    "problem": "A kernel-like function must reject a request for more than 8 bytes. The caller cannot bypass the length check in this model.",
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n\nint main() {\n    const auto kernel_copy = [](std::size_t length) {\n        return length <= 8 ? \"accepted\" : \"rejected\";\n    };\n    std::cout << kernel_copy(4) << ' ' << kernel_copy(12) << '\\n';\n}\n",
+    "output": "accepted rejected\n",
+    "steps": [
+      {
+        "action": "Request 4",
+        "state": "accepted",
+        "why": "The request meets the length contract."
+      },
+      {
+        "action": "Request 12",
+        "state": "rejected",
+        "why": "The trusted side enforces its boundary instead of assuming its caller behaved."
+      },
+      {
+        "action": "Separate model from protection",
+        "state": "This is an ordinary function in one process",
+        "why": "Real user/kernel isolation depends on hardware privilege and OS-controlled entry paths; a C++ access specifier is not that isolation."
+      }
+    ],
+    "pitfall": "Checking only in user code is insufficient when a privileged service receives requests from untrusted callers.",
+    "discussion": {
+      "question": "What is missing before this could safely copy real user memory?",
+      "answer": "Validating the address range, permissions, lifetime, partial-failure behavior, and concurrency are all required. A length check alone is only one part of the contract."
+    },
+    "alternative": "An ordinary function boundary is enough for cooperating code inside one trust domain. Privilege separation solves a stronger problem.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch19/main.cpp"
+  },
+  "20": {
+    "title": "A recoverable fault resumes the same instruction",
+    "problem": "Model a load that faults because a permitted page is absent. Resolve the page, retry the load, then advance the program counter.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    bool present = false;\n    int pc = 8;\n    int faults = 0;\n    if (!present) { ++faults; present = true; }\n    assert(present);\n    const int loaded = 42;\n    ++pc;\n    std::cout << \"faults=\" << faults << \" pc=\" << pc << \" value=\" << loaded << '\\n';\n}\n",
+    "output": "faults=1 pc=9 value=42\n",
+    "steps": [
+      {
+        "action": "Attempt instruction 8",
+        "state": "page absent; one fault",
+        "why": "The instruction cannot complete with the current translation state."
+      },
+      {
+        "action": "Resolve the permitted page",
+        "state": "page becomes present; resume point remains 8",
+        "why": "A recoverable fault lets the OS repair a condition and retry."
+      },
+      {
+        "action": "Complete the retried load",
+        "state": "value 42; pc advances to 9",
+        "why": "Advancing past the load before it succeeds would silently skip required work."
+      }
+    ],
+    "pitfall": "Not every fault is recoverable. An invalid access may terminate the process instead of resuming it.",
+    "discussion": {
+      "question": "How is this different from a timer interrupt?",
+      "answer": "The fault is caused by the current instruction’s attempt. A timer interrupt is an external event relative to that instruction stream. Both use controlled entry, but the reason and resumption rules differ."
+    },
+    "alternative": "Use a state model for understanding control transfer; real behavior requires the target OS and ISA contracts.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch20/main.cpp"
+  },
+  "21": {
+    "title": "Waiting is different from being runnable",
+    "problem": "Model process A issuing I/O while process B is ready. A must leave the run queue until its I/O completes.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nint main() {\n    std::string a = \"running\";\n    std::string b = \"ready\";\n    a = \"waiting\";\n    b = \"running\";\n    std::cout << \"A=\" << a << \" B=\" << b << '\\n';\n    a = \"ready\";\n    std::cout << \"A=\" << a << \" B=\" << b << '\\n';\n}\n",
+    "output": "A=waiting B=running\nA=ready B=running\n",
+    "steps": [
+      {
+        "action": "A requests blocking I/O",
+        "state": "A becomes waiting",
+        "why": "A cannot make progress until an external completion occurs."
+      },
+      {
+        "action": "Schedule B",
+        "state": "B becomes running",
+        "why": "A different runnable process can use the CPU while A waits."
+      },
+      {
+        "action": "A receives completion",
+        "state": "A becomes ready",
+        "why": "Ready means eligible to run, not necessarily running at that instant."
+      }
+    ],
+    "pitfall": "Treating waiting and ready as the same state can make a scheduler repeatedly choose work that cannot progress.",
+    "discussion": {
+      "question": "Does B running while A waits require two CPU cores?",
+      "answer": "No. One core can switch from A to B. Parallel execution requires simultaneous execution resources; concurrency only requires overlapping work in progress."
+    },
+    "alternative": "Sequential execution is simpler when tasks never wait and there is no need to overlap their lifetimes.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch21/main.cpp"
+  },
+  "22": {
+    "title": "Equal virtual addresses need not share data",
+    "problem": "Two process models both use virtual address 0x1000. Their private maps must hold independent values.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <map>\n\nint main() {\n    std::map<unsigned, int> process_a{{0x1000, 7}};\n    std::map<unsigned, int> process_b{{0x1000, 9}};\n    process_a.at(0x1000) = 11;\n    std::cout << process_a.at(0x1000) << ' ' << process_b.at(0x1000) << '\\n';\n    assert(process_b.at(0x1000) == 9);\n}\n",
+    "output": "11 9\n",
+    "steps": [
+      {
+        "action": "Look up A:0x1000",
+        "state": "value 7 in A’s map",
+        "why": "A virtual address is interpreted in a particular address space."
+      },
+      {
+        "action": "Write A:0x1000",
+        "state": "A’s value becomes 11",
+        "why": "Changing one private mapping does not change the other."
+      },
+      {
+        "action": "Read B:0x1000",
+        "state": "value remains 9",
+        "why": "The same numeric address alone does not establish shared backing storage."
+      }
+    ],
+    "pitfall": "Logging only the numeric address loses the process context needed to identify memory.",
+    "discussion": {
+      "question": "What would intentional shared memory change?",
+      "answer": "Both address-space mappings would refer to the same backing object or physical storage. Their virtual addresses could be equal or different; shared backing is the key fact."
+    },
+    "alternative": "Use ordinary references within one process. Cross-process sharing needs an OS-supported mapping and a synchronization contract.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch22/main.cpp"
+  },
+  "23": {
+    "title": "Split a virtual address into page and offset",
+    "problem": "Pages are 4096 bytes. Translate virtual address 0x1234 when virtual page 1 maps to frame 7.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const unsigned page_size = 4096;\n    const unsigned address = 0x1234;\n    const unsigned page = address / page_size;\n    const unsigned offset = address % page_size;\n    const unsigned frame = 7;\n    const unsigned physical = frame * page_size + offset;\n    std::cout << \"page=\" << page << \" offset=\" << offset\n              << \" physical=\" << physical << '\\n';\n    assert(page == 1 && offset == 564 && physical == 29236);\n}\n",
+    "output": "page=1 offset=564 physical=29236\n",
+    "steps": [
+      {
+        "action": "Divide by page size",
+        "state": "page number 1",
+        "why": "Whole groups of 4096 bytes select the virtual page."
+      },
+      {
+        "action": "Take the remainder",
+        "state": "offset 564",
+        "why": "Translation preserves the position inside the page."
+      },
+      {
+        "action": "Substitute the frame",
+        "state": "7 * 4096 + 564 = 29236",
+        "why": "The page table supplies a frame; permission and presence checks must also succeed."
+      }
+    ],
+    "pitfall": "Multiplying the virtual page number by the page size reconstructs a virtual address, not the translated physical address.",
+    "discussion": {
+      "question": "What changes if the address is 0x1235?",
+      "answer": "The page number remains 1 and the offset becomes 565. The same page-table entry can translate it, subject to the same access checks."
+    },
+    "alternative": "The arithmetic model is sufficient for decomposition; a real translation also needs page-table state and access type.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch23/main.cpp"
+  },
+  "24": {
+    "title": "Check permissions as well as presence",
+    "problem": "A model page-table entry is present and readable but not writable. Test a read and a write against the same entry.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const bool present = true;\n    const bool readable = true;\n    const bool writable = false;\n    const auto allowed = [&](bool write) {\n        return present && (write ? writable : readable);\n    };\n    std::cout << std::boolalpha << allowed(false) << ' ' << allowed(true) << '\\n';\n    assert(allowed(false) && !allowed(true));\n}\n",
+    "output": "true false\n",
+    "steps": [
+      {
+        "action": "Check presence",
+        "state": "entry has backing in this model",
+        "why": "Presence alone does not authorize every kind of access."
+      },
+      {
+        "action": "Request a read",
+        "state": "true",
+        "why": "The read permission satisfies this access."
+      },
+      {
+        "action": "Request a write",
+        "state": "false",
+        "why": "The access type requires a different permission. A real processor may raise a protection fault."
+      }
+    ],
+    "pitfall": "A translation that returns a frame without checking access permissions can break isolation.",
+    "discussion": {
+      "question": "Could a denied write be part of normal copy-on-write behavior?",
+      "answer": "Yes. The OS may deliberately mark a shared private page read-only, then handle the write fault by creating a private writable copy. Other denied writes are invalid; the mapping policy decides."
+    },
+    "alternative": "A flat table is easy to model; real multilevel tables reduce storage for sparse address spaces at the cost of more involved walks.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch24/main.cpp"
+  },
+  "25": {
+    "title": "A TLB miss can still lead to a cache hit",
+    "problem": "Model a valid mapping absent from the translation cache while the requested data is already in the data cache.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    bool tlb_has_mapping = false;\n    const bool page_present = true;\n    const bool data_cached = true;\n    int walks = 0;\n    if (!tlb_has_mapping) {\n        ++walks;\n        assert(page_present);\n        tlb_has_mapping = true;\n    }\n    std::cout << \"walks=\" << walks << \" data=\"\n              << (data_cached ? \"hit\" : \"miss\") << '\\n';\n}\n",
+    "output": "walks=1 data=hit\n",
+    "steps": [
+      {
+        "action": "Look in the TLB",
+        "state": "mapping absent",
+        "why": "The TLB caches translations, not the program’s requested data value."
+      },
+      {
+        "action": "Walk the table",
+        "state": "mapping present; one walk",
+        "why": "A valid resident page may require a walk without a page fault."
+      },
+      {
+        "action": "Look up the data",
+        "state": "data cache hit",
+        "why": "Translation lookup and data lookup are different events, though real hardware may overlap parts of them."
+      }
+    ],
+    "pitfall": "Equating every TLB miss with a page fault overcounts OS work. A page-table walk can succeed normally.",
+    "discussion": {
+      "question": "Would a TLB hit prove that the data is in L1?",
+      "answer": "No. It supplies a cached translation subject to permissions. The data-cache lookup may still miss."
+    },
+    "alternative": "Keep separate counters for translation misses, page faults, and data-cache misses when diagnosing performance.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch25/main.cpp"
+  },
+  "26": {
+    "title": "Copy on write separates values only when needed",
+    "problem": "Two private address-space models initially share a value of 7. A write in the child should leave the parent’s value unchanged.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <memory>\n\nint main() {\n    auto parent = std::make_shared<int>(7);\n    auto child = parent;\n    if (!child.unique()) child = std::make_shared<int>(*child);\n    *child = 9;\n    std::cout << *parent << ' ' << *child << '\\n';\n    assert(*parent == 7 && *child == 9);\n}\n",
+    "output": "7 9\n",
+    "steps": [
+      {
+        "action": "Share initial backing",
+        "state": "parent and child both read 7",
+        "why": "Sharing unchanged storage saves a copy."
+      },
+      {
+        "action": "Prepare a child write",
+        "state": "allocate a private copy",
+        "why": "The model checks sharing before allowing mutation."
+      },
+      {
+        "action": "Write 9",
+        "state": "parent 7, child 9",
+        "why": "The copy preserves the promise that private modifications are independent."
+      }
+    ],
+    "pitfall": "This single-threaded smart-pointer model is not an OS page-fault handler. Checking unique() is not a safe general concurrent copy-on-write protocol.",
+    "discussion": {
+      "question": "Why might fork avoid copying every page immediately?",
+      "answer": "A child may soon replace its program with exec, or many pages may remain unchanged. Copying only on a permitted private write avoids unnecessary copying."
+    },
+    "alternative": "Eager copying is simpler when data is small or almost every element will change.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch26/main.cpp"
+  },
+  "27": {
+    "title": "Latency and bandwidth answer different questions",
+    "problem": "A link has 10 microseconds of startup latency and transfers 100 bytes per microsecond. Estimate one 100-byte transfer and one 10,000-byte transfer.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const double latency = 10.0;\n    const double bytes_per_us = 100.0;\n    const auto time = [&](double bytes) { return latency + bytes / bytes_per_us; };\n    std::cout << time(100) << ' ' << time(10000) << '\\n';\n}\n",
+    "output": "11 110\n",
+    "steps": [
+      {
+        "action": "Transfer 100 bytes",
+        "state": "10 + 1 = 11 microseconds",
+        "why": "Startup dominates the small transfer."
+      },
+      {
+        "action": "Transfer 10,000 bytes",
+        "state": "10 + 100 = 110 microseconds",
+        "why": "Sustained transfer cost dominates the larger request."
+      },
+      {
+        "action": "Compare with 100 small transfers",
+        "state": "100 * 11 = 1100 microseconds if serialized",
+        "why": "Batching amortizes startup in this deliberately simple model."
+      }
+    ],
+    "pitfall": "Doubling bandwidth does not halve the fixed latency. Real overlap and queueing require a richer model.",
+    "discussion": {
+      "question": "Which change helps the small request more: halving latency or doubling bandwidth?",
+      "answer": "Halving latency gives 6 microseconds; doubling bandwidth gives 10.5. The answer follows from the measured cost components, not the label fast memory."
+    },
+    "alternative": "Use a latency model for dependent small accesses and a throughput model for large streaming work.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch27/main.cpp"
+  },
+  "28": {
+    "title": "Traversal order changes reuse",
+    "problem": "Model a 4-by-4 row-major array and a one-line cache whose line holds four elements. Compare row-first and column-first traversal.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const auto misses = [](bool by_row) {\n        int resident = -1, count = 0;\n        for (int outer = 0; outer < 4; ++outer)\n            for (int inner = 0; inner < 4; ++inner) {\n                const int index = by_row ? outer * 4 + inner : inner * 4 + outer;\n                const int block = index / 4;\n                if (block != resident) { ++count; resident = block; }\n            }\n        return count;\n    };\n    std::cout << misses(true) << ' ' << misses(false) << '\\n';\n    assert(misses(true) == 4 && misses(false) == 16);\n}\n",
+    "output": "4 16\n",
+    "steps": [
+      {
+        "action": "Visit a row",
+        "state": "indexes 0, 1, 2, 3 share block 0",
+        "why": "The first access misses; the next three reuse the fetched line."
+      },
+      {
+        "action": "Visit a column",
+        "state": "indexes 0, 4, 8, 12 visit four blocks",
+        "why": "A one-line cache replaces its resident block on each step."
+      },
+      {
+        "action": "Count all accesses",
+        "state": "row-first 4 misses; column-first 16",
+        "why": "Order changes locality without changing which elements are visited."
+      }
+    ],
+    "pitfall": "These counts belong to the stated tiny cache. A real cache with more lines, associativity, or prefetching can behave differently.",
+    "discussion": {
+      "question": "Would the same order still be best for a column-major representation?",
+      "answer": "The contiguous direction changes. Match traversal to the actual layout, then check other algorithm dependencies and measure."
+    },
+    "alternative": "Loop interchange is useful only when it preserves the computation’s required order and results.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch28/main.cpp"
+  },
+  "29": {
+    "title": "Find a cache line’s set and tag",
+    "problem": "A direct-mapped cache has four sets and 16-byte blocks. Decompose addresses 0, 16, and 64.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    for (unsigned address : {0u, 16u, 64u}) {\n        const unsigned block = address / 16;\n        const unsigned set = block % 4;\n        const unsigned tag = block / 4;\n        std::cout << address << \": set=\" << set << \" tag=\" << tag << '\\n';\n    }\n}\n",
+    "output": "0: set=0 tag=0\n16: set=1 tag=0\n64: set=0 tag=1\n",
+    "steps": [
+      {
+        "action": "Remove the byte offset",
+        "state": "divide address by 16",
+        "why": "All 16 bytes in a block select the same block identity."
+      },
+      {
+        "action": "Choose a set",
+        "state": "block modulo 4",
+        "why": "Addresses 0 and 64 both compete for set 0."
+      },
+      {
+        "action": "Keep the tag",
+        "state": "block divided by 4",
+        "why": "Different tags distinguish blocks that use the same set."
+      }
+    ],
+    "pitfall": "Comparing only the set index would falsely call address 64 a hit after loading address 0.",
+    "discussion": {
+      "question": "Why is a valid bit also needed even when the stored tag equals zero?",
+      "answer": "A cold, unused entry can contain an arbitrary or zero tag. The valid bit says whether the entry actually represents cached data."
+    },
+    "alternative": "More ways per set permit several competing tags, but require a choice when the set fills.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch29/main.cpp"
+  },
+  "30": {
+    "title": "Trace hits before computing a hit rate",
+    "problem": "A cold direct-mapped cache has four lines of 16 bytes. Read addresses 0, 16, 0, 64, 0, 16.",
+    "code": "#include <array>\n#include <cassert>\n#include <iostream>\n\nint main() {\n    std::array<int, 4> tags{-1, -1, -1, -1};\n    int hits = 0;\n    for (int address : {0, 16, 0, 64, 0, 16}) {\n        const int block = address / 16;\n        const int slot = block % 4;\n        const bool hit = tags[slot] == block;\n        hits += hit;\n        tags[slot] = block;\n        std::cout << (hit ? 'H' : 'M') << ' ';\n    }\n    std::cout << \"hits=\" << hits << '\\n';\n    assert(hits == 2);\n}\n",
+    "output": "M M H M M H hits=2\n",
+    "steps": [
+      {
+        "action": "Read 0, 16, 0",
+        "state": "miss, miss, hit",
+        "why": "The first two reads bring in blocks 0 and 1; the third reuses block 0."
+      },
+      {
+        "action": "Read 64, 0",
+        "state": "miss, miss",
+        "why": "Block 4 replaces block 0 in slot 0; returning to 0 must fetch it again."
+      },
+      {
+        "action": "Read 16",
+        "state": "hit; total 2 hits out of 6",
+        "why": "Slot 1 still contains block 1. Hit rate is 2/6, about 33.3%."
+      }
+    ],
+    "pitfall": "Calling the second access to block 0 a compulsory miss is wrong. That block has been seen before; this eviction is a conflict relative to a four-line fully associative LRU reference.",
+    "discussion": {
+      "question": "Would starting with a warm cache necessarily produce the same hit rate?",
+      "answer": "No. Initial state changes which first accesses hit. State the initial contents and interval before comparing rates. The rate alone also does not determine elapsed time."
+    },
+    "alternative": "A trace model explains causes; hardware counters measure the target workload under its real cache policies.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch30/main.cpp"
+  },
+  "31": {
+    "title": "LRU and FIFO can evict different blocks",
+    "problem": "A two-entry cache sees A, B, A, C. Decide which block to evict when C arrives.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <vector>\n\nint main() {\n    std::vector<char> lru{'A', 'B'};\n    lru.erase(lru.begin());\n    lru.push_back('A'); // Touch A: it becomes most recently used.\n    const char lru_victim = lru.front();\n    const char fifo_victim = 'A'; // A arrived first; a hit does not move it.\n    std::cout << \"LRU=\" << lru_victim << \" FIFO=\" << fifo_victim << '\\n';\n    assert(lru_victim == 'B');\n}\n",
+    "output": "LRU=B FIFO=A\n",
+    "steps": [
+      {
+        "action": "Insert A then B",
+        "state": "oldest arrival A; least recent A",
+        "why": "The two policies agree before any hit."
+      },
+      {
+        "action": "Hit A",
+        "state": "LRU order becomes B, A",
+        "why": "Recency changes. Arrival order does not."
+      },
+      {
+        "action": "Insert C",
+        "state": "LRU evicts B; FIFO evicts A",
+        "why": "The victim follows the policy’s state, not a universal oldest label."
+      }
+    ],
+    "pitfall": "Updating FIFO order on every hit silently turns it into a different policy.",
+    "discussion": {
+      "question": "Would a dirty victim have the same work as a clean victim in a write-back cache?",
+      "answer": "No. A dirty line needs its changes preserved at the next level before reuse. Replacement choice and write policy together determine the cost."
+    },
+    "alternative": "Approximate recency policies can cost less to implement than exact LRU, especially with many ways.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch31/main.cpp"
+  },
+  "32": {
+    "title": "Weight the miss penalty by how often it occurs",
+    "problem": "A model cache takes 1 ns for the hit lookup. Five percent of accesses incur an additional 40 ns miss penalty.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const double hit_time = 1;\n    const double miss_rate = 0.05;\n    const double miss_penalty = 40;\n    const double amat = hit_time + miss_rate * miss_penalty;\n    std::cout << amat << \" ns\\n\";\n    assert(amat == 3);\n}\n",
+    "output": "3 ns\n",
+    "steps": [
+      {
+        "action": "Pay the lookup",
+        "state": "1 ns for each access in this model",
+        "why": "The base lookup cost is counted once."
+      },
+      {
+        "action": "Weight extra work",
+        "state": "0.05 * 40 = 2 ns on average",
+        "why": "Only misses pay the additional penalty."
+      },
+      {
+        "action": "Add the components",
+        "state": "AMAT = 3 ns",
+        "why": "AMAT means average memory-access time under the stated serial cost model."
+      }
+    ],
+    "pitfall": "Using 1 + 5 * 40 treats five percent as five. Counting the hit time inside the penalty and again outside also double-counts it.",
+    "discussion": {
+      "question": "If miss rate falls to 2.5%, does the average time halve?",
+      "answer": "No. The result becomes 1 + 0.025 * 40 = 2 ns. The fixed hit cost remains. Overlap in a real processor can further separate AMAT from whole-program time."
+    },
+    "alternative": "Use this model to reason about tradeoffs, then measure end-to-end effects rather than assuming every saved miss has the same impact.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch32/main.cpp"
+  },
+  "33": {
+    "title": "Files are byte sequences, not implicit records",
+    "problem": "A file model contains AB followed by CDE. Read three bytes beginning at byte offset 2.",
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <string>\n\nint main() {\n    const std::string file = \"ABCDE\";\n    const std::size_t offset = 2;\n    const std::size_t count = 3;\n    assert(offset <= file.size() && count <= file.size() - offset);\n    std::cout << file.substr(offset, count) << '\\n';\n}\n",
+    "output": "CDE\n",
+    "steps": [
+      {
+        "action": "Choose an offset",
+        "state": "offset 2 identifies C",
+        "why": "Offsets here count bytes starting from zero."
+      },
+      {
+        "action": "Check the remaining extent",
+        "state": "5 - 2 = 3 bytes remain",
+        "why": "Subtraction after checking offset avoids an overflowing offset + count check."
+      },
+      {
+        "action": "Read the slice",
+        "state": "CDE",
+        "why": "Any record boundaries come from a format layered over the bytes."
+      }
+    ],
+    "pitfall": "A file size does not say where a logical record begins or whether its contents are valid for the format.",
+    "discussion": {
+      "question": "How would variable-length records change random access?",
+      "answer": "You would need a way to find boundaries, such as an index or a scan of validated length fields. Multiplying a record number by one fixed size would no longer work."
+    },
+    "alternative": "Line-based text is convenient for simple human-readable records; fixed-width or indexed formats support different access needs.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch33/main.cpp"
+  },
+  "34": {
+    "title": "A successful read may be short",
+    "problem": "A mock reader returns at most two bytes per call. Copy all five input bytes while keeping a single advancing position.",
+    "code": "#include <algorithm>\n#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <string>\n\nint main() {\n    const std::string input = \"ABCDE\";\n    std::string output;\n    std::size_t position = 0;\n    int calls = 0;\n    while (position < input.size()) {\n        const auto count = std::min<std::size_t>(2, input.size() - position);\n        output.append(input, position, count);\n        position += count;\n        ++calls;\n    }\n    std::cout << output << \" calls=\" << calls << '\\n';\n    assert(output == input && calls == 3);\n}\n",
+    "output": "ABCDE calls=3\n",
+    "steps": [
+      {
+        "action": "First transfer",
+        "state": "AB; position 2",
+        "why": "A partial transfer can still be successful."
+      },
+      {
+        "action": "Second transfer",
+        "state": "CD; position 4",
+        "why": "Advance by the actual count, not by the desired request size."
+      },
+      {
+        "action": "Final transfer",
+        "state": "E; position 5",
+        "why": "The final chunk is smaller. Real read/write loops must also handle errors, interruption, and zero results according to each API."
+      }
+    ],
+    "pitfall": "Assuming one read fills the buffer loses data when the call returns fewer bytes. Treating every short result as EOF is also wrong for many streams.",
+    "discussion": {
+      "question": "Does writing the five bytes require exactly one write call?",
+      "answer": "No. A write can also be partial. Keep a separate output position and retry the untransferred suffix under the API’s error rules."
+    },
+    "alternative": "A higher-level stream can hide some buffering mechanics, but its error and flushing contract still needs attention.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch34/main.cpp"
+  },
+  "35": {
+    "title": "Buffering changes when output is forwarded",
+    "problem": "A model output buffer forwards data after four bytes or an explicit flush. Append AB and CD, then one final E.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nint main() {\n    std::string pending, destination;\n    int flushes = 0;\n    const auto flush = [&] { destination += pending; pending.clear(); ++flushes; };\n    pending += \"AB\";\n    pending += \"CD\";\n    if (pending.size() >= 4) flush();\n    pending += \"E\";\n    flush();\n    std::cout << destination << \" flushes=\" << flushes << '\\n';\n    assert(destination == \"ABCDE\" && flushes == 2);\n}\n",
+    "output": "ABCDE flushes=2\n",
+    "steps": [
+      {
+        "action": "Append AB",
+        "state": "pending AB; destination empty",
+        "why": "The caller has supplied data but it has not yet reached the next layer."
+      },
+      {
+        "action": "Append CD",
+        "state": "one flush forwards ABCD",
+        "why": "Combining small pieces reduces forwarding operations in this model."
+      },
+      {
+        "action": "Append and flush E",
+        "state": "destination ABCDE; two flushes",
+        "why": "The explicit final flush prevents the last partial buffer from remaining pending."
+      }
+    ],
+    "pitfall": "Flushing a language-library buffer is not the same guarantee as durable storage on a device. Keep visibility and persistence separate.",
+    "discussion": {
+      "question": "Why can flushing after every character reduce throughput?",
+      "answer": "It removes opportunities to combine small writes and may pay fixed costs repeatedly. Interactive prompts may still justify an immediate flush for responsiveness."
+    },
+    "alternative": "Use buffering for throughput; choose explicit flush points when another participant must see a boundary.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch35/main.cpp"
+  },
+  "36": {
+    "title": "Private and shared mappings have different write effects",
+    "problem": "Model a file-backed byte sequence. A private view gets its own copy; a shared view refers to the backing bytes.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nint main() {\n    std::string backing = \"cat\";\n    auto private_view = backing;\n    auto& shared_view = backing;\n    private_view[0] = 'b';\n    shared_view[2] = 'r';\n    std::cout << backing << ' ' << private_view << '\\n';\n    assert(backing == \"car\" && private_view == \"bat\");\n}\n",
+    "output": "car bat\n",
+    "steps": [
+      {
+        "action": "Create views",
+        "state": "both initially read cat",
+        "why": "The model makes sharing policy explicit."
+      },
+      {
+        "action": "Write the private view",
+        "state": "private_view becomes bat",
+        "why": "The backing bytes remain unchanged by this private write."
+      },
+      {
+        "action": "Write the shared view",
+        "state": "backing becomes car",
+        "why": "The shared reference names the same bytes. Real mapped I/O also needs bounds, lifetime, synchronization, and persistence rules."
+      }
+    ],
+    "pitfall": "This string model does not implement mmap or prove that a write is durable. A real mapping can also become unsafe if the file is truncated underneath it.",
+    "discussion": {
+      "question": "Would unmapping the private view make its changes appear in the file?",
+      "answer": "No. A private mapping does not promise to write its modifications back as shared file changes. Use the correct mapping or explicit write path for that requirement."
+    },
+    "alternative": "Explicit read/write calls can be clearer for streaming access; mapping can suit random access when lifetime and bounds are controlled.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch36/main.cpp"
+  },
+  "37": {
+    "title": "Copied process state and shared file state coexist",
+    "problem": "Model the important fork distinction: ordinary private values are copied, while inherited descriptor references can share one open-file offset.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <memory>\n\nint main() {\n    int parent_value = 7;\n    int child_value = parent_value;\n    auto parent_offset = std::make_shared<int>(0);\n    auto child_offset = parent_offset;\n    child_value = 9;\n    *child_offset += 2;\n    std::cout << parent_value << ' ' << child_value << \" offset=\" << *parent_offset << '\\n';\n    assert(parent_value == 7 && *parent_offset == 2);\n}\n",
+    "output": "7 9 offset=2\n",
+    "steps": [
+      {
+        "action": "Copy private state",
+        "state": "parent_value 7; child_value 7",
+        "why": "Private memory changes are logically independent after fork."
+      },
+      {
+        "action": "Change the child value",
+        "state": "parent 7; child 9",
+        "why": "The assignment does not update the parent’s private value."
+      },
+      {
+        "action": "Advance a shared offset",
+        "state": "parent observes offset 2",
+        "why": "Inherited descriptors may refer to the same kernel open-file description, including its offset."
+      }
+    ],
+    "pitfall": "Neither everything is copied independently nor everything is shared is an accurate fork model.",
+    "discussion": {
+      "question": "Why can buffered text be printed twice if buffered output exists before fork?",
+      "answer": "The user-space buffer is copied with private memory. Both processes may later flush their copies. The underlying descriptor relationship does not remove the duplicate buffered data."
+    },
+    "alternative": "A spawn API can be simpler than manually managing fork/exec in programs that only need to start another executable.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch37/main.cpp"
+  },
+  "38": {
+    "title": "Exec replaces an image while keeping process identity",
+    "problem": "A state model starts process 42 running shell. A successful exec changes the program image to worker and keeps the process ID.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nint main() {\n    const int pid = 42;\n    std::string image = \"shell\";\n    image = \"worker\";\n    std::cout << \"pid=\" << pid << \" image=\" << image << '\\n';\n    assert(pid == 42 && image == \"worker\");\n}\n",
+    "output": "pid=42 image=worker\n",
+    "steps": [
+      {
+        "action": "Before exec",
+        "state": "pid 42; image shell",
+        "why": "Process identity and program image are different concepts."
+      },
+      {
+        "action": "Successful replacement",
+        "state": "new image worker",
+        "why": "The old user-space image does not continue past a successful exec call."
+      },
+      {
+        "action": "Preserve selected process state",
+        "state": "pid remains 42",
+        "why": "Descriptor inheritance depends on close-on-exec flags and the API contract."
+      }
+    ],
+    "pitfall": "The assignment is only a state model: unlike this C++ line, a successful real exec does not return into the old program.",
+    "discussion": {
+      "question": "Where should error handling for exec failure be placed?",
+      "answer": "Immediately after the exec call, since returning indicates failure. That path should report the error and choose a defined termination behavior."
+    },
+    "alternative": "Launching a second process needs a creation operation as well; exec by itself is replacement.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch38/main.cpp"
+  },
+  "39": {
+    "title": "A terminated child still needs collection",
+    "problem": "Model a parent observing a child’s normal exit code 7, then reaping its termination record.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <optional>\n\nint main() {\n    std::optional<int> child_status = 7;\n    assert(child_status.has_value());\n    const int exit_code = *child_status;\n    child_status.reset();\n    std::cout << \"exit=\" << exit_code << \" reaped=\" << std::boolalpha\n              << !child_status.has_value() << '\\n';\n}\n",
+    "output": "exit=7 reaped=true\n",
+    "steps": [
+      {
+        "action": "Child terminates",
+        "state": "status record contains normal exit 7",
+        "why": "Termination and collection by the parent are separate events."
+      },
+      {
+        "action": "Parent inspects status",
+        "state": "exit code is 7",
+        "why": "Real wait status must first be classified with the platform’s macros; not every termination is a normal exit."
+      },
+      {
+        "action": "Parent reaps",
+        "state": "record is collected",
+        "why": "The model removes the record only after saving the result needed by the parent."
+      }
+    ],
+    "pitfall": "Shifting raw wait-status bits without first checking the termination category can misreport a signal termination as an ordinary exit.",
+    "discussion": {
+      "question": "Does a zombie child still execute user instructions?",
+      "answer": "No. It has terminated; the remaining record lets the parent collect status. Failing to reap can still exhaust bookkeeping resources."
+    },
+    "alternative": "A process wrapper can centralize waiting and status decoding when many call sites launch children.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch39/main.cpp"
+  },
+  "40": {
+    "title": "EOF depends on every writer closing",
+    "problem": "A pipe model begins with two open write endpoints. Closing only one must not cause EOF after its buffered bytes are drained.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    int open_writers = 2;\n    bool buffer_empty = true;\n    const auto eof = [&] { return buffer_empty && open_writers == 0; };\n    --open_writers;\n    std::cout << std::boolalpha << eof() << ' ';\n    --open_writers;\n    std::cout << eof() << '\\n';\n    assert(eof());\n}\n",
+    "output": "false true\n",
+    "steps": [
+      {
+        "action": "One writer closes",
+        "state": "one remains; empty buffer",
+        "why": "An empty pipe with a writer still open can later receive more data."
+      },
+      {
+        "action": "Reader tests EOF",
+        "state": "false",
+        "why": "In a blocking real pipe, an empty read can wait for data or closure instead."
+      },
+      {
+        "action": "Last writer closes",
+        "state": "zero writers; empty buffer",
+        "why": "Now a reader can observe end of stream."
+      }
+    ],
+    "pitfall": "Leaving an unused inherited write descriptor open can make a pipeline reader wait forever for EOF.",
+    "discussion": {
+      "question": "Why should a shell start both pipeline stages before waiting for the producer?",
+      "answer": "A pipe has bounded capacity. A producer may block on a full pipe while its consumer has not started. Start the cooperating stages and close unused ends before waiting."
+    },
+    "alternative": "A temporary file avoids live backpressure but changes latency, storage needs, and streaming behavior.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch40/main.cpp"
+  },
+  "41": {
+    "title": "A signal notification is not a work queue",
+    "problem": "A model flag records that attention is needed. Two notifications arriving before the main loop checks the flag can collapse into one pending state.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    bool pending = false;\n    pending = true;\n    pending = true;\n    int handled = 0;\n    if (pending) { pending = false; ++handled; }\n    std::cout << \"handled=\" << handled << '\\n';\n    assert(handled == 1);\n}\n",
+    "output": "handled=1\n",
+    "steps": [
+      {
+        "action": "First notification",
+        "state": "pending true",
+        "why": "The flag records a condition, not an event count."
+      },
+      {
+        "action": "Second notification",
+        "state": "pending still true",
+        "why": "No extra information fits in one Boolean."
+      },
+      {
+        "action": "Main loop reacts",
+        "state": "one handling pass",
+        "why": "That pass should inspect the underlying state if several events may have occurred."
+      }
+    ],
+    "pitfall": "This sequential model is not a valid signal handler implementation. Real handlers need only async-signal-safe operations and a correct signal-mask/wait protocol.",
+    "discussion": {
+      "question": "Why is check flag, then sleep vulnerable without an atomic waiting protocol?",
+      "answer": "A signal can arrive between the check and sleep. The process may then sleep after its wakeup event has already occurred. A signal-mask-based wait or suitable OS event mechanism closes the gap."
+    },
+    "alternative": "Use a counted queue or appropriate queued notification mechanism when every event must be preserved.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch41/main.cpp"
+  },
+  "42": {
+    "title": "Parse before you execute",
+    "problem": "A tiny shell language accepts words separated by spaces and the pipe symbol |. Tokenize a pipeline before deciding how to launch it.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <sstream>\n#include <string>\n#include <vector>\n\nint main() {\n    const std::string line = \"emit | count\";\n    std::istringstream input(line);\n    std::vector<std::string> tokens;\n    for (std::string word; input >> word;) tokens.push_back(word);\n    assert(tokens.size() == 3 && tokens[1] == \"|\");\n    std::cout << \"left=\" << tokens[0] << \" right=\" << tokens[2] << '\\n';\n}\n",
+    "output": "left=emit right=count\n",
+    "steps": [
+      {
+        "action": "Read input text",
+        "state": "emit | count",
+        "why": "The input is not yet a set of running processes."
+      },
+      {
+        "action": "Tokenize under the stated grammar",
+        "state": "emit, |, count",
+        "why": "This intentionally tiny grammar requires spaces and has no quoting or expansion."
+      },
+      {
+        "action": "Build the plan",
+        "state": "left stage emit; right stage count",
+        "why": "Validation must happen before allocating pipes and starting processes."
+      }
+    ],
+    "pitfall": "Splitting every real shell line on spaces breaks quoted arguments and operators without surrounding spaces. This example deliberately does not implement a full shell grammar.",
+    "discussion": {
+      "question": "What should happen for the incomplete input emit | ?",
+      "answer": "Reject it as a syntax error before launching emit. Starting part of an invalid pipeline creates side effects and cleanup work without a complete execution plan."
+    },
+    "alternative": "For a fixed external command, a direct argument-vector API is safer and simpler than invoking a shell parser.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch42/main.cpp"
+  },
+  "43": {
+    "title": "An interleaving can lose an update",
+    "problem": "Use a sequential model of two participants that both read a counter before either writes back its increment. The requirement is to count two events.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    int counter = 0;\n    const int a_read = counter;\n    const int b_read = counter;\n    counter = a_read + 1;\n    counter = b_read + 1;\n    std::cout << counter << '\\n';\n    assert(counter == 1);\n}\n",
+    "output": "1\n",
+    "steps": [
+      {
+        "action": "A reads",
+        "state": "A keeps 0",
+        "why": "A has not written its new result yet."
+      },
+      {
+        "action": "B reads",
+        "state": "B also keeps 0",
+        "why": "Both computations are now based on the same old state."
+      },
+      {
+        "action": "A and B store",
+        "state": "A stores 1; B stores 1",
+        "why": "The final value counts only one event, even though two computations ran."
+      }
+    ],
+    "pitfall": "This is a defined sequential model of interleaving. Running unsynchronized writes to an ordinary shared C++ int would have a data race and undefined behavior, not a guaranteed final value of 1.",
+    "discussion": {
+      "question": "Would putting the two participants on a single core automatically fix the design?",
+      "answer": "No. Interleaving on one core can still split a read-modify-write sequence. The operation needs an appropriate atomic update or synchronization boundary."
+    },
+    "alternative": "Keep state local to one participant when sharing is unnecessary; otherwise make the update contract explicit.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch43/main.cpp"
+  },
+  "44": {
+    "title": "Join workers before consuming their results",
+    "problem": "Two threads sum disjoint halves of four readings. Each writes a separate result slot; main combines the results only after both joins.",
+    "code": "#include <array>\n#include <cassert>\n#include <iostream>\n#include <thread>\n\nint main() {\n    const std::array<int, 4> input{1, 2, 3, 4};\n    std::array<int, 2> partial{0, 0};\n    std::thread a([&] { partial[0] = input[0] + input[1]; });\n    std::thread b([&] { partial[1] = input[2] + input[3]; });\n    a.join();\n    b.join();\n    std::cout << partial[0] + partial[1] << '\\n';\n    assert(partial[0] + partial[1] == 10);\n}\n",
+    "output": "10\n",
+    "steps": [
+      {
+        "action": "Start the workers",
+        "state": "a writes slot 0; b writes slot 1",
+        "why": "The input is read-only and result slots are distinct int objects."
+      },
+      {
+        "action": "Join both threads",
+        "state": "both result writes are complete",
+        "why": "A successful join synchronizes with completion, so main may read the results afterward."
+      },
+      {
+        "action": "Combine",
+        "state": "3 + 7 = 10",
+        "why": "The array and its elements stay alive until after both workers finish."
+      }
+    ],
+    "pitfall": "Reading partial before the joins can race with a worker’s write. Letting a joinable std::thread be destroyed calls std::terminate.",
+    "discussion": {
+      "question": "Is using two threads faster for these four integers?",
+      "answer": "Almost certainly not; startup and coordination dominate such tiny work. The small input makes the lifetime and synchronization rules easy to see. Measure larger tasks before adding threads."
+    },
+    "alternative": "A sequential std::accumulate is the practical choice for small ranges.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch44/main.cpp"
+  },
+  "45": {
+    "title": "Atomic loads and stores do not form one increment",
+    "problem": "Use atomic accesses but deliberately read twice before storing. Then compare two fetch_add operations.",
+    "code": "#include <atomic>\n#include <cassert>\n#include <iostream>\n\nint main() {\n    std::atomic<int> counter{0};\n    const int a = counter.load();\n    const int b = counter.load();\n    counter.store(a + 1);\n    counter.store(b + 1);\n    const int split_result = counter.load();\n    counter.store(0);\n    counter.fetch_add(1);\n    counter.fetch_add(1);\n    std::cout << split_result << ' ' << counter.load() << '\\n';\n    assert(split_result == 1 && counter.load() == 2);\n}\n",
+    "output": "1 2\n",
+    "steps": [
+      {
+        "action": "Separate loads",
+        "state": "both read 0",
+        "why": "Each operation is atomic, but the pair is not one indivisible increment."
+      },
+      {
+        "action": "Separate stores",
+        "state": "both store 1",
+        "why": "The logical lost update occurs without any C++ data race in this trace."
+      },
+      {
+        "action": "Use fetch_add",
+        "state": "0 becomes 1, then 2",
+        "why": "Each read-modify-write is one atomic operation with respect to the counter."
+      }
+    ],
+    "pitfall": "Stronger memory ordering on separate load and store calls does not combine them into a transaction.",
+    "discussion": {
+      "question": "Why is this a better teaching trace than running two unsynchronized ordinary increments?",
+      "answer": "It has defined behavior and deterministic output. It isolates the logical mistake without relying on undefined behavior to happen to look like a lost update."
+    },
+    "alternative": "Use a mutex when one logical update must protect several related values; one atomic counter is enough only for the narrower contract.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch45/main.cpp"
+  },
+  "46": {
+    "title": "Publish data with a release/acquire handoff",
+    "problem": "A producer writes a value, then publishes a ready flag. A consumer must not read the value until it observes readiness.",
+    "code": "#include <atomic>\n#include <cassert>\n#include <iostream>\n#include <thread>\n\nint main() {\n    int payload = 0;\n    std::atomic<bool> ready{false};\n    int observed = 0;\n    std::thread producer([&] {\n        payload = 42;\n        ready.store(true, std::memory_order_release);\n    });\n    std::thread consumer([&] {\n        while (!ready.load(std::memory_order_acquire)) std::this_thread::yield();\n        observed = payload;\n    });\n    producer.join();\n    consumer.join();\n    std::cout << observed << '\\n';\n    assert(observed == 42);\n}\n",
+    "output": "42\n",
+    "steps": [
+      {
+        "action": "Write payload",
+        "state": "payload becomes 42",
+        "why": "The write is sequenced before the release store."
+      },
+      {
+        "action": "Publish and observe ready",
+        "state": "the acquire load reads true from the release store",
+        "why": "This handoff establishes the ordering needed to see the preceding payload write."
+      },
+      {
+        "action": "Consume and join",
+        "state": "observed becomes 42",
+        "why": "The data remains alive; the one-shot producer performs no later writes to it."
+      }
+    ],
+    "pitfall": "Changing both operations to relaxed removes the required handoff for this non-atomic payload. This is a one-shot protocol, not a reusable queue.",
+    "discussion": {
+      "question": "Why is an ordinary bool flag insufficient?",
+      "answer": "Concurrent unsynchronized reads and writes of that flag would themselves be a data race. Even a flag that appears to change on your machine is not a C++ synchronization contract."
+    },
+    "alternative": "A mutex and condition variable often make waiting and repeated exchanges easier to reason about than a custom atomic protocol.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch46/main.cpp"
+  },
+  "47": {
+    "title": "Protect a whole invariant",
+    "problem": "Two balances total 100. Transfer 10 from one to the other while holding the same lock over both updates.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <mutex>\n\nint main() {\n    int first = 60, second = 40;\n    std::mutex guard;\n    {\n        std::lock_guard<std::mutex> lock(guard);\n        assert(first >= 10);\n        first -= 10;\n        second += 10;\n        assert(first + second == 100);\n    }\n    std::cout << first << ' ' << second << '\\n';\n}\n",
+    "output": "50 50\n",
+    "steps": [
+      {
+        "action": "Lock before observing and changing",
+        "state": "first 60; second 40",
+        "why": "All concurrent accesses to these balances would need to follow the same locking rule."
+      },
+      {
+        "action": "Apply both changes",
+        "state": "first 50; second 50",
+        "why": "The temporary half-complete update is hidden from other cooperating locked operations."
+      },
+      {
+        "action": "Leave the block",
+        "state": "lock_guard releases the mutex",
+        "why": "Scope-based cleanup keeps release paired with acquisition."
+      }
+    ],
+    "pitfall": "Using a separate unrelated mutex at each call site provides no shared exclusion. Protecting only one balance also fails to protect the total.",
+    "discussion": {
+      "question": "Would making both balances atomic automatically make the transfer atomic?",
+      "answer": "No. Another participant could observe the state between the two atomic updates. A multi-object invariant needs a protocol covering the full logical transaction."
+    },
+    "alternative": "For one independent count, an atomic operation can be simpler; for coupled state, a single clear mutex is often easier to audit.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch47/main.cpp"
+  },
+  "48": {
+    "title": "Wait for a predicate, not a remembered notification",
+    "problem": "Model a consumer that arrives after an item was queued and a notification already happened. The queue state must still let it proceed.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <vector>\n\nint main() {\n    std::vector<int> queue;\n    queue.push_back(7); // The producer acts before the consumer arrives.\n    const bool should_wait = queue.empty();\n    std::cout << \"wait=\" << std::boolalpha << should_wait\n              << \" value=\" << queue.front() << '\\n';\n    assert(!should_wait);\n}\n",
+    "output": "wait=false value=7\n",
+    "steps": [
+      {
+        "action": "Producer changes state",
+        "state": "queue contains 7",
+        "why": "The queue is the lasting evidence that work exists."
+      },
+      {
+        "action": "Consumer checks the predicate",
+        "state": "queue.empty() is false",
+        "why": "It should not wait merely because it missed an earlier notification."
+      },
+      {
+        "action": "Generalize to real threads",
+        "state": "check and wait under the associated mutex",
+        "why": "Condition-variable wait atomically releases the lock while waiting and reacquires it; a loop rechecks after any wakeup."
+      }
+    ],
+    "pitfall": "A condition variable is not a stored event counter. Waiting without a predicate can sleep despite available work or act after a spurious wakeup.",
+    "discussion": {
+      "question": "Why must the predicate be checked again after waking?",
+      "answer": "Another consumer may have taken the item, or the wakeup may be spurious. The predicate under the lock decides whether proceeding is valid."
+    },
+    "alternative": "A semaphore can naturally represent available permits, while a condition variable supports a general shared-state predicate.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch48/main.cpp"
+  },
+  "49": {
+    "title": "A bounded queue needs space, work, and shutdown rules",
+    "problem": "Model a queue with capacity two. Reject a third item, consume one, then permit another insertion.",
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <vector>\n\nint main() {\n    std::vector<int> queue;\n    const std::size_t capacity = 2;\n    const auto push = [&](int value) {\n        if (queue.size() == capacity) return false;\n        queue.push_back(value);\n        return true;\n    };\n    const bool first = push(1), second = push(2), full = push(3);\n    assert(first && second && !full);\n    queue.erase(queue.begin());\n    const bool after_pop = push(3);\n    std::cout << std::boolalpha << full << ' ' << after_pop\n              << \" size=\" << queue.size() << '\\n';\n}\n",
+    "output": "false true size=2\n",
+    "steps": [
+      {
+        "action": "Insert 1 and 2",
+        "state": "size 2; full",
+        "why": "The invariant is 0 <= size <= capacity."
+      },
+      {
+        "action": "Attempt 3",
+        "state": "reject; size stays 2",
+        "why": "A real concurrent API must define whether full means wait, reject, or drop."
+      },
+      {
+        "action": "Consume and insert",
+        "state": "remove 1, insert 3; size 2",
+        "why": "Making space changes the condition that blocked producers care about."
+      }
+    ],
+    "pitfall": "One wakeup rule is not enough: consumers need work; producers need space. Shutdown must also wake participants whose waits can no longer succeed.",
+    "discussion": {
+      "question": "If shutdown occurs with two queued items, should consumers drop them?",
+      "answer": "Either draining or discarding can be valid, but the contract must choose. A drainable queue rejects new pushes and lets consumers finish existing items before reporting closed-and-empty."
+    },
+    "alternative": "An unbounded queue simplifies insertion but can turn overload into unbounded memory use.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch49/main.cpp"
+  },
+  "50": {
+    "title": "Use a shared lock order",
+    "problem": "Two transfers need accounts 3 and 8. Sort the lock identities so opposite transfer directions request locks in the same order.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <utility>\n\nint main() {\n    const auto order = [](int from, int to) {\n        if (from > to) std::swap(from, to);\n        return std::pair<int, int>{from, to};\n    };\n    const auto forward = order(3, 8);\n    const auto reverse = order(8, 3);\n    std::cout << forward.first << ',' << forward.second << ' '\n              << reverse.first << ',' << reverse.second << '\\n';\n    assert(forward == reverse);\n}\n",
+    "output": "3,8 3,8\n",
+    "steps": [
+      {
+        "action": "Forward transfer",
+        "state": "request 3 then 8",
+        "why": "A globally consistent order prevents one participant from taking the opposite order."
+      },
+      {
+        "action": "Reverse transfer",
+        "state": "still request 3 then 8",
+        "why": "Business direction is separated from lock acquisition order."
+      },
+      {
+        "action": "Rule out this cycle",
+        "state": "no participant holds 8 while waiting for 3 under this rule",
+        "why": "The rule removes circular waiting among locks covered by the same total order."
+      }
+    ],
+    "pitfall": "Ordering only some call sites is insufficient. Other locks, callbacks, or blocking operations can introduce different cycles.",
+    "discussion": {
+      "question": "What if the transfer is from an account to itself?",
+      "answer": "Handle that case explicitly. Attempting to lock the same non-recursive mutex twice can deadlock or violate a locking API’s requirements."
+    },
+    "alternative": "std::scoped_lock can acquire multiple distinct mutexes with deadlock avoidance; a single mutex is simpler if contention is acceptable.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch50/main.cpp"
+  },
+  "51": {
+    "title": "TCP does not preserve application messages",
+    "problem": "A byte-stream model delivers a length-prefixed message as two fragments. Assemble a complete frame before interpreting it.",
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <string>\n#include <vector>\n\nint main() {\n    std::vector<unsigned char> received{3, 'c'};\n    received.insert(received.end(), {'a', 't'});\n    const std::size_t length = received[0];\n    assert(length <= 8 && received.size() >= 1 + length);\n    const std::string message(received.begin() + 1, received.begin() + 1 + length);\n    std::cout << message << '\\n';\n}\n",
+    "output": "cat\n",
+    "steps": [
+      {
+        "action": "Receive first fragment",
+        "state": "length 3 and byte c",
+        "why": "The frame is incomplete even though a read delivered data."
+      },
+      {
+        "action": "Receive more",
+        "state": "a and t complete the payload",
+        "why": "Buffering must retain earlier bytes until the frame is complete."
+      },
+      {
+        "action": "Validate and extract",
+        "state": "message cat",
+        "why": "The model caps lengths at 8. A real parser also retains any following frame bytes and handles EOF or errors mid-frame."
+      }
+    ],
+    "pitfall": "Assuming one send matches one recv call confuses stream transport with application framing.",
+    "discussion": {
+      "question": "What should happen if the peer claims a million-byte frame but the service limit is 8?",
+      "answer": "Reject the length before allocating or waiting for that payload. Framing includes resource limits as well as byte boundaries."
+    },
+    "alternative": "A delimiter can be simpler for text, provided escaping and maximum line length are defined.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch51/main.cpp"
+  },
+  "52": {
+    "title": "Limit admission before work exhausts memory",
+    "problem": "A server has 64 MiB reserved for connection state and budgets 2 MiB per admitted connection. Compute the maximum and test the next admission.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const unsigned budget_mib = 64;\n    const unsigned per_connection_mib = 2;\n    const unsigned limit = budget_mib / per_connection_mib;\n    const unsigned active = 32;\n    std::cout << \"limit=\" << limit << \" admit=\" << std::boolalpha\n              << (active < limit) << '\\n';\n    assert(limit == 32 && !(active < limit));\n}\n",
+    "output": "limit=32 admit=false\n",
+    "steps": [
+      {
+        "action": "Reserve a connection budget",
+        "state": "64 MiB",
+        "why": "This budget is separate from executable, queues, caches, and other memory."
+      },
+      {
+        "action": "Bound per-connection cost",
+        "state": "2 MiB",
+        "why": "The estimate must include all state allocated for an admitted connection, not merely a socket handle."
+      },
+      {
+        "action": "Apply admission",
+        "state": "32 active means no room for another",
+        "why": "Overload needs a defined reject, defer, or bounded-queue policy."
+      }
+    ],
+    "pitfall": "Creating an unlimited thread for every connection can exhaust memory long before CPU utilization reaches 100%.",
+    "discussion": {
+      "question": "Would switching to an event loop remove the need for limits?",
+      "answer": "No. It may reduce thread stacks, but connections, input buffers, queued output, timeouts, and application work still consume bounded resources."
+    },
+    "alternative": "A worker pool caps active work; a bounded queue and admission policy are still needed to control waiting work.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch52/main.cpp"
+  },
+  "53": {
+    "title": "Readiness permits an attempt, not unlimited blocking",
+    "problem": "Model draining currently available bytes from a nonblocking input. Stop on would-block and keep the partial application message.",
+    "code": "#include <array>\n#include <cassert>\n#include <iostream>\n\nint main() {\n    const std::array<int, 3> results{2, 1, -1}; // -1 models would-block, not EOF.\n    int buffered = 0;\n    for (int result : results) {\n        if (result == -1) break;\n        buffered += result;\n    }\n    std::cout << \"buffered=\" << buffered << \" keep-open\\n\";\n    assert(buffered == 3);\n}\n",
+    "output": "buffered=3 keep-open\n",
+    "steps": [
+      {
+        "action": "First successful read",
+        "state": "2 bytes buffered",
+        "why": "Readiness allowed an attempt; the result reports actual progress."
+      },
+      {
+        "action": "Second successful read",
+        "state": "3 bytes buffered",
+        "why": "An edge-triggered design normally drains until the API reports no more available data."
+      },
+      {
+        "action": "Would-block",
+        "state": "keep connection open and return to the event loop",
+        "why": "Would-block is not EOF and not proof that the application frame is complete."
+      }
+    ],
+    "pitfall": "In real read calls, -1 requires inspecting errno; this model uses -1 only as a named would-block event. Treating every -1 as would-block loses real errors.",
+    "discussion": {
+      "question": "Why can a blocking socket stall an event loop even after a readiness notification?",
+      "answer": "Availability can change, and a later read can wait for bytes that have not arrived. Nonblocking operations keep one connection from holding up all the others."
+    },
+    "alternative": "Blocking I/O can be appropriate in a bounded worker design where waiting does not freeze unrelated connections.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch53/main.cpp"
+  },
+  "54": {
+    "title": "Report latency and throughput with units",
+    "problem": "Three serial requests take 2, 8, and 5 milliseconds. Compute mean latency and throughput over the 15-millisecond interval.",
+    "code": "#include <array>\n#include <cassert>\n#include <iostream>\n#include <numeric>\n\nint main() {\n    const std::array<double, 3> milliseconds{2, 8, 5};\n    const double elapsed = std::accumulate(milliseconds.begin(), milliseconds.end(), 0.0);\n    const double mean = elapsed / milliseconds.size();\n    const double throughput = milliseconds.size() / (elapsed / 1000.0);\n    std::cout << \"mean=\" << mean << \"ms throughput=\" << throughput << \"/s\\n\";\n}\n",
+    "output": "mean=5ms throughput=200/s\n",
+    "steps": [
+      {
+        "action": "Define the interval",
+        "state": "15 milliseconds, three completed requests",
+        "why": "Throughput needs a count and an elapsed-time interval."
+      },
+      {
+        "action": "Compute the mean",
+        "state": "15 / 3 = 5 milliseconds per request",
+        "why": "The mean hides the slow 8-millisecond request."
+      },
+      {
+        "action": "Convert units",
+        "state": "3 / 0.015 = 200 requests per second",
+        "why": "The formula assumes the stated serial interval; concurrent completions require their actual observed interval."
+      }
+    ],
+    "pitfall": "Dividing by 15 without converting milliseconds to seconds gives a value per millisecond, not per second.",
+    "discussion": {
+      "question": "Would a mean of 5 ms prove that every request meets a 6 ms deadline?",
+      "answer": "No. The 8 ms request misses it. Report a distribution or relevant percentile and the workload, not only an average."
+    },
+    "alternative": "A checksum or observable result keeps benchmark work relevant, but timing still needs warmup, repetitions, and controlled comparisons.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch54/main.cpp"
+  },
+  "55": {
+    "title": "Remove repeated work before tuning instructions",
+    "problem": "For the values 2, 4, 6, 8, answer the sum over indexes [1, 4). Precompute prefix sums so repeated range queries need two reads and a subtraction.",
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <vector>\n\nint main() {\n    const std::vector<int> values{2, 4, 6, 8};\n    std::vector<int> prefix(values.size() + 1, 0);\n    for (std::size_t i = 0; i < values.size(); ++i) prefix[i + 1] = prefix[i] + values[i];\n    const int answer = prefix[4] - prefix[1];\n    std::cout << answer << '\\n';\n    assert(answer == 18);\n}\n",
+    "output": "18\n",
+    "steps": [
+      {
+        "action": "Build prefix",
+        "state": "0, 2, 6, 12, 20",
+        "why": "prefix[k] means the sum of values before index k."
+      },
+      {
+        "action": "Choose [1, 4)",
+        "state": "exclude the first value, include indexes 1, 2, 3",
+        "why": "The half-open endpoints match the prefix definition."
+      },
+      {
+        "action": "Subtract",
+        "state": "20 - 2 = 18",
+        "why": "All terms before the left endpoint cancel."
+      }
+    ],
+    "pitfall": "Using prefix[right] - prefix[left + 1] accidentally drops the first requested element. Sums also need a type wide enough for the input bounds.",
+    "discussion": {
+      "question": "When is the preprocessing worse than a direct scan?",
+      "answer": "For one tiny query, building and storing a prefix array adds work. It helps when many range queries reuse the same mostly unchanged data; frequent updates may need another design."
+    },
+    "alternative": "Optimize the repeated algorithmic work first, then measure whether lower-level changes still matter.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch55/main.cpp"
+  },
+  "56": {
+    "title": "Compute the ceiling before optimizing",
+    "problem": "Forty percent of a program’s time is in a part you can make twice as fast. Estimate whole-program speedup.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const double fraction = 0.4;\n    const double local_speedup = 2.0;\n    const double new_time = (1 - fraction) + fraction / local_speedup;\n    std::cout << \"speedup=\" << 1 / new_time << '\\n';\n    assert(new_time > 0.79 && new_time < 0.81);\n}\n",
+    "output": "speedup=1.25\n",
+    "steps": [
+      {
+        "action": "Normalize the old time",
+        "state": "1.0 total: 0.6 unchanged, 0.4 targeted",
+        "why": "The fraction must come from the same workload and timing boundary."
+      },
+      {
+        "action": "Speed up the target",
+        "state": "0.4 / 2 = 0.2",
+        "why": "Only the selected part improves."
+      },
+      {
+        "action": "Combine",
+        "state": "new time 0.8; speedup 1 / 0.8 = 1.25",
+        "why": "A local factor of two becomes a 25% whole-program throughput factor under this model."
+      }
+    ],
+    "pitfall": "Multiplying the entire program’s speed by the local speedup ignores the unchanged work.",
+    "discussion": {
+      "question": "What is the limit even if the selected part becomes free?",
+      "answer": "The remaining time is 0.6, so the ceiling is 1/0.6, about 1.67 times. This helps decide whether the optimization effort can meet the goal."
+    },
+    "alternative": "If the target is too small, change the larger cost or the algorithm rather than polishing an irrelevant hot spot.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch56/main.cpp"
+  },
+  "57": {
+    "title": "Validate lengths before using them",
+    "problem": "A packet model has an eight-byte header in a ten-byte buffer. It claims five payload bytes; reject the frame without an overflowing addition.",
+    "code": "#include <cassert>\n#include <cstddef>\n#include <iostream>\n\nint main() {\n    const std::size_t buffer_size = 10;\n    const std::size_t header_size = 8;\n    const std::size_t claimed_payload = 5;\n    const bool valid = header_size <= buffer_size\n        && claimed_payload <= buffer_size - header_size;\n    std::cout << (valid ? \"accept\" : \"reject\") << '\\n';\n    assert(!valid);\n}\n",
+    "output": "reject\n",
+    "steps": [
+      {
+        "action": "Check the fixed header",
+        "state": "8 <= 10",
+        "why": "Subtraction is only safe for the remaining size after this check."
+      },
+      {
+        "action": "Compute remaining extent",
+        "state": "10 - 8 = 2",
+        "why": "Only two payload bytes are available."
+      },
+      {
+        "action": "Validate the claim",
+        "state": "5 <= 2 is false",
+        "why": "Reject before copying, allocating from the claim, or interpreting nonexistent bytes."
+      }
+    ],
+    "pitfall": "Checking header_size + claimed_payload <= buffer_size can wrap if unchecked size_t inputs are large. Passing a wrapped check can lead to an undersized buffer.",
+    "discussion": {
+      "question": "Should a parser accept a frame merely because the backing buffer happens to contain extra allocated memory?",
+      "answer": "No. The valid input extent is a contract independent of allocation capacity. Reading beyond the received extent can expose stale data even if it stays inside an allocation."
+    },
+    "alternative": "A bounded view carrying pointer and length reduces mismatched arguments; it does not remove the need for correct validation.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch57/main.cpp"
+  },
+  "58": {
+    "title": "A mitigation detects only the corruption it covers",
+    "problem": "Model a saved guard beside a payload. Detect a changed guard while recognizing that an untouched guard does not prove the payload is valid.",
+    "code": "#include <cassert>\n#include <iostream>\n\nint main() {\n    const unsigned expected_guard = 0xA55Au;\n    unsigned saved_guard = expected_guard;\n    saved_guard ^= 1u; // Deliberately model corruption; no invalid memory access.\n    std::cout << (saved_guard == expected_guard ? \"guard intact\" : \"detected\") << '\\n';\n    assert(saved_guard != expected_guard);\n}\n",
+    "output": "detected\n",
+    "steps": [
+      {
+        "action": "Store a guard",
+        "state": "expected value 0xA55A",
+        "why": "A guard gives a later check one specific fact to test."
+      },
+      {
+        "action": "Corrupt the modeled guard",
+        "state": "one bit changes",
+        "why": "The example changes an ordinary variable; it does not perform a real buffer overflow."
+      },
+      {
+        "action": "Compare at the boundary",
+        "state": "detected",
+        "why": "Real stack canaries, address randomization, and non-executable memory have different coverage and assumptions."
+      }
+    ],
+    "pitfall": "A canary is not a bounds checker. An overwrite that misses it or another class of bug may remain undetected.",
+    "discussion": {
+      "question": "Why should hardened builds still validate input lengths?",
+      "answer": "Mitigations reduce some consequences or detect some faults; they do not make an invalid access correct. Preventing the out-of-bounds operation remains the primary rule."
+    },
+    "alternative": "Use layered platform mitigations alongside safe interfaces and verification, and inspect the actual build settings rather than assuming flags took effect.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch58/main.cpp"
+  },
+  "59": {
+    "title": "Prepare, validate, then commit",
+    "problem": "A settings update must preserve the old value if validation fails. Build the candidate separately, and replace the live state only after checking it.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nint main() {\n    std::string live = \"version=1\";\n    std::string candidate = \"broken\";\n    if (candidate.rfind(\"version=\", 0) == 0) live.swap(candidate);\n    std::cout << live << '\\n';\n    candidate = \"version=2\";\n    if (candidate.rfind(\"version=\", 0) == 0) live.swap(candidate);\n    std::cout << live << '\\n';\n    assert(live == \"version=2\");\n}\n",
+    "output": "version=1\nversion=2\n",
+    "steps": [
+      {
+        "action": "Prepare invalid input",
+        "state": "live remains version=1",
+        "why": "Uncommitted work is kept separate from visible state."
+      },
+      {
+        "action": "Reject invalid candidate",
+        "state": "still version=1",
+        "why": "A failed attempt preserves the previous usable value."
+      },
+      {
+        "action": "Validate and commit the next candidate",
+        "state": "live becomes version=2",
+        "why": "The model has one explicit commit point; a real file protocol must separately address atomic replacement and durability."
+      }
+    ],
+    "pitfall": "Writing half a new configuration directly over the live file can destroy the only good version before validation finishes.",
+    "discussion": {
+      "question": "Does an atomic rename alone guarantee data survives a power failure?",
+      "answer": "No. Atomic visibility and crash durability are different contracts. A real protocol needs the relevant file and directory synchronization rules for its filesystem and OS."
+    },
+    "alternative": "A memory-only swap is sufficient for process-local state; durable external state requires a documented failure model.",
+    "kind": "C++ model",
+    "filename": "systems_examples/ch59/main.cpp"
+  },
+  "60": {
+    "title": "Follow one value through build and execution",
+    "problem": "A complete program adds two parsed constant strings and formats the result. Distinguish source text, compiled operations, live objects, and output bytes.",
+    "code": "#include <cassert>\n#include <iostream>\n#include <string>\n\nint main() {\n    const std::string first = \"12\";\n    const std::string second = \"30\";\n    const int result = std::stoi(first) + std::stoi(second);\n    const std::string line = std::to_string(result) + \"\\n\";\n    std::cout << line;\n    assert(result == 42 && line == \"42\\n\");\n}\n",
+    "output": "42\n",
+    "steps": [
+      {
+        "action": "Build the program",
+        "state": "declarations checked; definitions linked",
+        "why": "Compilation and linking produce an executable; they do not make these runtime string objects persistent objects in the running process."
+      },
+      {
+        "action": "Execute parsing and addition",
+        "state": "12 + 30 = 42",
+        "why": "These particular strings are valid; external input would need error and range handling."
+      },
+      {
+        "action": "Format and output",
+        "state": "bytes 4, 2, newline",
+        "why": "C++ stream output passes through library and OS layers; exact machine instructions and buffering depend on the build and platform."
+      }
+    ],
+    "pitfall": "Seeing the correct output alone does not tell you which functions were inlined, which pages faulted, or how many system calls occurred.",
+    "discussion": {
+      "question": "Which evidence would answer a question about generated instructions, and which about I/O calls?",
+      "answer": "Inspect the built executable’s disassembly for instructions. Use an appropriate runtime trace for system calls, with a stated workload. Source reading, binary inspection, and execution traces answer different questions."
+    },
+    "alternative": "Use the least intrusive measurement that answers the actual question; heavy tracing can change timing.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch60/main.cpp"
+  },
+  "61": {
+    "title": "Integrate ownership, work partitioning, and verification",
+    "problem": "Sum six readings with two workers. Keep the input alive, give each worker a disjoint output slot, join, and compare with a sequential reference.",
+    "code": "#include <array>\n#include <cassert>\n#include <cstddef>\n#include <iostream>\n#include <numeric>\n#include <thread>\n#include <vector>\n\nint main() {\n    const std::vector<int> readings{2, 4, 6, 8, 10, 12};\n    std::array<int, 2> partial{0, 0};\n    const auto work = [&](std::size_t worker) {\n        const std::size_t begin = worker * 3;\n        partial[worker] = std::accumulate(readings.begin() + begin,\n            readings.begin() + begin + 3, 0);\n    };\n    std::thread first(work, 0);\n    std::thread second(work, 1);\n    first.join(); second.join();\n    const int total = partial[0] + partial[1];\n    const int reference = std::accumulate(readings.begin(), readings.end(), 0);\n    assert(total == reference);\n    std::cout << \"parallel=\" << total << \" reference=\" << reference << '\\n';\n}\n",
+    "output": "parallel=42 reference=42\n",
+    "steps": [
+      {
+        "action": "Partition the input",
+        "state": "worker 0 gets [0,3); worker 1 gets [3,6)",
+        "why": "Every element belongs to exactly one range; neither range passes the end."
+      },
+      {
+        "action": "Keep ownership outside the workers",
+        "state": "main owns readings and partial until after joins",
+        "why": "Captured references borrow live objects. Each worker writes a distinct result element."
+      },
+      {
+        "action": "Join and check",
+        "state": "12 + 30 = 42; reference 42",
+        "why": "The reference checks this fixture’s result. More tests must cover empty, uneven, large, and boundary-valued inputs before generalizing the implementation."
+      }
+    ],
+    "pitfall": "This fixed six-element teaching program does not handle arbitrary sizes, worker-start failure recovery, or cancellation. Those are explicit extension tasks, not implied guarantees.",
+    "discussion": {
+      "question": "Which change is needed first to support seven inputs with two workers?",
+      "answer": "Compute ranges from size and worker count instead of hardcoding groups of three, then test that ranges cover every index once. Preserve lifetime and disjoint result ownership while changing the partition rule."
+    },
+    "alternative": "Start with a sequential reference and a clear input contract. Parallelize only after measurements show enough work to justify the coordination.",
+    "kind": "Complete C++ program",
+    "filename": "systems_examples/ch61/main.cpp"
+  }
+}

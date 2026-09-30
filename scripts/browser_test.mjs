@@ -8,7 +8,7 @@ let options={headless:true};
 if(process.env.CHROMIUM_MODULE){const mod=await import(pathToFileURL(process.env.CHROMIUM_MODULE));const ch=mod.default;options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
 const b=await chromium.launch(options);const ctx=await b.newContext({viewport:{width:1512,height:1000},acceptDownloads:true,reducedMotion:"reduce"});const p=await ctx.newPage();const errors=[];p.on('pageerror',e=>errors.push(e.message));
 const results=[];const ok=x=>{results.push(x);console.log('PASS',x)};
-await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);await p.waitForSelector('.lesson-heading');
+await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);await p.waitForSelector('.lesson-heading');
 assert.equal(await p.locator('#all-count').textContent(),'539');assert.equal(await p.locator('#mode-tabs button').count(),5);ok('Offline startup and five study modes');
 await p.selectOption('#chapter-select','1');await p.locator('[data-action="reviewed"]').click();await p.locator('#personal-note').fill('My Factory Method note');await p.locator('[data-action="bookmark"]').first().click();
 await p.screenshot({path:path.join(root,'docs/preview-outline.png'),fullPage:false});

@@ -1,0 +1,71 @@
+{
+  "id": "b3-transactional-routes",
+  "courseId": "cpp-book-03",
+  "chapter": 23,
+  "title": "Reject a bad request without losing the last accepted graph",
+  "level": "Integration",
+  "prompt": "loadRequest reads whitespace-separated unsigned fields: vertices edges source target, then exactly edges triples from to weight. Bounds: 1..128 vertices, <=4096 edges, endpoints <vertices, weights <=1000000. Digits only: reject signs, suffixes, missing/trailing fields with invalid_argument. Commit only after the entire request validates. Duplicate directed edges are allowed.",
+  "signature": "struct Request; void loadRequest(std::string_view text,Request& accepted)",
+  "starter": "#include <iostream>\n#include <vector>\n#include <tuple>\n#include <string>\n#include <string_view>\n#include <sstream>\n#include <iterator>\n#include <utility>\n#include <cstddef>\n#include <stdexcept>\n#include <type_traits>\n\nstruct Request{std::size_t vertices=1,source=0,target=0;std::vector<std::tuple<std::size_t,std::size_t,std::size_t>> edges;bool operator==(const Request&)const=default;};\nvoid loadRequest(std::string_view text,Request& accepted){(void)text;accepted=Request{};}\n",
+  "solution": "#include <iostream>\n#include <vector>\n#include <tuple>\n#include <string>\n#include <string_view>\n#include <sstream>\n#include <iterator>\n#include <utility>\n#include <cstddef>\n#include <stdexcept>\n#include <type_traits>\n\nstruct Request{std::size_t vertices=1,source=0,target=0;std::vector<std::tuple<std::size_t,std::size_t,std::size_t>> edges;bool operator==(const Request&)const=default;};\nvoid loadRequest(std::string_view text,Request& accepted){\n    std::istringstream input{std::string(text)};\n    auto field=[&](std::size_t limit){\n        std::string token;if(!(input>>token)) throw std::invalid_argument(\"missing field\");\n        std::size_t value=0;\n        for(char c:token){\n            if(c<'0'||c>'9') throw std::invalid_argument(\"digits required\");\n            auto digit=std::size_t(c-'0');\n            if(digit>limit||value>(limit-digit)/10) throw std::invalid_argument(\"field limit\");\n            value=value*10+digit;\n        }\n        return value;\n    };\n    Request candidate;candidate.vertices=field(128);\n    if(!candidate.vertices) throw std::invalid_argument(\"no vertices\");\n    auto count=field(4096);candidate.source=field(candidate.vertices-1);candidate.target=field(candidate.vertices-1);\n    for(std::size_t i=0;i<count;++i){\n        auto from=field(candidate.vertices-1);auto to=field(candidate.vertices-1);auto weight=field(1000000);\n        candidate.edges.emplace_back(from,to,weight);\n    }\n    std::string extra;if(input>>extra) throw std::invalid_argument(\"trailing field\");\n    static_assert(std::is_nothrow_move_assignable_v<Request>);\n    accepted=std::move(candidate);\n}\n",
+  "driver": "int main(){std::string text{std::istreambuf_iterator<char>(std::cin),{}};Request r;try{loadRequest(text,r);std::cout<<r.vertices<<\" \"<<r.source<<\" \"<<r.target<<\" \"<<r.edges.size()<<\"\\n\";}catch(const std::invalid_argument&){std::cout<<\"invalid request\\n\";}}\n",
+  "sampleInput": "3 2 0 2\n0 1 5\n1 2 4\n",
+  "sampleOutput": "3 0 2 2\n",
+  "tests": [
+    {
+      "id": "case1",
+      "label": "Complete request",
+      "expression": "([]{Request r;loadRequest(\"3 2 0 2 0 1 5 1 2 4\",r);return r.vertices==3&&r.source==0&&r.target==2&&r.edges.size()==2;})()",
+      "expected": "true",
+      "hint": "Read all triples before committing."
+    },
+    {
+      "id": "case2",
+      "label": "Failure preserves accepted",
+      "expression": "([]{Request r;r.vertices=2;r.target=1;auto old=r;try{loadRequest(\"3 1 0 2 0 1\",r);return false;}catch(const std::invalid_argument&){return r==old;}})()",
+      "expected": "true",
+      "hint": "Parse into a separate candidate."
+    },
+    {
+      "id": "case3",
+      "label": "Trailing junk",
+      "expression": "([]{Request r;try{loadRequest(\"1 0 0 0 x\",r);return false;}catch(const std::invalid_argument&){return true;}})()",
+      "expected": "true",
+      "hint": "Reject extra tokens."
+    },
+    {
+      "id": "case4",
+      "label": "Signed field",
+      "expression": "([]{Request r;try{loadRequest(\"2 1 0 1 0 1 -1\",r);return false;}catch(const std::invalid_argument&){return true;}})()",
+      "expected": "true",
+      "hint": "Digits only, not a signed parser."
+    },
+    {
+      "id": "case5",
+      "label": "Out-of-range vertex",
+      "expression": "([]{Request r;try{loadRequest(\"2 1 0 1 0 2 4\",r);return false;}catch(const std::invalid_argument&){return true;}})()",
+      "expected": "true",
+      "hint": "Index vertices is invalid."
+    },
+    {
+      "id": "case6",
+      "label": "Duplicate edges allowed",
+      "expression": "([]{Request r;loadRequest(\"2 2 0 1 0 1 5 0 1 5\",r);return r.edges.size();})()",
+      "expected": "2",
+      "hint": "Do not drop an input edge."
+    },
+    {
+      "id": "case7",
+      "label": "Weight limit",
+      "expression": "([]{Request r;try{loadRequest(\"2 1 0 1 0 1 1000001\",r);return false;}catch(const std::invalid_argument&){return true;}})()",
+      "expected": "true",
+      "hint": "Check before accumulating beyond the bound."
+    }
+  ],
+  "hints": [
+    "A candidate object protects the old accepted state on parsing failure.",
+    "The digit>limit check must happen before limit-digit, because size_t is unsigned."
+  ],
+  "explanation": "Parsing, validation, and commit are separate phases. A bounded digit loop rejects a numeric prefix such as 5x and prevents overflow. The final move is nonthrowing, so rejection leaves the old request unchanged. The starter overwrites accepted immediately and reports 1 0 0 0 for the sample instead of 3 0 2 2. Streaming directly into accepted is shorter but breaks rollback. The full HarborRoutes workshop adds stream failures, route search, witness checks, and output handling; external output cannot be rolled back merely by preserving in-memory state.",
+  "chapterTitle": "Appendix C — HarborRoutes: An Integrated Algorithmic Application"
+}

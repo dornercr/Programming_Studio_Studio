@@ -1,0 +1,1 @@
+int main(){int target;if(!(std::cin>>target))return 2;std::vector<int> coins;int c;while(std::cin>>c)coins.push_back(c);try{std::cout<<minimumCoins(coins,target)<<"\n";}catch(const std::invalid_argument&){std::cout<<"invalid input\n";}}

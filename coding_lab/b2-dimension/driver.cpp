@@ -1,0 +1,1 @@
+int main(){int first,second;if(!(std::cin>>first>>second))return 2;try{Dimension d(first);d.set(second);std::cout<<d.value()<<"\n";}catch(const std::invalid_argument&){std::cout<<"invalid dimension\n";}}

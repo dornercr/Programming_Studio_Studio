@@ -1,9 +1,10 @@
+import {sourceData,sourceCoding} from './read-source.mjs';
 import {chooseBook,currentBook} from './book_test_helpers.mjs';
 import {chromium} from 'playwright';import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';import assert from 'node:assert/strict';import crypto from 'node:crypto';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=JSON.parse(await fs.readFile(path.join(root,'src/content.json'),'utf8')),books=data.courses.filter(c=>c.series);
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),data=sourceData(),books=data.courses.filter(c=>c.series);
 let options={headless:true};if(process.env.CHROMIUM_MODULE){const{default:ch}=await import(pathToFileURL(process.env.CHROMIUM_MODULE));options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
 const browser=await chromium.launch(options),p=await browser.newPage({viewport:{width:1512,height:1100},reducedMotion:'reduce',acceptDownloads:true}),errors=[],results=[];p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.accept());
-await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);
+await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);
 for(const c of books){
  await chooseBook(p,c.id);await p.selectOption('#chapter-select','1');await p.locator('#mode-tabs [data-mode="uml"]').click();assert.equal(await p.locator('.focus-grid').count(),2);assert.ok(await p.locator('.uml-image').evaluateAll(a=>a.every(i=>i.complete&&i.naturalWidth>0)));
  await p.locator('.diagram-section').screenshot({path:path.join(root,`docs/preview-cpp-book-${c.series.number}-uml.png`)});await p.locator('.focus-grid .answer-reveal summary').first().click();await p.locator('.focus-grid').first().screenshot({path:path.join(root,`docs/preview-cpp-book-${c.series.number}-focus.png`)});

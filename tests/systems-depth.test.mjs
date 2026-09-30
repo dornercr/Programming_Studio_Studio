@@ -1,5 +1,6 @@
+import {sourceData,sourceCoding} from '../scripts/read-source.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import crypto from 'node:crypto';
-const root=new URL('../',import.meta.url),data=JSON.parse(fs.readFileSync(new URL('src/content.json',root))),c=data.courses.find(c=>c.id==='systems-programming');
+const root=new URL('../',import.meta.url),data=sourceData(),c=data.courses.find(c=>c.id==='systems-programming');
 test('Every Systems chapter has all three runnable files, exercises, glossary and diagrams',()=>{
  assert.equal(Object.keys(c.examples).length,61);assert.equal(Object.keys(c.diagrams).length,61);assert.equal(c.glossary.length,122);
  for(let n=1;n<=61;n++){

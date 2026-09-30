@@ -1,0 +1,1 @@
+void print(const Node* p){if(!p)return;print(p->left.get());std::cout<<p->key<<" ";print(p->right.get());}int main(){std::unique_ptr<Node> root;int x;while(std::cin>>x)insert(root,x);print(root.get());std::cout<<"\n";}

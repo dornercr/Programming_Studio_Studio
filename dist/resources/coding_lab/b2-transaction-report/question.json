@@ -1,0 +1,64 @@
+{
+  "id": "b2-transaction-report",
+  "courseId": "cpp-book-02",
+  "chapter": 21,
+  "title": "Load an entire report or preserve the old one",
+  "level": "Integration",
+  "prompt": "Report::load reads zero or more id|quantity lines. Id must be positive and unique; quantity must be 0..1000; at most 100 lines. Numbers must be complete decimal integers. On any invalid line or input I/O error return false and keep every old record. On success replace all records, including with an empty report. total() returns long long. No concurrent callers.",
+  "signature": "class Report: bool load(std::istream&), size_t size() const, long long total() const",
+  "starter": "#include <iostream>\n#include <vector>\n#include <set>\n#include <string>\n#include <string_view>\n#include <sstream>\n#include <charconv>\n#include <system_error>\n#include <cstddef>\n\nstruct Row{int id,quantity;};class Report{std::vector<Row> rows_;public:bool load(std::istream& in){std::string line;while(std::getline(in,line)){auto p=line.find('|');if(p==std::string::npos)return false;int id=std::stoi(line.substr(0,p)),qty=std::stoi(line.substr(p+1));rows_.push_back({id,qty});}return true;}std::size_t size()const{return rows_.size();}long long total()const{long long n=0;for(const auto& r:rows_)n+=r.quantity;return n;}};\n",
+  "solution": "#include <iostream>\n#include <vector>\n#include <set>\n#include <string>\n#include <string_view>\n#include <sstream>\n#include <charconv>\n#include <system_error>\n#include <cstddef>\n\nstruct Row{int id,quantity;};class Report{std::vector<Row> rows_;public:bool load(std::istream& in){std::vector<Row> next;std::set<int> ids;std::string line;while(std::getline(in,line)){auto p=line.find('|');if(p==std::string::npos||line.find('|',p+1)!=std::string::npos)return false;int id=0,qty=0;auto left=std::string_view(line).substr(0,p),right=std::string_view(line).substr(p+1);if(left.empty()||right.empty())return false;auto [a,ae]=std::from_chars(left.data(),left.data()+left.size(),id);auto [b,be]=std::from_chars(right.data(),right.data()+right.size(),qty);if(ae!=std::errc{}||be!=std::errc{}||a!=left.data()+left.size()||b!=right.data()+right.size()||id<=0||qty<0||qty>1000||next.size()>=100||!ids.insert(id).second)return false;next.push_back({id,qty});}if(in.bad())return false;rows_.swap(next);return true;}std::size_t size()const{return rows_.size();}long long total()const{long long n=0;for(const auto& r:rows_)n+=r.quantity;return n;}};\n",
+  "driver": "int main(){Report report;std::ostringstream text;std::string line;while(std::getline(std::cin,line))text<<line<<\"\\n\";std::istringstream input(text.str());std::cout<<std::boolalpha<<report.load(input)<<\" \"<<report.size()<<\" \"<<report.total()<<\"\\n\";}\n",
+  "sampleInput": "1|20\n2|5\n",
+  "sampleOutput": "true 2 25\n",
+  "tests": [
+    {
+      "id": "case1",
+      "label": "Valid rows",
+      "expression": "([]{Report r;std::istringstream in(\"1|20\\n2|5\\n\");return r.load(in)&&r.size()==2&&r.total()==25;})()",
+      "expected": "true",
+      "hint": "Collect accepted rows before publishing."
+    },
+    {
+      "id": "case2",
+      "label": "Invalid replacement rolls back",
+      "expression": "([]{Report r;std::istringstream a(\"1|5\\n\"),b(\"2|7\\n2|8\\n\");r.load(a);return !r.load(b)&&r.size()==1&&r.total()==5;})()",
+      "expected": "true",
+      "hint": "A duplicate must leave old rows unchanged."
+    },
+    {
+      "id": "case3",
+      "label": "Quantity bound",
+      "expression": "([]{Report r;std::istringstream a(\"1|1001\\n\");return !r.load(a)&&r.size()==0;})()",
+      "expected": "true",
+      "hint": "Reject before appending."
+    },
+    {
+      "id": "case4",
+      "label": "Strict integer",
+      "expression": "([]{Report r;std::istringstream a(\"1|4junk\\n\");return !r.load(a)&&r.size()==0;})()",
+      "expected": "true",
+      "hint": "Require complete conversion."
+    },
+    {
+      "id": "case5",
+      "label": "Empty replacement",
+      "expression": "([]{Report r;std::istringstream a(\"1|9\\n\"),b(\"\");r.load(a);return r.load(b)&&r.size()==0&&r.total()==0;})()",
+      "expected": "true",
+      "hint": "An empty valid input is a successful replacement."
+    },
+    {
+      "id": "case6",
+      "label": "Hundred-row limit",
+      "expression": "([]{Report r;std::ostringstream t;for(int i=1;i<=101;++i)t<<i<<\"|1\\n\";std::istringstream in(t.str());return !r.load(in)&&r.size()==0;})()",
+      "expected": "true",
+      "hint": "Reject row 101 without publishing partial data."
+    }
+  ],
+  "hints": [
+    "Parse into a local vector and set of ids.",
+    "Swap the accepted vector with the old one only after the entire input succeeds."
+  ],
+  "explanation": "The local candidate owns records until the last check. Its swap is the single publication point: failed parse leaves the old report intact, while a valid empty input clears it.",
+  "chapterTitle": "Building a Modern C++ Application"
+}

@@ -1,0 +1,105 @@
+{
+  "source": "cpp_series/book_08/listings/L0001.cpp",
+  "listingId": "B08-L0001",
+  "overview": {
+    "title": "Distinguish invalid requests from temporary saturation",
+    "kind": "state / activity",
+    "nodes": [
+      {
+        "id": "count",
+        "label": "Service model state",
+        "code": [
+          "unsigned queued=0;",
+          "// queued is 0, 1, or 2."
+        ]
+      },
+      {
+        "id": "invalid",
+        "label": "Invalid input branch",
+        "code": [
+          "if(n<0||n>100)return Outcome::invalid;",
+          "// No state change; caller should fix input."
+        ]
+      },
+      {
+        "id": "busy",
+        "label": "Saturated branch",
+        "code": [
+          "if(queued==2)return Outcome::busy;",
+          "// No state change; capacity is exhausted."
+        ]
+      },
+      {
+        "id": "accepted",
+        "label": "Accepted transition",
+        "code": [
+          "++queued;",
+          "return Outcome::accepted;",
+          "// State changes 0 to 1 or 1 to 2."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "count",
+        "to": "invalid",
+        "kind": "flow",
+        "label": "check input first"
+      },
+      {
+        "from": "invalid",
+        "to": "busy",
+        "kind": "flow",
+        "label": "continue only when input is valid"
+      },
+      {
+        "from": "busy",
+        "to": "accepted",
+        "kind": "flow",
+        "label": "continue only when queued < 2"
+      },
+      {
+        "from": "accepted",
+        "to": "count",
+        "kind": "flow",
+        "label": "next request observes new count"
+      }
+    ],
+    "explanation": "Solid arrows show the order of guards and permitted accepted transitions. An invalid or busy return ends that call without changing queued. This is a bounded state model, not a running network service."
+  },
+  "extra_overviews": [],
+  "focus": [
+    {
+      "title": "Return an explicit outcome",
+      "file": "cpp_series/book_08/listings/L0001.cpp",
+      "lineStart": 6,
+      "lineEnd": 7,
+      "code": "    enum class Outcome{accepted,invalid,busy};unsigned queued=0;\n    auto submit=[&](int n){if(n<0||n>100)return Outcome::invalid;if(queued==2)return Outcome::busy;++queued;return Outcome::accepted;};",
+      "explain": [
+        "enum class declares a scoped set of named outcomes. Callers use names such as Outcome::busy. queued is an unsigned count initialized to zero.",
+        "[&] borrows queued. The invalid guard has priority, then the full guard. Only acceptance increments the count. Each return ends the current submit call."
+      ],
+      "what": "An outcome value says why a request was or was not admitted.",
+      "where": "This lambda is the admission boundary of the toy service model.",
+      "why": "Callers can respond differently to invalid work and temporary lack of space without inspecting internal state.",
+      "invariant": "The count remains in 0–2. Rejected requests do not change it. Invalid input is reported as invalid even when capacity is full.",
+      "risk": "Treating busy as accepted would mislead callers. Concurrent access would race without synchronization, and a real queue would also need completion/removal behavior."
+    },
+    {
+      "title": "Make outcomes observable",
+      "file": "cpp_series/book_08/listings/L0001.cpp",
+      "lineStart": 8,
+      "lineEnd": 9,
+      "code": "    auto name=[](Outcome o)->std::string_view{return o==Outcome::accepted?\"accepted\":o==Outcome::invalid?\"invalid\":\"busy\";};\n    for(int n:std::array{2,-1,3,4})std::cout<<name(submit(n))<<'\\n';",
+      "explain": [
+        "The capture-free lambda maps an Outcome to a string_view of a string literal. The trailing -> states the result type; the ?: operators choose the text. String literals live for the program’s lifetime.",
+        "The colon introduces a range-based loop. n is a value copy of each array element: 2, -1, 3, 4. Submit and format each outcome, then print a newline."
+      ],
+      "what": "The fixture prints accepted, invalid, accepted, busy on four lines.",
+      "where": "Formatting happens after each call returns its typed outcome.",
+      "why": "Readable results allow tests and callers to distinguish rejection reasons.",
+      "invariant": "The string_view must refer to live text; here it refers to string literals. The count ends at two.",
+      "risk": "Returning a string_view of a temporary string would dangle. Adding a new enum value requires reviewing the formatter, whose last branch currently treats any remaining value as busy."
+    }
+  ]
+}

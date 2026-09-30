@@ -1,5 +1,6 @@
+import {sourceData,sourceCoding} from '../scripts/read-source.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
-const root=new URL('../',import.meta.url),data=JSON.parse(fs.readFileSync(new URL('src/content.json',root)));
+const root=new URL('../',import.meta.url),data=sourceData();
 test('Every original course chapter has a hierarchical map and a worked discussion',()=>{
  for(const c of data.courses.filter(c=>c.kind==='textbook'&&!c.series)){
   assert.equal(Object.keys(c.teaching).length,c.chapters.length);const allIds=new Set(c.topics.map(t=>t.id));const seen=new Set();

@@ -1,10 +1,11 @@
 /* Study Studio — framework-free JavaScript with compiled Tailwind CSS.
- * No runtime dependencies, analytics, remote calls, or secrets.
+ * No analytics or accounts. Only explicit Coding Lab runs call Compiler Explorer.
  * All user-provided text is escaped before HTML rendering.
  */
-(() => {
+(async () => {
   'use strict';
-  const seed = JSON.parse(document.getElementById('study-content').textContent);
+  const Library = document.getElementById('study-content') ? null : await import('./loader.js');
+  const seed = Library ? Library.seed : JSON.parse(document.getElementById('study-content').textContent);
   const KEY = 'patterns-study-studio:v1';
   const APP = document.getElementById('app');
   const DIALOG = document.getElementById('app-dialog');
@@ -14,7 +15,7 @@
   const parseJSON = text => JSON.parse(text, (key,value) => ['__proto__','prototype','constructor'].includes(key) ? undefined : value);
   const safeURL = value => {try {const u = new URL(value);return ['https:','http:'].includes(u.protocol) ? u.href : '';} catch {return '';}};
   const fraction = (n,d) => d ? Math.round(n / d * 100) : 0;
-  const blankProgress = () => ({reviewed:[], bookmarks:[], cards:{}, scenarios:{}, notes:{}});
+  const blankProgress = () => ({reviewed:[], bookmarks:[], cards:{}, scenarios:{}, notes:{}, coding:{}, codingSelected:null});
   const blankStore = () => ({version:1, customTopics:[], courses:[], progress:{}, ui:{courseId:'design-patterns-cpp',mode:'outline',positions:{},large:false}});
   let storageOK = true, store;
   try {
@@ -58,6 +59,7 @@
 
   modes.push(...modes.splice(0,2));
   modes.push({id:'lectures',label:'Lectures',icon:'source',color:'bg-mint text-mint-ink'});
+  modes.push({id:'coding',label:'Coding Lab',icon:'edit',color:'bg-mint text-mint-ink'});
   modes.push({id:'book',label:'Book',icon:'book',color:'bg-brand-soft text-brand'});
   function availableModes(){return modes.filter(m=>!['uml','code','lectures','book'].includes(m.id)||(m.id==='book'&&course().series)||(m.id==='uml'&&Object.keys(course().diagrams||{}).length)||(m.id==='code'&&(Object.keys(course().examples||{}).length||course().series?.listings.length))||(m.id==='lectures'&&Object.keys(course().lectures||{}).length));}
   function courses() {
@@ -89,7 +91,7 @@
       (!isBook()||state.chapter==='all'||String(t.chapter)===state.chapter)&&
       (!isBook()||state.task==='all'||t.tasks?.includes(state.task))&&
       (!state.bookmarksOnly||p.bookmarks.includes(t.id))&&
-      (!q||`${JSON.stringify(t.blocks||[])} ${JSON.stringify(t.reading||{})} ${t.id} ${t.title} ${t.chapterTitle||''} ${(t.tasks||[]).join(' ')} ${t.summary} ${t.concepts.map(c=>`${c.term} ${c.definition}`).join(' ')}`.toLocaleLowerCase().includes(q)));
+      (!q||(Library&&course().catalog?Library.searchMatch(course(),t,q):`${JSON.stringify(t.blocks||[])} ${JSON.stringify(t.reading||{})} ${t.id} ${t.title} ${t.chapterTitle||''} ${(t.tasks||[]).join(' ')} ${t.summary} ${t.concepts.map(c=>`${c.term} ${c.definition}`).join(' ')}`.toLocaleLowerCase().includes(q))));
   }
   function deck(mode=state.mode) {
     let list=visibleTopics();const current=topic();const p=progress();
@@ -139,7 +141,10 @@
     }).join('');host.scrollTop=scroll;
     host.dataset.currentCourse=state.courseId;$('#book-menu-count').textContent=String(courses().filter(c=>c.id!=='my-material').length);
   }
-  function openBookDropdown(id,selection='resume'){
+  let courseRequest=0;
+  async function openBookDropdown(id,selection='resume'){
+    const request=++courseRequest;
+    if(Library)try{await Library.ensureCourse(id);if(request!==courseRequest)return;}catch(error){toast('Could not load this book. '+error.message);return;}
     if(!courses().some(c=>c.id===id))return;
     state.courseId=id;state.chapter='all';state.task='all';state.query='';state.domain='all';state.scope='all';state.bookmarksOnly=false;state.flipped=false;state.orders={flashcards:[],scenarios:[]};state.drafts={};state.retries.clear();restorePosition();
     if(selection==='-1'&&course().topics.some(t=>t.id==='REF.GLOSSARY')){state.mode='outline';state.chapter='-1';state.topicId='REF.GLOSSARY';state.lessonView='lesson';state.scope='topic';}
@@ -179,7 +184,31 @@
       </div></main>`;
     renderAll();
   }
-  function renderAll() {
+  let renderVersion=0;
+  async function renderAll() {
+    const version=++renderVersion;
+    APP.setAttribute('aria-busy','true');
+    if($('#workspace'))$('#workspace').inert=true;
+    try {
+      if(Library){
+        await Library.ensureCourse(state.courseId);
+        if(version!==renderVersion)return;
+        const c=course();
+        if(state.query.trim())await Library.ensureSearch(c);
+        if(version!==renderVersion)return;
+        synchronize();
+        if(await Library.ensureChapter(c,String(topic()?.chapter)))seriesCache.delete(c);
+        if(state.mode==='coding')await Library.ensureLabs(c);
+        if(version!==renderVersion)return;
+      }
+      renderAllReady();
+      if(Library)writeRoute();
+      document.dispatchEvent(new CustomEvent('studio:rendered'));
+    }catch(error){
+      if(version===renderVersion){console.error(error);$('#workspace').innerHTML=`<section class="panel p-6" role="alert"><h2>Unable to load this material</h2><p>${escape(error.message)}</p><p>Your saved work is still on this device.</p><button class="btn" data-action="retry-load">Try again</button></section>`;}
+    }finally{if(version===renderVersion){APP.setAttribute('aria-busy','false');if($('#workspace'))$('#workspace').inert=false;}}
+  }
+  function renderAllReady() {
     synchronize();
     document.body.classList.toggle('large-reading',!!store.ui.large);
     const c=course(), t=totals();
@@ -195,10 +224,10 @@
     $('#topic-search').value=state.query;
     $('#domain-select').innerHTML=`<option value="all">${c.familyLabel?'All subject areas':'All families'}</option>`+c.domains.map(d=>`<option value="${escape(d.id)}" ${state.domain===d.id?'selected':''}>${escape(d.id)} · ${escape(d.title)}</option>`).join('');
     $('#mode-tabs').style.setProperty('--mode-count',availableModes().length);
-    $('#mode-tabs').innerHTML=availableModes().map(m=>`<button class="mode-tab ${state.mode===m.id?'active':''}" data-action="mode" data-mode="${m.id}" aria-pressed="${state.mode===m.id}"><span class="mode-icon ${m.color}">${icon(m.icon)}</span><span class="min-w-0"><span class="mode-label block text-[13px] font-semibold ${state.mode===m.id?'text-brand':'text-ink'}">${c.series&&m.id==='scenarios'?'Practice':c.series&&m.id==='code'?'Code & labs':m.label}</span><span class="mode-count block mt-1 text-[10px] text-muted">${m.id==='outline'?(c.teaching?`${c.chapters.length} ${c.series?'reading maps':'chapter maps'}`:`${t.topics} lessons`):m.id==='flashcards'?`${t.cards} cards`:m.id==='scenarios'?`${t.scenarios} ${c.series?'prompts':'cases'}`:m.id==='lectures'?`${Object.keys(c.lectures||{}).length} chapters`:m.id==='uml'?`${Object.values(c.diagrams||{}).reduce((n,d)=>n+1+(d.extra_overviews||[]).length,0)} diagram views`:m.id==='book'?`${c.series.counts.chapters} chapters · PDF & EPUB`:c.series?`${c.series.listings.length} source listings`:`${Object.keys(c.examples||{}).length} working examples`}</span></span></button>`).join('');
-    $('#workspace-label').textContent={outline:'READ, UNDERSTAND, AND DISCUSS',flashcards:'TRAIN YOUR RECALL',scenarios:'PUT IT INTO PRACTICE',uml:'FOLLOW THE RELATIONSHIPS',code:'READ THE WORKING C++',lectures:'LECTURE MATERIALS',book:'THE COMPLETE BOOK'}[state.mode];
+    $('#mode-tabs').innerHTML=availableModes().map(m=>`<button class="mode-tab ${state.mode===m.id?'active':''}" data-action="mode" data-mode="${m.id}" aria-pressed="${state.mode===m.id}"><span class="mode-icon ${m.color}">${icon(m.icon)}</span><span class="min-w-0"><span class="mode-label block text-[13px] font-semibold ${state.mode===m.id?'text-brand':'text-ink'}">${c.series&&m.id==='scenarios'?'Practice':c.series&&m.id==='code'?'Code & labs':m.label}</span><span class="mode-count block mt-1 text-[10px] text-muted">${m.id==='coding'?`${labQuestions().length} questions · run C++`:m.id==='outline'?(c.teaching?`${c.chapters.length} ${c.series?'reading maps':'chapter maps'}`:`${t.topics} lessons`):m.id==='flashcards'?`${t.cards} cards`:m.id==='scenarios'?`${t.scenarios} ${c.series?'prompts':'cases'}`:m.id==='lectures'?`${Object.keys(c.lectures||{}).length} chapters`:m.id==='uml'?`${Object.values(c.diagrams||{}).reduce((n,d)=>n+1+(d.extra_overviews||[]).length,0)} diagram views`:m.id==='book'?`${c.series.counts.chapters} chapters · PDF & EPUB`:c.series?`${c.series.listings.length} source listings`:`${Object.keys(c.examples||{}).length} working examples`}</span></span></button>`).join('');
+    $('#workspace-label').textContent={outline:'READ, UNDERSTAND, AND DISCUSS',flashcards:'TRAIN YOUR RECALL',scenarios:'PUT IT INTO PRACTICE',uml:'FOLLOW THE RELATIONSHIPS',code:'READ THE WORKING C++',lectures:'LECTURE MATERIALS',book:'THE COMPLETE BOOK',coding:'BUILD IT. TEST IT. UNDERSTAND IT.'}[state.mode];
     $('#filter-status').innerHTML=state.query||state.bookmarksOnly?`<button class="filter-chip" data-action="clear-filters">${escape(state.query?`“${state.query.length>22?state.query.slice(0,22)+'…':state.query}”`:'Saved topics')} ${icon('close')}</button>`:'';
-    $('#pack-notice').textContent=isBook()?`${c.title} · ${c.author||'Dr. Charles Dorner'} · Offline study companion`:'Your study material · Stored locally in this browser.';
+    $('#pack-notice').textContent=isBook()?`${c.title} · ${c.author||'Dr. Charles Dorner'} · Offline reading · online Coding Lab`:'Your study material · Stored locally in this browser.';
     $('#storage-warning').innerHTML=storageOK?'':'<div class="storage-warning">Browser storage is unavailable. Your work is usable in this session; export a backup to keep your progress.</div>';
     renderBookControls();renderSidebar();renderWorkspace();renderSidebarProgress();renderDrawer();remember();
   }
@@ -220,6 +249,8 @@
   function bookmarkButton(t) {const saved=progress().bookmarks.includes(t.id);return `<button class="icon-button ${saved?'active':''}" data-action="bookmark" aria-label="${saved?'Remove bookmark':'Bookmark this topic'}" aria-pressed="${saved}" title="${saved?'Remove bookmark':'Bookmark topic'}">${icon('star')}</button>`;}
   function topicBadge(t) {if(isBook())return bookTopicBadge(t);return `<span class="pill bg-brand-soft text-brand">DOMAIN ${escape(t.domain)}</span><span class="text-[10px] text-muted">${escape(t.id)}</span>`;}
   function renderWorkspace() {
+    labBeforeRender();
+    if(state.mode==='coding'){$('#workspace').innerHTML=`<div class="coding-workspace">${renderCodingLab()}</div>`;labRefresh();return;}
     if(!course().topics.length){$('#workspace').innerHTML=`<section class="panel empty fade-in">${icon('book')}<h2>Make this space yours.</h2><p>Add your own topic, question-and-answer cards, and a practice scenario. Or import a study pack to start another curriculum.</p><div class="flex flex-wrap gap-3 justify-center"><button class="btn btn-primary" data-action="add-topic">${icon('plus')} Add a topic</button><button class="btn" data-action="import">${icon('upload')} Import study pack</button></div></section>`;return;}
     if(!visibleTopics().length){$('#workspace').innerHTML=`<section class="panel empty fade-in">${icon('search')}<h2>No matching topics.</h2><p>Try another search, select all domains, or clear the saved-topic filter.</p><button class="btn btn-primary" data-action="clear-filters">Clear filters</button></section>`;return;}
     const t=topic();
@@ -254,10 +285,10 @@
       ${state.mode==='scenarios'&&s.attempted?`<section class="panel p-5 mt-4"><span class="eyebrow">First-attempt accuracy</span><div class="text-[26px] font-semibold text-brand mt-2">${s.accuracy}%</div><p class="text-[10px] text-muted mt-1">Across ${s.attempted} attempted scenarios. Not an exam prediction.</p></section>`:''}`;
   }
 
-  function chooseTopic(id) {
+  async function chooseTopic(id) {
     if(!course().topics.some(t=>t.id===id))return;
     state.topicId=id;state.cardId=null;state.scenarioId=null;state.flipped=false;state.expanded.add(topic().domain);state.expanded.add('CH'+(topic()?.chapter??1));state.sidebarOpen=false;
-    renderAll();window.scrollTo({top:0,behavior:'instant'});
+    await renderAll();window.scrollTo({top:0,behavior:'instant'});
   }
   function switchMode(mode) {
     if(!availableModes().some(m=>m.id===mode))return;
@@ -315,16 +346,16 @@
     const s=stats(),t=totals();
     modal('Your workspace',`
       <div class="grid grid-cols-3 gap-3 mb-6"><div class="rounded-xl bg-brand-soft p-4"><div class="text-xl text-brand font-semibold">${s.reviewed}<span class="text-xs font-normal"> / ${t.topics}</span></div><div class="text-[10px] text-muted mt-1">Topics reviewed</div></div><div class="rounded-xl bg-peach p-4"><div class="text-xl text-peach-ink font-semibold">${s.known}</div><div class="text-[10px] text-muted mt-1">Cards known</div></div><div class="rounded-xl bg-mint p-4"><div class="text-xl text-mint-ink font-semibold">${s.attempted}</div><div class="text-[10px] text-muted mt-1">${course().series?'Prompts self-reviewed':'Scenarios attempted'}</div></div></div>
-      <h3>Keep a copy of your work</h3><p>Backups include your progress, bookmarks, personal notes, and custom curricula. A study-pack export contains the current curriculum but not your private progress or notes.</p><div class="flex gap-3 flex-wrap mt-3"><button class="btn btn-primary" data-action="export-backup">${icon('download')} Export backup</button><button class="btn" data-action="export-pack">${icon('download')} Export study pack</button><button class="btn" data-action="import">${icon('upload')} Import / restore</button></div>
+      <h3>Keep a copy of your work</h3><p>Backups include your progress, bookmarks, personal notes, coding drafts, and custom curricula. A study-pack export contains the current curriculum but not your private progress or notes.</p><div class="flex gap-3 flex-wrap mt-3"><button class="btn btn-primary" data-action="export-backup">${icon('download')} Export backup</button><button class="btn" data-action="export-pack">${icon('download')} Export study pack</button><button class="btn" data-action="import">${icon('upload')} Import / restore</button></div>
       <h3>Add another subject</h3><p>Select “My study material” and add topics, cards, and scenarios. Or import a study-pack JSON file; it appears in the curriculum dropdown. The included <code>docs/example-study-pack.json</code> shows the format.</p><button class="btn" data-action="add-topic">${icon('plus')} Add your own topic</button>
       <h3>Keyboard shortcuts</h3><div class="grid grid-cols-2 gap-3 text-[12px] text-muted"><span><kbd class="key">←</kbd> <kbd class="key">→</kbd> Previous / next</span><span><kbd class="key">Space</kbd> Flip a flashcard</span><span><kbd class="key">O</kbd> <kbd class="key">F</kbd> <kbd class="key">S</kbd> Change mode</span><span><kbd class="key">/</kbd> Search topics</span><span><kbd class="key">1–4</kbd> Choose scenario answer</span><span><kbd class="key">Enter</kbd> Check scenario answer</span></div>
-      <h3>Reset this curriculum’s progress</h3><p>This clears review marks, card confidence ratings, and scenario attempts for the selected curriculum. Bookmarks, personal notes, and custom material are kept.</p><button class="btn btn-danger" data-action="reset-progress">${icon('rotate')} Reset learning progress</button>`);
+      <h3>Reset this curriculum’s progress</h3><p>This clears review marks, card confidence ratings, and scenario attempts for the selected curriculum. Bookmarks, personal notes, coding drafts, and custom material are kept.</p><button class="btn btn-danger" data-action="reset-progress">${icon('rotate')} Reset learning progress</button>`);
   }
   function downloadJSON(filename,data) {
     const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
   }
   function exportBackup() {remember();downloadJSON(`study-studio-backup-${new Date().toISOString().slice(0,10)}.json`,{type:'study-studio-backup',version:1,savedAt:new Date().toISOString(),data:store});toast('Backup exported. Keep it somewhere safe.');}
-  function exportPack() {const c={...course()};if(isBook()){delete c.reader;delete c.pageImages;}downloadJSON(`${course().id}-study-pack.json`,{schemaVersion:1,courses:[c]});toast('Study pack exported without private progress or notes.');}
+  async function exportPack() {const current=course();const c=Library&&current.catalog?await Library.completeCourse(current):{...current};seriesCache.delete(current);if(isBook()){delete c.reader;delete c.pageImages;}downloadJSON(`${course().id}-study-pack.json`,{schemaVersion:1,courses:[c]});toast('Study pack exported without private progress or notes.');}
 
   function showEditor(edit=false) {
     if(course().id==='design-patterns-cpp'||isBook()){
@@ -398,11 +429,16 @@
   }
   function cleanProgress(p) {
     const clean=blankProgress();if(!isObject(p))return clean;
-    clean.reviewed=Array.isArray(p.reviewed)?[...new Set(p.reviewed.filter(validId))].slice(0,10000):[];
-    clean.bookmarks=Array.isArray(p.bookmarks)?[...new Set(p.bookmarks.filter(validId))].slice(0,10000):[];
-    for(const [id,c] of Object.entries(isObject(p.cards)?p.cards:{}).slice(0,100000))if(validId(id)&&isObject(c)&&['again','known'].includes(c.rating))clean.cards[id]={rating:c.rating,updatedAt:text(c.updatedAt,60)};
-    for(const [id,s] of Object.entries(isObject(p.scenarios)?p.scenarios:{}).slice(0,1000))if(validId(id)&&isObject(s)&&Number.isInteger(s.choice)&&s.choice>=0&&s.choice<4&&typeof s.correct==='boolean')clean.scenarios[id]={choice:s.choice,correct:s.correct,firstCorrect:typeof s.firstCorrect==='boolean'?s.firstCorrect:s.correct,attempts:Number.isInteger(s.attempts)&&s.attempts>0?Math.min(s.attempts,99999):1,updatedAt:text(s.updatedAt,60)};
-    for(const [id,n] of Object.entries(isObject(p.notes)?p.notes:{}).slice(0,10000))if(validId(id)&&typeof n==='string')clean.notes[id]=text(n,20000);
+    clean.reviewed=Array.isArray(p.reviewed)?[...new Set(p.reviewed.filter(validId))]:[];
+    clean.bookmarks=Array.isArray(p.bookmarks)?[...new Set(p.bookmarks.filter(validId))]:[];
+    for(const [id,c] of Object.entries(isObject(p.cards)?p.cards:{}))if(validId(id)&&isObject(c)&&['again','known'].includes(c.rating))clean.cards[id]={rating:c.rating,updatedAt:text(c.updatedAt,60)};
+    for(const [id,s] of Object.entries(isObject(p.scenarios)?p.scenarios:{}))if(validId(id)&&isObject(s)&&Number.isInteger(s.choice)&&s.choice>=0&&s.choice<4&&typeof s.correct==='boolean')clean.scenarios[id]={choice:s.choice,correct:s.correct,firstCorrect:typeof s.firstCorrect==='boolean'?s.firstCorrect:s.correct,attempts:Number.isInteger(s.attempts)&&s.attempts>0?Math.min(s.attempts,99999):1,updatedAt:text(s.updatedAt,60)};
+    for(const [id,n] of Object.entries(isObject(p.notes)?p.notes:{}))if(validId(id)&&typeof n==='string')clean.notes[id]=text(n,20000);
+    for(const [id,d] of Object.entries(isObject(p.coding)?p.coding:{}))if(validId(id)&&isObject(d)&&typeof d.code==='string'){
+      clean.coding[id]={code:text(d.code,60000),input:text(d.input,20000),title:text(d.title,200),updatedAt:text(d.updatedAt,60),checkedCode:text(d.checkedCode,60000),passed:d.passed===true,checkedAt:text(d.checkedAt,60)};
+      if(typeof d.initialCode==='string')clean.coding[id].initialCode=text(d.initialCode,60000);
+    }
+    clean.codingSelected=validId(p.codingSelected)?p.codingSelected:null;
     return clean;
   }
   function validateStore(value) {
@@ -412,7 +448,7 @@
     if(Array.isArray(value.courses)){if(value.courses.length>30)throw new Error('Too many curricula.');clean.courses=value.courses.map(validateCourse);}
     const ids=new Set(seed.courses.map(c=>c.id));for(const c of clean.courses){if(ids.has(c.id))throw new Error('Duplicate curriculum ID in backup.');ids.add(c.id);}
     for(const [id,p] of Object.entries(isObject(value.progress)?value.progress:{}))if(ids.has(id))clean.progress[id]=cleanProgress(p);
-    const ui=isObject(value.ui)?value.ui:{};clean.ui.courseId=ids.has(ui.courseId)?ui.courseId:'design-patterns-cpp';clean.ui.mode=['outline','flashcards','scenarios','uml','code','lectures','book'].includes(ui.mode)?ui.mode:'outline';clean.ui.large=!!ui.large;
+    const ui=isObject(value.ui)?value.ui:{};clean.ui.courseId=ids.has(ui.courseId)?ui.courseId:'design-patterns-cpp';clean.ui.mode=['outline','flashcards','scenarios','uml','code','lectures','book','coding'].includes(ui.mode)?ui.mode:'outline';clean.ui.large=!!ui.large;
     for(const [id,p] of Object.entries(isObject(ui.positions)?ui.positions:{}))if(ids.has(id)&&isObject(p))clean.ui.positions[id]={topicId:validId(p.topicId)?p.topicId:null,cardId:validId(p.cardId)?p.cardId:null,scenarioId:validId(p.scenarioId)?p.scenarioId:null};
     return clean;
   }
@@ -424,7 +460,7 @@
       if(data.type==='study-studio-backup'){
         const clean=validateStore(data.data);
         if(!confirm('Restore this backup? It will replace the current saved progress, notes, bookmarks, and custom material in this browser.'))return;
-        store=clean;state.courseId=store.ui.courseId;state.mode=store.ui.mode;state.chapter='all';state.task='all';state.query='';state.domain='all';state.scope='all';state.bookmarksOnly=false;state.orders={flashcards:[],scenarios:[]};state.drafts={};state.retries.clear();restorePosition();
+        store=clean;state.courseId=store.ui.courseId;if(Library)await Library.ensureCourse(state.courseId);state.mode=store.ui.mode;state.chapter='all';state.task='all';state.query='';state.domain='all';state.scope='all';state.bookmarksOnly=false;state.orders={flashcards:[],scenarios:[]};state.drafts={};state.retries.clear();restorePosition();
         if(DIALOG.open)DIALOG.close();renderAll();toast('Backup restored.');return;
       }
       const raw=Array.isArray(data.courses)?data.courses:[data];if(!raw.length||raw.length>30)throw new Error('Import between 1 and 30 curricula.');if(store.courses.length+raw.length>30)throw new Error('This browser supports up to 30 imported curricula.');
@@ -439,6 +475,7 @@
     const el=event.target.closest('[data-action]');if(!el||el.disabled)return;
     const action=el.dataset.action;
     switch(action){
+      case 'retry-load':renderAll();break;
       case 'personal-material':openBookDropdown('my-material','resume');break;
       case 'open-menu':state.sidebarOpen=true;renderDrawer();break;
       case 'close-menu':state.sidebarOpen=false;renderDrawer();break;
@@ -463,7 +500,7 @@
       case 'export-backup':exportBackup();break;case 'export-pack':exportPack();break;
       case 'import':$('#import-file').click();break;
       case 'add-topic':showEditor(false);break;case 'edit-topic':if(course().id!=='design-patterns-cpp'&&!isBook())showEditor(true);break;
-      case 'reset-progress':if(confirm(`Reset learning progress for “${course().title}”? Your notes, bookmarks, and material will be kept.`)){const p=progress();store.progress[state.courseId]={...blankProgress(),bookmarks:p.bookmarks,notes:p.notes};state.drafts={};state.retries.clear();renderAll();showSettings();toast('Learning progress reset. Notes and bookmarks were kept.');}break;
+      case 'reset-progress':if(confirm(`Reset learning progress for “${course().title}”? Your notes, bookmarks, coding drafts, and material will be kept.`)){const p=progress();store.progress[state.courseId]={...blankProgress(),bookmarks:p.bookmarks,notes:p.notes,coding:Object.fromEntries(Object.entries(p.coding||{}).map(([id,d])=>[id,{...d,passed:false,checkedCode:'',checkedAt:''}])),codingSelected:p.codingSelected};state.drafts={};state.retries.clear();renderAll();showSettings();toast('Learning progress reset. Notes and bookmarks were kept.');}break;
     }
   });
   document.addEventListener('input',event=>{
@@ -524,7 +561,7 @@
   function renderGlossaryOutline(t){return `<article class="panel"><div class="lesson-inner">${bookTopicBadge(t)}<h2 class="lesson-heading">The book’s vocabulary</h2><p class="reading">${course().glossary.length} definitions with chapter context. Use Flashcards to practice the same terms.</p><label for="glossary-search" class="field-label">Find a term</label><input class="field" id="glossary-search" value="${escape(glossaryQuery)}" placeholder="Try ownership, product, or snapshot"><div id="glossary-results">${glossaryResults()}</div></div></article>`;}
   function glossaryResults(){const q=glossaryQuery.toLowerCase();const a=course().glossary.filter(g=>(g.term+' '+g.definition).toLowerCase().includes(q));return `<p class="text-[11px] text-muted mt-4">${a.length} terms${a.length>40?' · Showing the first 40. Narrow your search.':''}</p>`+a.slice(0,40).map(g=>`<section class="glossary-entry"><h3>${escape(g.term)}</h3><p>${escape(g.definition)}</p><button class="source-link" data-action="go-chapter" data-chapter="${g.chapter}">Chapter ${g.chapter} ${icon('right')}</button></section>`).join('');}
   function renderLectures(t){const l=course().lectures?.[String(t.chapter)];if(!l)return '<section class="panel empty"><h2>Choose a lecture chapter</h2></section>';const slides=course().topics.filter(x=>x.chapter===t.chapter&&x.slide);return `<article class="panel"><div class="lesson-inner">${bookTopicBadge(t)}<h2 class="lesson-heading">${escape(l.title)}</h2><p class="reading">${l.slideCount} source slides with their matching professor transcript. Downloads preserve the supplied presentation, including its original diagrams, images, equations, and speaker notes.</p><div class="flex gap-3 flex-wrap mt-5 mb-5"><button class="btn btn-primary" data-action="download-lecture" data-kind="presentation">${icon('download')} Download PowerPoint</button><button class="btn" data-action="download-lecture" data-kind="transcript">${icon('download')} Download transcript</button></div><label class="field-label" for="lecture-slide-select">Open a slide lesson</label><select class="field" id="lecture-slide-select"><option value="">Choose slide</option>${slides.map(x=>`<option value="${escape(x.id)}">${x.slide}. ${escape(x.title)}</option>`).join('')}</select><details class="answer-reveal"><summary>Read the complete chapter transcript</summary><div class="lecture-transcript">${escape(l.transcript)}</div></details><p class="code-ref">Supplied files: ${escape(l.presentationName)}; ${escape(l.transcriptName)}. These source lectures remain as supplied. Open C++ for the separately authored, compiled chapter demonstrations and labs.</p>${chapterNav(t.chapter)}</div></article>`;}
-  function downloadLecture(kind){const l=course().lectures[String(topic().chapter)];let blob,name;if(kind==='presentation'){const raw=atob(l.presentationBase64);blob=new Blob([Uint8Array.from(raw,c=>c.charCodeAt(0))],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'});name=l.presentationName;}else{blob=new Blob([l.transcript],{type:'text/plain;charset=utf-8'});name=l.transcriptName;}const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1500);}
+  function downloadLecture(kind){const l=course().lectures[String(topic().chapter)];if(kind==='presentation'&&l.presentationBase64?.$asset){Library.downloadAsset(l.presentationBase64,l.presentationName);return;}let blob,name;if(kind==='presentation'){const raw=atob(l.presentationBase64);blob=new Blob([Uint8Array.from(raw,c=>c.charCodeAt(0))],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'});name=l.presentationName;}else{blob=new Blob([l.transcript],{type:'text/plain;charset=utf-8'});name=l.transcriptName;}const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1500);}
   function chapterNav(n){return `<div class="chapter-nav"><button class="btn" data-action="previous" ${n<=1?'disabled':''}>${icon('left')} Previous chapter</button><button class="btn" data-action="mode" data-mode="outline">Chapter lessons</button><button class="btn" data-action="next" ${n>=Math.max(...course().chapters.map(c=>c.number))?'disabled':''}>Next chapter ${icon('right')}</button></div>`;}
   function chapterNeeded(){if(course().id==='systems-programming')return `<section class="panel empty"><h2>Choose a Systems chapter</h2><p>Every Systems chapter has diagrams, focused explanations, a complete C++ demonstration, and an extension lab.</p><button class="btn btn-primary" data-action="go-chapter" data-chapter="1">Open Chapter 1 ${icon('right')}</button></section>`;if(!isBook())return `<section class="panel empty"><h2>No worked examples in this study pack</h2><p>Use Outline, Flashcards, and Scenarios for your personal material. Select Design Patterns in C++ for the textbook’s UML and full programs.</p><button class="btn btn-primary" data-action="mode" data-mode="outline">Return to outline</button></section>`;return `<section class="panel empty"><h2>Choose a worked example</h2><p>Every pattern chapter and the capstone have UML views, focused code, and full working source.</p><button class="btn btn-primary" data-action="go-chapter" data-chapter="1">Factory Method ${icon('right')}</button></section>`;}
   function renderUML(t){
@@ -532,10 +569,10 @@
     const views=[d.overview,...(d.extra_overviews||[])];
     return `<article class="panel"><div class="lesson-inner">${bookTopicBadge(t)}<h2 class="lesson-heading">${escape(t.chapterTitle)}: UML &amp; theory</h2><p class="reading">Follow each relationship to the code. Diagrams show ${escape(d.source)}. Code inside overview blocks is excerpted or shortened, with teaching comments. The focused blocks below show exact source lines.</p>${views.map((v,i)=>`<section class="diagram-section"><div class="flex gap-2 items-center justify-between flex-wrap"><h3>${escape(v.title)}</h3><button class="btn" data-action="expand-diagram" data-view="${i}">Open large ${icon('external')}</button></div><p class="diagram-kind">${escape(v.kind)} view</p><div class="diagram-scroll"><img class="uml-image" src="${safeImage(v.image)}" alt="${escape(v.title)}. ${escape(v.explanation)}"></div><p class="diagram-legend">${escape(v.explanation)}</p><details class="answer-reveal"><summary>Relationships as text</summary><ul>${v.edges.map(e=>`<li>${escape(v.nodes.find(n=>n.id===e.from)?.label||e.from)} → ${escape(v.nodes.find(n=>n.id===e.to)?.label||e.to)}: ${escape(e.kind)}; ${escape(e.label)}</li>`).join('')}</ul></details></section>`).join('')}<h3 class="focus-heading">Code blocks and adjacent theory</h3>${d.focus.map(f=>`<section class="focus-grid"><div><h4>${escape(f.title)}</h4><p class="code-ref">${escape(f.file)}:${f.lineStart}–${f.lineEnd}</p><pre><code>${escape(f.code.split('\n').map((l,i)=>`${f.lineStart+i}  ${l}`).join('\n'))}</code></pre><details class="answer-reveal"><summary>Line-by-line explanation</summary>${f.explain.map((x,i)=>`<p><strong>${f.lineStart+i}.</strong> ${escape(x)}</p>`).join('')}</details></div><aside class="theory-panel"><p class="annotation-label">Teaching annotation for this code block</p>${[['WHAT THIS MEANS',f.what],['WHERE IT FITS',f.where],['WHY IT IS HERE',f.why],['WHAT MUST STAY TRUE',f.invariant],['WHAT CAN GO WRONG',f.risk],['FIND THE CODE',`${f.file}:${f.lineStart}–${f.lineEnd}`]].map(([h,b])=>`<section><h5>${h}</h5><p>${escape(b)}</p></section>`).join('')}</aside></section>`).join('')}${chapterNav(t.chapter)}</div></article>`;
   }
-  function safeImage(x){return typeof x==='string'&&x.startsWith('data:image/svg+xml;base64,')?x:'';}
-  function renderCode(t){const ex=course().examples?.[String(t.chapter)];if(!ex)return chapterNeeded();const e=ex[codeKind]||ex.examples;return `<article class="panel"><div class="lesson-inner">${bookTopicBadge(t)}<h2 class="lesson-heading">${escape(t.chapterTitle)}: working C++</h2><div class="flex gap-2 flex-wrap mb-4">${[['examples','Example'],['exercises','Lab starter'],['solutions','Lab solution']].map(([k,l])=>`<button class="btn ${codeKind===k?'btn-primary':''}" data-action="code-kind" data-kind="${k}" aria-pressed="${codeKind===k}">${l}</button>`).join('')}<button class="btn" data-action="download-code">${icon('download')} Download .cpp</button></div><p class="code-ref">${escape(e.filename)} · C++17 · Standard library</p>${codeKind!=='examples'?`<p class="reading">${escape(ex.lab.task)}</p>${course().id==='systems-programming'?`<h4>Acceptance checks</h4><ul class="lab-checks">${ex.lab.checks.map(x=>`<li>${escape(x)}</li>`).join('')}</ul>`:''}`:''}<details class="answer-reveal" open><summary>Build and expected output</summary><pre><code>g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -pthread ch${String(t.chapter).padStart(2,'0')}_${codeKind}.cpp -o example
+  function safeImage(x){if(Library&&x?.$asset&&/^assets\/[a-f0-9]+\.(svg|png|bin)$/.test(x.$asset))return x.$asset;return typeof x==='string'&&x.startsWith('data:image/svg+xml;base64,')?x:'';}
+  function renderCode(t){const ex=course().examples?.[String(t.chapter)];if(!ex)return chapterNeeded();const e=ex[codeKind]||ex.examples;return `<article class="panel"><div class="lesson-inner">${bookTopicBadge(t)}<h2 class="lesson-heading">${escape(t.chapterTitle)}: working C++</h2><div class="flex gap-2 flex-wrap mb-4">${[['examples','Example'],['exercises','Lab starter'],['solutions','Lab solution']].map(([k,l])=>`<button class="btn ${codeKind===k?'btn-primary':''}" data-action="code-kind" data-kind="${k}" aria-pressed="${codeKind===k}">${l}</button>`).join('')}<button class="btn btn-primary" data-action="edit-in-lab">Edit &amp; run in Coding Lab</button><button class="btn" data-action="download-code">${icon('download')} Download .cpp</button></div><p class="code-ref">${escape(e.filename)} · C++17 · Standard library</p>${codeKind!=='examples'?`<p class="reading">${escape(ex.lab.task)}</p>${course().id==='systems-programming'?`<h4>Acceptance checks</h4><ul class="lab-checks">${ex.lab.checks.map(x=>`<li>${escape(x)}</li>`).join('')}</ul>`:''}`:''}<details class="answer-reveal" open><summary>Build and expected output</summary><pre><code>g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -pthread ch${String(t.chapter).padStart(2,'0')}_${codeKind}.cpp -o example
 ./example</code></pre><h4>Expected output for this file</h4><pre><code>${escape(e.output)}</code></pre><p>${escape(codeKind==='examples'?ex.verification:codeKind==='exercises'?'The starter verifies its initial behavior. Complete the lab and add its acceptance checks.':ex.lab.answer)}</p></details><pre class="full-code"><code>${escape(e.code.split('\n').map((l,i)=>`${String(i+1).padStart(3)}  ${l}`).join('\n'))}</code></pre>${chapterNav(t.chapter)}</div></article>`;}
-  function showBookSources(){if(course().series)return showSeriesSources();const c=course(),n=totals();if(c.lectures&&Object.keys(c.lectures).length){modal('Lecture series and study coverage',`<p>${escape(c.provenance)}</p><h3>Included material</h3><p>${c.chapters.length} chapters, ${Object.values(c.lectures).reduce((n,l)=>n+l.slideCount,0)} slide lessons, ${n.cards} recall cards, and ${n.scenarios} original application cases. The Lectures view downloads each original PowerPoint and full transcript.</p><p>Notes and progress are kept separately for each course in this browser. Export a backup before moving the HTML or clearing browser data.</p>`);return;}modal('Textbook and study coverage',`<p>${escape(c.provenance||'Your imported study material.')}</p><h3>Included material</h3><p>Foundations, all 22 pattern chapters, and the capstone. ${n.topics} lessons, ${n.cards} recall cards, ${n.scenarios} original scenarios, 25 diagram views, and 51 focused code blocks with adjacent theory. Every named textbook section has a lesson. Exercises include hints and explained answers. The C++ view includes each example, lab starter, and reference solution.</p><h3>Using this companion</h3><p>Choose a chapter, read its outline, then switch to Flashcards or Scenarios. Use UML to follow relationships and C++ to inspect the complete implementation. Review marks and card ratings are study records, not a guarantee of mastery.</p><h3>Local storage</h3><p>Notes, bookmarks, and results stay in this browser. Export a backup before changing browsers or moving a locally opened HTML file. The app has no account, analytics, or remote API calls.</p>`);}
+  function showBookSources(){if(course().series)return showSeriesSources();const c=course(),n=totals();if(c.lectures&&Object.keys(c.lectures).length){modal('Lecture series and study coverage',`<p>${escape(c.provenance)}</p><h3>Included material</h3><p>${c.chapters.length} chapters, ${Object.values(c.lectures).reduce((n,l)=>n+l.slideCount,0)} slide lessons, ${n.cards} recall cards, and ${n.scenarios} original application cases. The Lectures view downloads each original PowerPoint and full transcript.</p><p>Notes and progress are kept separately for each course in this browser. Export a backup before moving the HTML or clearing browser data.</p>`);return;}modal('Textbook and study coverage',`<p>${escape(c.provenance||'Your imported study material.')}</p><h3>Included material</h3><p>Foundations, all 22 pattern chapters, and the capstone. ${n.topics} lessons, ${n.cards} recall cards, ${n.scenarios} original scenarios, 25 diagram views, and 51 focused code blocks with adjacent theory. Every named textbook section has a lesson. Exercises include hints and explained answers. The C++ view includes each example, lab starter, and reference solution.</p><h3>Using this companion</h3><p>Choose a chapter, read its outline, then switch to Flashcards or Scenarios. Use UML to follow relationships and C++ to inspect the complete implementation. Review marks and card ratings are study records, not a guarantee of mastery.</p><h3>Local storage</h3><p>Notes, bookmarks, and results stay in this browser. Export a backup before changing browsers or moving a locally opened HTML file. The app has no account or analytics. Coding Lab sends only the current editor code and input to Compiler Explorer when you choose Run online or Check solution.</p>`);}
   function showLegacyCoverage(){modal('Book roadmap',`<p>Choose a chapter to open its lessons. ${course().lectures&&Object.keys(course().lectures).length?'Subject areas group the supplied lectures for study.':'Pattern families describe the design problem, not a required implementation language feature.'}</p>${course().chapters.map(ch=>`<section class="crosswalk-row"><h3>${ch.number===0?'Class 0':`Chapter ${ch.number}`} · ${escape(ch.title)}</h3><p>${course().topics.filter(t=>t.chapter===ch.number).length} lessons</p><button class="btn" data-action="go-chapter" data-chapter="${ch.number}">Study chapter ${icon('right')}</button></section>`).join('')}`);DIALOG.classList.add('wide-dialog');}
   document.addEventListener('click',e=>{const el=e.target.closest('[data-action]');if(!el||el.disabled)return;
     switch(el.dataset.action){
@@ -554,5 +591,31 @@
 
   /*__TEACHING_JS__*/
   /*__SERIES_JS__*/
-  restorePosition();renderShell();
-})();
+  /*__CODING_CORE__*/
+  /*__CODING_JS__*/
+  function writeRoute(){
+    const url=new URL(location.href);url.searchParams.set('course',state.courseId);
+    if(topic())url.searchParams.set('chapter',String(topic().chapter));else url.searchParams.delete('chapter');
+    if(state.topicId)url.searchParams.set('topic',state.topicId);else url.searchParams.delete('topic');
+    url.searchParams.set('view',state.mode);url.searchParams.set('lesson',state.lessonView||'lesson');
+    if(state.cardId&&state.mode==='flashcards')url.searchParams.set('card',state.cardId);else url.searchParams.delete('card');
+    if(state.scenarioId&&state.mode==='scenarios')url.searchParams.set('practice',state.scenarioId);else url.searchParams.delete('practice');
+    const route=url.href;if(route!==location.href)history.replaceState(null,'',route);
+  }
+  async function readRoute(){
+    const params=new URL(location.href).searchParams;
+    const id=params.get('course');if(id&&courses().some(c=>c.id===id))state.courseId=id;
+    if(Library)await Library.ensureCourse(state.courseId);
+    restorePosition();
+    const n=params.get('chapter'),c=course();
+    if(n!==null){const t=c.topics.find(t=>String(t.chapter)===n);if(t){state.chapter=n;state.topicId=c.teaching?.[n]?.startTopicId||t.id;state.lessonView='map';}}
+    const t=params.get('topic');if(t&&c.topics.some(x=>x.id===t)){state.topicId=t;state.chapter=String(topic().chapter);}
+    if(params.get('view'))state.mode=params.get('view');
+    if(params.get('lesson'))state.lessonView=params.get('lesson');
+    state.cardId=params.get('card')||state.cardId;state.scenarioId=params.get('practice')||state.scenarioId;
+  }
+  if(Library)await readRoute();else restorePosition();
+  renderShell();
+  window.addEventListener('popstate',async()=>{if(Library){await readRoute();renderAll();}});
+  document.addEventListener('click',e=>{if(e.target.closest('[data-action="retry-load"]'))renderAll();});
+})().catch(error=>{const host=document.getElementById('app');host.textContent='Unable to load Study Studio. '+error.message+' ';const button=document.createElement('button');button.textContent='Retry';button.onclick=()=>location.reload();host.append(button);});

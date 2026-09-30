@@ -1,0 +1,14 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+import {assemble,codingSource} from './content-store.mjs';
+const content=JSON.stringify(await assemble(path.join(root,'content'))),labs=JSON.stringify(await codingSource(path.join(root,'content')));
+const read=p=>p==='src/content.json'?Promise.resolve(content):p==='src/coding-content.json'?Promise.resolve(labs):fs.readFile(path.join(root,p),'utf8');
+const [template,app,data,styles,css,teaching,series,codingData,codingCore,coding]=await Promise.all(['src/index.html','src/app.js','src/content.json','src/styles.css','vendor/tailwind.css','src/teaching.js','src/series.js','src/coding-content.json','src/coding-core.mjs','src/coding.js'].map(read));
+JSON.parse(data);
+const safe=x=>x.replace(/<\/script/gi,'<\\/script');
+const html=template.replace('/*__TAILWIND__*/',()=>css).replace('/*__CUSTOM_CSS__*/',()=>styles).replace('/*__CONTENT__*/',()=>safe(data)).replace('/*__CODING_CONTENT__*/',()=>safe(codingData)).replace('/*__APP_JS__*/',()=>safe(app.replace('/*__TEACHING_JS__*/',()=>teaching).replace('/*__SERIES_JS__*/',()=>series).replace('/*__CODING_CORE__*/',()=>codingCore.replace(/^export /gm,'')).replace('/*__CODING_JS__*/',()=>coding)));
+await fs.mkdir(path.join(root,'dist-offline'),{recursive:true});
+await fs.writeFile(path.join(root,'dist-offline/index.html'),html);
+console.log(`Built Study Studio: ${Math.round(Buffer.byteLength(html)/1024)} KB`);

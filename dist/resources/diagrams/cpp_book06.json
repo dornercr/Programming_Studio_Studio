@@ -1,0 +1,108 @@
+{
+  "source": "cpp_series/book_06/listings/L0001.cpp",
+  "listingId": "B06-L0001",
+  "overview": {
+    "title": "Split independent writes, then join before reading",
+    "kind": "ownership / activity",
+    "nodes": [
+      {
+        "id": "owner",
+        "label": "main owns both arrays",
+        "code": [
+          "std::array<int,6> input{1,2,3,4,5,6}, squared{};",
+          "// Storage remains alive until both tasks finish."
+        ]
+      },
+      {
+        "id": "left",
+        "label": "First task: indices 0, 1, 2",
+        "code": [
+          "auto first=std::async(std::launch::async,transform,0,3);",
+          "// This task writes only its own slice."
+        ]
+      },
+      {
+        "id": "right",
+        "label": "Second task: indices 3, 4, 5",
+        "code": [
+          "auto second=std::async(std::launch::async,transform,3,6);",
+          "// Its slice does not overlap the first."
+        ]
+      },
+      {
+        "id": "join",
+        "label": "Wait, then reduce",
+        "code": [
+          "first.get(); second.get();",
+          "std::accumulate(squared.begin(),squared.end(),0)",
+          "// Reduction reads only after both tasks complete."
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "owner",
+        "to": "left",
+        "kind": "dependency",
+        "label": "borrow arrays through the lambda"
+      },
+      {
+        "from": "owner",
+        "to": "right",
+        "kind": "dependency",
+        "label": "borrow the same live storage"
+      },
+      {
+        "from": "left",
+        "to": "join",
+        "kind": "flow",
+        "label": "first.get() completes"
+      },
+      {
+        "from": "right",
+        "to": "join",
+        "kind": "flow",
+        "label": "second.get() completes"
+      }
+    ],
+    "explanation": "Dashed arrows show borrowed access, not transfer of ownership. Solid arrows show completion dependencies before the final read. The tasks may overlap in time; the diagram does not promise which runs first."
+  },
+  "extra_overviews": [],
+  "focus": [
+    {
+      "title": "Share access without sharing write locations",
+      "file": "cpp_series/book_06/listings/L0001.cpp",
+      "lineStart": 7,
+      "lineEnd": 10,
+      "code": "    std::array<int,6> input{1,2,3,4,5,6}, squared{};\n    auto transform=[&](std::size_t begin,std::size_t end) {\n        for(auto i=begin;i<end;++i) squared[i]=input[i]*input[i];\n    };",
+      "explain": [
+        "array stores six integers in each value. input gets 1 through 6; squared{} initializes its six integers to zero.",
+        "The lambda captures surrounding variables by reference with [&]. begin and end are value parameters naming a half-open slice.",
+        "The loop writes squared[i] from input[i]. Different tasks receive nonoverlapping index ranges.",
+        "The brace and semicolon finish the lambda object definition."
+      ],
+      "what": "Both tasks use the same arrays but write different integer objects within squared.",
+      "where": "The arrays live in main, outside the asynchronous tasks.",
+      "why": "Independent slices let the work run concurrently without a mutex for these separate elements.",
+      "invariant": "The arrays must outlive all task access, indices must be in range, and no two tasks may write the same element.",
+      "risk": "Overlapping slices introduce a data race. Capturing references to destroyed local arrays would access invalid storage."
+    },
+    {
+      "title": "Establish completion before observation",
+      "file": "cpp_series/book_06/listings/L0001.cpp",
+      "lineStart": 11,
+      "lineEnd": 13,
+      "code": "    auto first=std::async(std::launch::async,transform,0,3);\n    auto second=std::async(std::launch::async,transform,3,6);\n    first.get(); second.get();",
+      "explain": [
+        "std::launch::async requires asynchronous execution. The first future represents the task for [0,3).",
+        "The second task handles [3,6), so every index is assigned exactly once.",
+        "get waits for each task’s result and rethrows a task exception if one occurred. Only after both calls does main read the output array."
+      ],
+      "what": "A future is a handle through which the caller waits for a task’s result or exception.",
+      "where": "These lines sit between constructing the lambda and printing/reducing squared.",
+      "why": "Completion synchronization makes the finished writes visible before the later reads.",
+      "invariant": "The reduction begins after both get calls. The squares are 1, 4, 9, 16, 25, 36 and their sum is 91.",
+      "risk": "Reading squared before completion can race with task writes. This CPU example neither launches a CUDA kernel nor proves a speedup."
+    }
+  ]
+}

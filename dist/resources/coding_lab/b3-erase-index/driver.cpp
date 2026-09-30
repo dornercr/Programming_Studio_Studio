@@ -1,0 +1,1 @@
+int main(){std::size_t i;if(!(std::cin>>i))return 2;std::vector<int> v;int x;while(std::cin>>x)v.push_back(x);std::cout<<std::boolalpha<<eraseIndex(v,i)<<"\n";for(int n:v)std::cout<<n<<" ";std::cout<<"\n";}

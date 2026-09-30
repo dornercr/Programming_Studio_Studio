@@ -1,0 +1,1 @@
+int main(){int delta,n;if(!(std::cin>>delta>>n)||n<0)return 2;std::vector<int> v;for(int i=0,x;i<n;++i){if(!(std::cin>>x))return 2;v.push_back(x);}for(int x:shifted(v,delta))std::cout<<x<<" ";std::cout<<"\n";}

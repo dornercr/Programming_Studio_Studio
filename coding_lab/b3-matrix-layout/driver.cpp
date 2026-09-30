@@ -1,0 +1,1 @@
+int main(){std::size_t w;if(!(std::cin>>w))return 2;std::vector<int> v;int x;while(std::cin>>x)v.push_back(x);try{std::cout<<matrixSum(v,w)<<"\n";}catch(const std::invalid_argument&){std::cout<<"shape mismatch\n";}}

@@ -1,0 +1,410 @@
+SYSTEMS PROGRAMMING AND MACHINE ORGANIZATION
+Chapter 10 — Memory Allocators
+VERBATIM GRADUATE LECTURE TRANSCRIPT
+Charles Dorner
+
+SLIDE 1: Chapter 10 — Memory Allocators
+
+LECTURE NARRATION
+An allocator converts larger regions of storage into smaller allocations while tracking which regions are available. It must return suitably aligned, nonoverlapping storage and preserve enough metadata to reclaim it. Performance policies such as first fit or best fit operate inside these correctness constraints.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, an allocator converts larger regions of storage into smaller allocations while tracking which regions are available.
+
+========================================================================================
+SLIDE 2: What This Chapter Builds
+
+LECTURE NARRATION
+An allocator converts larger regions of storage into smaller allocations while tracking which regions are available. It must return suitably aligned, nonoverlapping storage and preserve enough metadata to reclaim it. Performance policies such as first fit or best fit operate inside these correctness constraints.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, an allocator converts larger regions of storage into smaller allocations while tracking which regions are available.
+
+========================================================================================
+SLIDE 3: Chapter Roadmap
+
+LECTURE NARRATION
+10.1 Blocks 10.2 Metadata 10.3 Free lists 10.4 First fit ...plus 12 additional source topics
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, 10.1 Blocks 10.2 Metadata 10.3 Free lists 10.4 First fit ...plus 12 additional source topics
+
+========================================================================================
+SLIDE 4: 10.1 Blocks
+
+LECTURE NARRATION
+A block is a unit of storage managed by the allocator. It may contain a header, a payload returned to the caller, and padding. The caller’s requested size and the allocator’s actual block size can differ. A 13-byte request might occupy a larger block because of alignment or size classes. The fundamental invariant is that live allocation payloads do not overlap and remain valid until release. A custom allocator should state its supported alignments, maximum request size, zero-size policy, and threading model. Without those declarations, callers cannot know whether a returned address is appropriate for their object.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, a block is a unit of storage managed by the allocator.
+
+========================================================================================
+SLIDE 5: 10.1 Blocks — Deep Dive
+
+LECTURE NARRATION
+A block is a unit of storage managed by the allocator. It may contain a header, a payload returned to the caller, and padding. The caller’s requested size and the allocator’s actual block size can differ. A 13-byte request might occupy a larger block because of alignment or size classes. The fundamental invariant is that live allocation payloads do not overlap and remain valid until release. A custom allocator should state its supported alignments, maximum request size, zero-size policy, and threading model. Without those declarations, callers cannot know whether a returned address is appropriate for their object.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, a block is a unit of storage managed by the allocator.
+
+========================================================================================
+SLIDE 6: 10.2 Metadata
+
+LECTURE NARRATION
+Metadata records information such as block size, allocation state, neighboring blocks, or free-list links. It can be stored next to the payload or in separate tables. Adjacent metadata is convenient but can be corrupted by an out-of-bounds write from the payload. Never treat allocator metadata as trustworthy after detecting memory corruption. Continuing to allocate and free through damaged state can amplify the failure. A teaching allocator can use assertions and validation scans; a production allocator also needs careful hardening, concurrency control, and recovery policy. Implementing an allocator is not just writing a fast search loop.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, metadata records information such as block size, allocation state, neighboring blocks, or free-list links.
+
+========================================================================================
+SLIDE 7: 10.2 Metadata — Deep Dive
+
+LECTURE NARRATION
+Metadata records information such as block size, allocation state, neighboring blocks, or free-list links. It can be stored next to the payload or in separate tables. Adjacent metadata is convenient but can be corrupted by an out-of-bounds write from the payload. Never treat allocator metadata as trustworthy after detecting memory corruption. Continuing to allocate and free through damaged state can amplify the failure. A teaching allocator can use assertions and validation scans; a production allocator also needs careful hardening, concurrency control, and recovery policy. Implementing an allocator is not just writing a fast search loop.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, metadata records information such as block size, allocation state, neighboring blocks, or free-list links.
+
+========================================================================================
+SLIDE 8: 10.3 Free lists
+
+LECTURE NARRATION
+A free list links blocks available for reuse. An implicit list discovers free blocks by walking every block’s metadata. An explicit list links free blocks directly, often storing links inside the free payload. Segregated lists group blocks by size to reduce search cost. Every insertion and removal must preserve list consistency. A block must not appear twice, and an allocated block must not remain on a free list. In a concurrent allocator, these are shared-state invariants requiring synchronization or a carefully proved lock-free scheme. Thread-local caches reduce contention but can retain memory that another thread could otherwise use.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, a free list links blocks available for reuse.
+
+========================================================================================
+SLIDE 9: 10.3 Free lists — Deep Dive
+
+LECTURE NARRATION
+A free list links blocks available for reuse. An implicit list discovers free blocks by walking every block’s metadata. An explicit list links free blocks directly, often storing links inside the free payload. Segregated lists group blocks by size to reduce search cost. Every insertion and removal must preserve list consistency. A block must not appear twice, and an allocated block must not remain on a free list. In a concurrent allocator, these are shared-state invariants requiring synchronization or a carefully proved lock-free scheme. Thread-local caches reduce contention but can retain memory that another thread could otherwise use.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, a free list links blocks available for reuse.
+
+========================================================================================
+SLIDE 10: 10.4 First fit
+
+LECTURE NARRATION
+First fit scans candidates and selects the first block large enough. It is simple and can stop early, but its behavior depends on list order. Over time, small leftover regions near the beginning can increase search work or change fragmentation patterns. A first-fit policy is not inherently bad; its suitability depends on request sizes, lifetimes, and workload locality. Measure representative traces rather than judging a policy by one allocation. Search cost, fragmentation, cache behavior, and synchronization overhead can move in different directions.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, first fit scans candidates and selects the first block large enough.
+
+========================================================================================
+SLIDE 11: 10.4 First fit — Deep Dive
+
+LECTURE NARRATION
+First fit scans candidates and selects the first block large enough. It is simple and can stop early, but its behavior depends on list order. Over time, small leftover regions near the beginning can increase search work or change fragmentation patterns. A first-fit policy is not inherently bad; its suitability depends on request sizes, lifetimes, and workload locality. Measure representative traces rather than judging a policy by one allocation. Search cost, fragmentation, cache behavior, and synchronization overhead can move in different directions.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, first fit scans candidates and selects the first block large enough.
+
+========================================================================================
+SLIDE 12: 10.5 Best fit
+
+LECTURE NARRATION
+Best fit selects the smallest available block that can satisfy the request. It tries to minimize the immediate leftover amount, but finding that block can require more search or a more complex index. Small leftovers can also become unusable fragments. The name describes a local choice, not a proof of globally optimal memory use. Future requests are unknown. A slightly larger current remainder might be more useful later than a tiny one. Compare allocator policies using complete traces and explicit metrics rather than assuming that the word “best” guarantees the best outcome.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, best fit selects the smallest available block that can satisfy the request.
+
+========================================================================================
+SLIDE 13: 10.5 Best fit — Deep Dive
+
+LECTURE NARRATION
+Best fit selects the smallest available block that can satisfy the request. It tries to minimize the immediate leftover amount, but finding that block can require more search or a more complex index. Small leftovers can also become unusable fragments. The name describes a local choice, not a proof of globally optimal memory use. Future requests are unknown. A slightly larger current remainder might be more useful later than a tiny one. Compare allocator policies using complete traces and explicit metrics rather than assuming that the word “best” guarantees the best outcome.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, best fit selects the smallest available block that can satisfy the request.
+
+========================================================================================
+SLIDE 14: 10.6 Block splitting
+
+LECTURE NARRATION
+When a free block is larger than needed, the allocator can divide it into an allocated block and a remaining free block. The remainder must be large enough to hold required metadata, alignment, and a useful payload. Otherwise it is often better to give the entire block to the request. Splitting changes both physical-neighbor relationships and free-list membership. Update these consistently before exposing the new state. A trace should show old block boundaries, allocated size, remainder size, and every metadata update. This makes off-by-header and alignment mistakes visible.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, when a free block is larger than needed, the allocator can divide it into an allocated block and a remaining free block.
+
+========================================================================================
+SLIDE 15: 10.6 Block splitting — Deep Dive
+
+LECTURE NARRATION
+When a free block is larger than needed, the allocator can divide it into an allocated block and a remaining free block. The remainder must be large enough to hold required metadata, alignment, and a useful payload. Otherwise it is often better to give the entire block to the request. Splitting changes both physical-neighbor relationships and free-list membership. Update these consistently before exposing the new state. A trace should show old block boundaries, allocated size, remainder size, and every metadata update. This makes off-by-header and alignment mistakes visible.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, when a free block is larger than needed, the allocator can divide it into an allocated block and a remaining free block.
+
+========================================================================================
+SLIDE 16: 10.7 Coalescing
+
+LECTURE NARRATION
+Coalescing merges adjacent free blocks into a larger free region. It reduces external fragmentation by restoring space that can satisfy larger requests. Adjacency means neighboring addresses in the managed region, not neighboring nodes in an arbitrary free-list order. Boundary tags or external metadata can help find physical neighbors. Immediate coalescing merges on each release; deferred coalescing postpones work until needed. Either policy must avoid merging across live blocks or unrelated regions. A correct merge removes old list entries before inserting the combined block exactly once.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, coalescing merges adjacent free blocks into a larger free region.
+
+========================================================================================
+SLIDE 17: 10.7 Coalescing — Deep Dive
+
+LECTURE NARRATION
+Coalescing merges adjacent free blocks into a larger free region. It reduces external fragmentation by restoring space that can satisfy larger requests. Adjacency means neighboring addresses in the managed region, not neighboring nodes in an arbitrary free-list order. Boundary tags or external metadata can help find physical neighbors. Immediate coalescing merges on each release; deferred coalescing postpones work until needed. Either policy must avoid merging across live blocks or unrelated regions. A correct merge removes old list entries before inserting the combined block exactly once.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, coalescing merges adjacent free blocks into a larger free region.
+
+========================================================================================
+SLIDE 18: 10.8 Alignment
+
+LECTURE NARRATION
+The allocator must align the payload, not merely the block header. A header whose size is not a multiple of the requested alignment can misalign the returned address. The allocator may add padding before the payload and must retain enough information to find the actual block on release. For an arena, alignment consumes part of the remaining space before the requested bytes are reserved. Check both components. C++ std::align can help find an aligned subregion within a bounded span of storage. It does not allocate more memory or initialize an object; it only adjusts a pointer and available-space description.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, the allocator must align the payload, not merely the block header.
+
+========================================================================================
+SLIDE 19: 10.8 Alignment — Deep Dive
+
+LECTURE NARRATION
+The allocator must align the payload, not merely the block header. A header whose size is not a multiple of the requested alignment can misalign the returned address. The allocator may add padding before the payload and must retain enough information to find the actual block on release. For an arena, alignment consumes part of the remaining space before the requested bytes are reserved. Check both components. C++ std::align can help find an aligned subregion within a bounded span of storage. It does not allocate more memory or initialize an object; it only adjusts a pointer and available-space description.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, the allocator must align the payload, not merely the block header.
+
+========================================================================================
+SLIDE 20: 10.9 Internal fragmentation
+
+LECTURE NARRATION
+Internal fragmentation is unused space inside an allocated block, such as rounding a 13-byte request to a 16-byte size class. The application owns the block’s payload contract but may not be allowed to use all allocator-internal spare bytes. Measure internal fragmentation as actual reserved bytes minus requested useful bytes under a clearly stated accounting rule. Headers and alignment padding may be reported separately or included; consistency matters. A small per-object waste becomes substantial when millions of objects are live.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, internal fragmentation is unused space inside an allocated block, such as rounding a 13-byte request to a 16-byte size class.
+
+========================================================================================
+SLIDE 21: 10.9 Internal fragmentation — Deep Dive
+
+LECTURE NARRATION
+Internal fragmentation is unused space inside an allocated block, such as rounding a 13-byte request to a 16-byte size class. The application owns the block’s payload contract but may not be allowed to use all allocator-internal spare bytes. Measure internal fragmentation as actual reserved bytes minus requested useful bytes under a clearly stated accounting rule. Headers and alignment padding may be reported separately or included; consistency matters. A small per-object waste becomes substantial when millions of objects are live.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, internal fragmentation is unused space inside an allocated block, such as rounding a 13-byte request to a 16-byte size class.
+
+========================================================================================
+SLIDE 22: 10.10 External fragmentation
+
+LECTURE NARRATION
+External fragmentation occurs when free space is divided into regions that cannot satisfy a larger request even though their total size is sufficient. Two free 40-byte regions separated by a live block cannot satisfy one contiguous 64-byte request. Coalescing helps only when free regions are physically adjacent. Compaction could move live objects, but ordinary raw pointers make transparent movement difficult. Handles, indirection, or moving-memory runtimes can support compaction; a conventional C allocator cannot simply relocate an arbitrary live allocation without the program’s cooperation.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, external fragmentation occurs when free space is divided into regions that cannot satisfy a larger request even though their total size is sufficient.
+
+========================================================================================
+SLIDE 23: 10.10 External fragmentation — Deep Dive
+
+LECTURE NARRATION
+External fragmentation occurs when free space is divided into regions that cannot satisfy a larger request even though their total size is sufficient. Two free 40-byte regions separated by a live block cannot satisfy one contiguous 64-byte request. Coalescing helps only when free regions are physically adjacent. Compaction could move live objects, but ordinary raw pointers make transparent movement difficult. Handles, indirection, or moving-memory runtimes can support compaction; a conventional C allocator cannot simply relocate an arbitrary live allocation without the program’s cooperation.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, external fragmentation occurs when free space is divided into regions that cannot satisfy a larger request even though their total size is sufficient.
+
+========================================================================================
+SLIDE 24: 10.11 Arena allocation
+
+LECTURE NARRATION
+An arena obtains a region and serves allocations from it, often by advancing a cursor. Individual deallocation may be omitted; all storage is reset together. This makes allocation fast and cleanup simple when objects share a lifetime, such as one parsed document or request. Resetting an arena invalidates every object and view backed by it. Nontrivial C++ objects may need destructors before reset, and retained pointers must not escape the arena’s lifetime. An arena trades flexible reclamation for a stronger lifetime discipline. It is excellent when that discipline matches the problem and dangerous when callers assume independent object lifetimes.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, an arena obtains a region and serves allocations from it, often by advancing a cursor.
+
+========================================================================================
+SLIDE 25: 10.11 Arena allocation — Deep Dive
+
+LECTURE NARRATION
+An arena obtains a region and serves allocations from it, often by advancing a cursor. Individual deallocation may be omitted; all storage is reset together. This makes allocation fast and cleanup simple when objects share a lifetime, such as one parsed document or request. Resetting an arena invalidates every object and view backed by it. Nontrivial C++ objects may need destructors before reset, and retained pointers must not escape the arena’s lifetime. An arena trades flexible reclamation for a stronger lifetime discipline. It is excellent when that discipline matches the problem and dangerous when callers assume independent object lifetimes.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, an arena obtains a region and serves allocations from it, often by advancing a cursor.
+
+========================================================================================
+SLIDE 26: Worked example — A bounded bump arena
+
+LECTURE NARRATION
+The requirement is to allocate aligned byte regions from a fixed 128-byte arena and reject requests that do not fit. Individual release is intentionally unsupported. The arena provides storage only; the example does not construct nontrivial objects inside it. Companion listing: ch10/arena.cpp The first request consumes three bytes. On the stated alignment model, the next eight-byte-aligned start is offset 8, so five padding bytes are skipped and the second payload occupies offsets 8 through 15. The cursor becomes 16. The 200-byte request cannot fit and leaves the cursor unchanged. The abstraction has deliberately narrow semantics. Returned regions remain valid only until reset or destruction, and the arena is not thread-safe. A complete object allocator would add construction, destruction, and stronger alignment policy. Keeping the storage-only contract explicit makes this example useful without presenting it as a drop-in replacement for the standard allocator.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, the requirement is to allocate aligned byte regions from a fixed 128-byte arena and reject requests that do not fit.
+
+========================================================================================
+SLIDE 27: Worked example — A bounded bump arena — Deep Dive
+
+LECTURE NARRATION
+The requirement is to allocate aligned byte regions from a fixed 128-byte arena and reject requests that do not fit. Individual release is intentionally unsupported. The arena provides storage only; the example does not construct nontrivial objects inside it. Companion listing: ch10/arena.cpp The first request consumes three bytes. On the stated alignment model, the next eight-byte-aligned start is offset 8, so five padding bytes are skipped and the second payload occupies offsets 8 through 15. The cursor becomes 16. The 200-byte request cannot fit and leaves the cursor unchanged. The abstraction has deliberately narrow semantics. Returned regions remain valid only until reset or destruction, and the arena is not thread-safe. A complete object allocator would add construction, destruction, and stronger alignment policy. Keeping the storage-only contract explicit makes this example useful without presenting it as a drop-in replacement for the standard allocator.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, the requirement is to allocate aligned byte regions from a fixed 128-byte arena and reject requests that do not fit.
+
+========================================================================================
+SLIDE 28: Worked example — Splitting a free block
+
+LECTURE NARRATION
+Suppose a free-list allocator has a 256-byte free block and receives a 96-byte aligned request plus 16 bytes of metadata. If the allocator rounds the payload to 96 and needs 112 total bytes, it can allocate 112 bytes and leave a 144-byte remainder if that remainder is large enough to represent another valid block. Otherwise it may consume the whole block, creating internal fragmentation.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, suppose a free-list allocator has a 256-byte free block and receives a 96-byte aligned request plus 16 bytes of metadata.
+
+========================================================================================
+SLIDE 29: Worked example — Splitting a free block — Deep Dive
+
+LECTURE NARRATION
+Suppose a free-list allocator has a 256-byte free block and receives a 96-byte aligned request plus 16 bytes of metadata. If the allocator rounds the payload to 96 and needs 112 total bytes, it can allocate 112 bytes and leave a 144-byte remainder if that remainder is large enough to represent another valid block. Otherwise it may consume the whole block, creating internal fragmentation.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, suppose a free-list allocator has a 256-byte free block and receives a 96-byte aligned request plus 16 bytes of metadata.
+
+========================================================================================
+SLIDE 30: Worked example — Coalescing neighbors
+
+LECTURE NARRATION
+Imagine three consecutive heap blocks: allocated 64, free 80, free 48. When the allocator notices the two free neighbors are physically adjacent, it can merge their payload and metadata representation into one larger free block. Coalescing reduces external fragmentation because future large requests can use space that was previously split into smaller holes.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, imagine three consecutive heap blocks: allocated 64, free 80, free 48.
+
+========================================================================================
+SLIDE 31: Worked example — Coalescing neighbors — Deep Dive
+
+LECTURE NARRATION
+Imagine three consecutive heap blocks: allocated 64, free 80, free 48. When the allocator notices the two free neighbors are physically adjacent, it can merge their payload and metadata representation into one larger free block. Coalescing reduces external fragmentation because future large requests can use space that was previously split into smaller holes.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, imagine three consecutive heap blocks: allocated 64, free 80, free 48.
+
+========================================================================================
+SLIDE 32: Staged project — A reusable free-list allocator
+
+LECTURE NARRATION
+The bump arena is intentionally retained because it isolates alignment and bounded allocation. The next implementation adds individual deallocation and combines the mechanisms introduced in Sections 10.1 through 10.10. Its contract is deliberately narrower than malloc : it manages one fixed 512-byte region, returns storage aligned to 16 bytes, accepts only pointers returned by its own allocate , uses first fit, splits only when the remainder is at least 32 bytes, and immediately coalesces physically adjacent free blocks. It is single-threaded and does not construct C++ objects. Companion listing: ch10/freelist_allocator.cpp The companion listing contains the complete definitions and executable tests. Keeping block descriptors in a vector rather than inside the managed bytes makes the teaching invariant easier to inspect: descriptors are in increasing address order, their half-open ranges exactly partition [0, 512) , and no two live allocations overlap. A production allocator would normally avoid allocating metadata dynamically while servicing an allocation request. Allocation trace. Begin with [0,512) F . Allocate 64 bytes: [0,64) A [64,512) F . Allocate 80 bytes: [0,64) A [64,144) A [144,512) F . Allocate 48 bytes: [0,64) A [64,144) A [144,192) A [192,512) F . Free the middle block: [0,64) A [64,144) F [144,192) A [192,512) F . A 32-byte request reuses the 80-byte hole and splits it because the 48-byte remainder exceeds the minimum split: [0,64) A [64,96) A [96,144) F [144,192) A [192,512) F . Coalescing trace. Free [0,64) , then [64,96) . The allocator first merges left with the newly free block and then merges the adjacent [96,144) remainder, producing [0,144) F . Freeing [144,192) merges on both sides as applicable; the final free of the last live block restores [0,512) F . The test therefore exercises reuse, left coalescing, right coalescing, and restoration of the original region. Statistics distinguish requested bytes from reserved bytes. Their difference is internal fragmentation under this implementation’s rounding rule. External fragmentation can be reported as free_bytes - largest_free : zero means every free byte is currently in one contiguous block. These metrics are policy-dependent descriptions, not universal allocator-quality scores. The implementation rejects zero-sized requests, arithmetic that would overflow during alignment rounding, pointers outside the arena, pointers into the interior of a block, and a second release of a block that is still represented as free. These checks are intentionally limited. After coalescing, stale pointers can coincide with a later allocation start, corrupted metadata can invalidate the reasoning, and address reuse makes perfect temporal error detection impossible without additional generation or quarantine metadata. Sanitizers and hardened allocators use stronger mechanisms; this example does not claim complete invalid-free detection. Allocator project tests. Verify exhaustion without state corruption; reuse of a freed first-fit block; 16-byte alignment for every successful result; refusal to create a remainder smaller than 32 bytes; coalescing with a free predecessor, successor, and both neighbors; invalid and double-free rejection for the cases above; overflow-checked size rounding; and conservation of the 512 managed bytes after every operation.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, the bump arena is intentionally retained because it isolates alignment and bounded allocation.
+
+========================================================================================
+SLIDE 33: Staged project — A reusable free-list allocator — Deep Dive
+
+LECTURE NARRATION
+The bump arena is intentionally retained because it isolates alignment and bounded allocation. The next implementation adds individual deallocation and combines the mechanisms introduced in Sections 10.1 through 10.10. Its contract is deliberately narrower than malloc : it manages one fixed 512-byte region, returns storage aligned to 16 bytes, accepts only pointers returned by its own allocate , uses first fit, splits only when the remainder is at least 32 bytes, and immediately coalesces physically adjacent free blocks. It is single-threaded and does not construct C++ objects. Companion listing: ch10/freelist_allocator.cpp The companion listing contains the complete definitions and executable tests. Keeping block descriptors in a vector rather than inside the managed bytes makes the teaching invariant easier to inspect: descriptors are in increasing address order, their half-open ranges exactly partition [0, 512) , and no two live allocations overlap. A production allocator would normally avoid allocating metadata dynamically while servicing an allocation request. Allocation trace. Begin with [0,512) F . Allocate 64 bytes: [0,64) A [64,512) F . Allocate 80 bytes: [0,64) A [64,144) A [144,512) F . Allocate 48 bytes: [0,64) A [64,144) A [144,192) A [192,512) F . Free the middle block: [0,64) A [64,144) F [144,192) A [192,512) F . A 32-byte request reuses the 80-byte hole and splits it because the 48-byte remainder exceeds the minimum split: [0,64) A [64,96) A [96,144) F [144,192) A [192,512) F . Coalescing trace. Free [0,64) , then [64,96) . The allocator first merges left with the newly free block and then merges the adjacent [96,144) remainder, producing [0,144) F . Freeing [144,192) merges on both sides as applicable; the final free of the last live block restores [0,512) F . The test therefore exercises reuse, left coalescing, right coalescing, and restoration of the original region. Statistics distinguish requested bytes from reserved bytes. Their difference is internal fragmentation under this implementation’s rounding rule. External fragmentation can be reported as free_bytes - largest_free : zero means every free byte is currently in one contiguous block. These metrics are policy-dependent descriptions, not universal allocator-quality scores. The implementation rejects zero-sized requests, arithmetic that would overflow during alignment rounding, pointers outside the arena, pointers into the interior of a block, and a second release of a block that is still represented as free. These checks are intentionally limited. After coalescing, stale pointers can coincide with a later allocation start, corrupted metadata can invalidate the reasoning, and address reuse makes perfect temporal error detection impossible without additional generation or quarantine metadata. Sanitizers and hardened allocators use stronger mechanisms; this example does not claim complete invalid-free detection. Allocator project tests. Verify exhaustion without state corruption; reuse of a freed first-fit block; 16-byte alignment for every successful result; refusal to create a remainder smaller than 32 bytes; coalescing with a free predecessor, successor, and both neighbors; invalid and double-free rejection for the cases above; overflow-checked size rounding; and conservation of the 512 managed bytes after every operation.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, the bump arena is intentionally retained because it isolates alignment and bounded allocation.
+
+========================================================================================
+SLIDE 34: Guided lab and review
+
+LECTURE NARRATION
+Lab 10. Add accounting for requested bytes and alignment padding. Allocate a sequence of differently aligned requests, then verify that every successful region lies inside the arena and that no two live regions overlap. Review 1. Distinguish internal from external fragmentation using a concrete layout. Review 2. Why can two consecutive free-list nodes fail to be coalescible?
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, lab 10.
+
+========================================================================================
+SLIDE 35: Guided lab and review — Deep Dive
+
+LECTURE NARRATION
+Lab 10. Add accounting for requested bytes and alignment padding. Allocate a sequence of differently aligned requests, then verify that every successful region lies inside the arena and that no two live regions overlap. Review 1. Distinguish internal from external fragmentation using a concrete layout. Review 2. Why can two consecutive free-list nodes fail to be coalescible?
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, lab 10.
+
+========================================================================================
+SLIDE 36: Chapter Synthesis
+
+LECTURE NARRATION
+The chapter's central subject is memory allocators. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, the chapter's central subject is memory allocators.
+
+========================================================================================
+SLIDE 37: Review and Transition
+
+LECTURE NARRATION
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Memory Errors.
+
+At graduate level, do not treat this as a term to memorize. Identify the contract being described, the state or representation it constrains, and the assumptions that must remain true. When this topic appears in real systems code, separate what the language guarantees from what a compiler, operating system, ABI, ISA, or particular machine happens to do. Then identify the evidence you would inspect to test the claim without overgeneralizing from a single successful run.
+
+SIXTH-GRADE EXPLANATION
+In simpler terms, explain one mechanism from the chapter without relying on vocabulary alone.

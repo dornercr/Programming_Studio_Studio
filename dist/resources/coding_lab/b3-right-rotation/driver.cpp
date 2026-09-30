@@ -1,0 +1,1 @@
+int main(){auto p=std::make_unique<Node>(3);p->left=std::make_unique<Node>(2);p->left->left=std::make_unique<Node>(1);update(*p->left);update(*p);auto r=rotateRight(std::move(p));std::cout<<r->key<<" "<<r->height<<"\n";}

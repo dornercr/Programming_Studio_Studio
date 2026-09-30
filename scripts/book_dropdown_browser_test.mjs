@@ -1,8 +1,9 @@
+import {sourceData,sourceCoding} from './read-source.mjs';
 import {chromium} from 'playwright';import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';import assert from 'node:assert/strict';import {chooseBook,currentBook} from './book_test_helpers.mjs';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),content=JSON.parse(await fs.readFile(path.join(root,'src/content.json'),'utf8'));
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),content=sourceData();
 let options={headless:true};if(process.env.CHROMIUM_MODULE){const{default:ch}=await import(pathToFileURL(process.env.CHROMIUM_MODULE));options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
 const browser=await chromium.launch(options),p=await browser.newPage({viewport:{width:1512,height:1100},reducedMotion:'reduce'}),errors=[],results=[];p.on('pageerror',e=>errors.push(e.message));
-await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);assert.equal(await p.locator('.book-chapter-dropdown').count(),10);assert.equal(await p.locator('#course-select').count(),0);
+await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);assert.equal(await p.locator('.book-chapter-dropdown').count(),10);assert.equal(await p.locator('#course-select').count(),0);
 for(const c of content.courses.filter(c=>c.kind==='textbook')){
  const menu=p.locator(`.book-chapter-dropdown[data-course="${c.id}"]`),options=await menu.locator('option').allTextContents();assert.equal(options.length,c.chapters.length+2+(c.glossary?.length?1:0));assert.ok((await menu.getAttribute('aria-label')).startsWith(c.title));
  for(const ch of [c.chapters.find(ch=>ch.number===1),c.chapters.at(-1)]){

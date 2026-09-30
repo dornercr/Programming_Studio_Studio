@@ -6,7 +6,7 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 let options={headless:true};
 if(process.env.CHROMIUM_MODULE){const {default:ch}=await import(pathToFileURL(process.env.CHROMIUM_MODULE));options={...options,args:ch.args,executablePath:process.env.CHROMIUM_PATH||await ch.executablePath()};}
 const b=await chromium.launch(options);const p=await b.newPage({viewport:{width:1512,height:1100},reducedMotion:'reduce'});
-await p.goto(pathToFileURL(path.join(root,'dist/index.html')).href);
+await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);
 await p.selectOption('#chapter-select','1');await p.locator('#mode-tabs [data-mode="uml"]').click();
 await p.locator('.diagram-section').first().screenshot({path:path.join(root,'docs/preview-uml-overview.png')});
 await p.locator('.focus-grid').first().screenshot({path:path.join(root,'docs/preview-uml-focus.png')});
