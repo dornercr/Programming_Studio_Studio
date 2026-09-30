@@ -6,3 +6,7 @@ for(const command of commands){const result=spawnSync(command,{shell:true,stdio:
 const baseline=await fs.readFile('docs/migration/baseline.json');
 try{const result=spawnSync(process.execPath,['scripts/migrate-content.mjs'],{stdio:'inherit'});if(result.status!==0)throw Error('Could not commit authored content to chapter files');}finally{await fs.writeFile('docs/migration/baseline.json',baseline);}
 await fs.rm('src/content.json');await fs.rm('src/coding-content.json');
+
+// Reapply the independently authored Book I additions after legacy generators.
+const expansion=spawnSync(process.execPath,['scripts/book-one-expansion.mjs','--apply'],{stdio:'inherit'});
+if(expansion.status!==0)throw Error('Could not restore Book I expansion');

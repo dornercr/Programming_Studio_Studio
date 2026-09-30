@@ -7,7 +7,7 @@ const waitDone=()=>p.waitForFunction(()=>!document.querySelector('[data-action="
 try{
  await p.route('https://**',route=>route.abort());
  await p.goto(process.env.STUDIO_URL||pathToFileURL(path.join(root,'dist-offline/index.html')).href);await chooseBook(p,'cpp-book-01');await p.locator('[data-mode="coding"]').click();
- assert.equal(await p.locator('#lab-question optgroup[label="Practice questions"] option').count(),23);assert.equal(await p.locator('#lab-question option[value^="worked-"]').count(),86);assert.equal(await p.locator('#lab-question optgroup').count()>20,true);results.push('Book I has 23 graded questions and 86 source-linked worked labs, grouped by chapter.');
+ assert.equal(await p.locator('#lab-question optgroup[label="Practice questions"] option').count(),47);assert.equal(await p.locator('#lab-question option[value^="worked-"]').count(),86);assert.equal(await p.locator('#lab-question optgroup').count()>20,true);results.push('Book I has 47 graded questions and 86 source-linked worked labs, grouped by chapter.');
  const original=catalog.workedPrograms.find(w=>w.sourceId==='B01-L0003'),age=catalog.workedPrograms.find(w=>w.sourceId==='B01-L0026');
  const modified=original.source.replace('20.1','20.0');assert.notEqual(modified,original.source);
  // Produce the altered-output fixture by compiling only the known, published example locally.

@@ -116,3 +116,7 @@ C++ sources keep their original standards and requirements: Design Patterns/work
 - Offline ZIP: self-contained HTML plus instructions.
 
 The earlier teaching and C++ verification notes remain in `docs/README-v1.7.md`, `coding_lab/README.md`, and other original documentation, preserved byte-for-byte as historical resources. Their earlier counts and single-file build instructions describe those releases; use this README and `docs/BOOK_III.md` for version 2.1.
+
+## Expanded Book I study pack
+
+Book I now includes 519 flashcards, 25 UML/diagram views, and 47 Coding Lab challenges with 236 public checks, alongside all 86 existing runnable workshops. The additions cover every core chapter and four practical appendices. See [Book I study expansion](docs/BOOK_I_STUDY_EXPANSION.md) for exact counts, authoring commands, preservation checks, browser verification, and patch/commit instructions.

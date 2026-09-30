@@ -81,7 +81,7 @@
   }
   function seriesSaveBlob(name,blob){const a=document.createElement('a'),u=URL.createObjectURL(blob);a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1500);}
   function seriesOpenListing(id){const e=seriesIndex().listings.get(id);if(!e)return;seriesSelections[course().id]={id};state.mode='code';state.chapter=String(e.chapter);state.query='';state.domain='all';state.bookmarksOnly=false;chooseTopic(e.topicId);}
-  function renderSeriesUML(t){if(course().diagrams[String(t.chapter)])return renderUML(t).replace('<article class="panel">','<article class="panel series-diagram">');return `<section class="panel empty"><h2>Trace a Chapter 1 example</h2><p>This book has one added diagram study, with source excerpts and adjacent theory. Open the chapter’s code to explore other examples.</p><button class="btn btn-primary" data-action="series-uml-start">Open the diagram study ${icon('right')}</button></section>`;}
+  function renderSeriesUML(t){if(course().diagrams[String(t.chapter)])return renderUML(t).replace('<article class="panel">','<article class="panel series-diagram">');return `<section class="panel empty"><h2>Trace a Chapter 1 example</h2><p>Select a chapter with a diagram study to inspect matching source excerpts and adjacent theory. Book I includes studies for every core chapter and its four practical appendices.</p><button class="btn btn-primary" data-action="series-uml-start">Open the diagram study ${icon('right')}</button></section>`;}
   document.addEventListener('click',async event=>{
     const el=event.target.closest('[data-action]');if(!el||el.disabled||!course().series)return;
     switch(el.dataset.action){
