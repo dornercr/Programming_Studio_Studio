@@ -59,9 +59,10 @@
 
   modes.push(...modes.splice(0,2));
   modes.push({id:'lectures',label:'Lectures',icon:'source',color:'bg-mint text-mint-ink'});
+  modes.push({id:'slides',label:'Slides',icon:'layers',color:'bg-mint text-mint-ink'});
   modes.push({id:'coding',label:'Coding Lab',icon:'edit',color:'bg-mint text-mint-ink'});
   modes.push({id:'book',label:'Book',icon:'book',color:'bg-brand-soft text-brand'});
-  function availableModes(){return modes.filter(m=>!['uml','code','lectures','book'].includes(m.id)||(m.id==='book'&&course().series)||(m.id==='uml'&&Object.keys(course().diagrams||{}).length)||(m.id==='code'&&(Object.keys(course().examples||{}).length||course().series?.listings.length))||(m.id==='lectures'&&Object.keys(course().lectures||{}).length));}
+  function availableModes(){return modes.filter(m=>m.id==='slides'?slidesHasCourse(state.courseId):!['uml','code','lectures','book'].includes(m.id)||(m.id==='book'&&course().series)||(m.id==='uml'&&Object.keys(course().diagrams||{}).length)||(m.id==='code'&&(Object.keys(course().examples||{}).length||course().series?.listings.length))||(m.id==='lectures'&&Object.keys(course().lectures||{}).length));}
   function courses() {
     return seed.courses.map(c => c.id === 'my-material' ? {...c,topics:store.customTopics} : c).concat(store.courses);
   }
@@ -201,6 +202,8 @@
         if(state.mode==='coding')await Library.ensureLabs(c);
         if(version!==renderVersion)return;
       }
+      if(state.mode==='slides')await ensureSlides();
+      if(version!==renderVersion)return;
       renderAllReady();
       if(Library)writeRoute();
       document.dispatchEvent(new CustomEvent('studio:rendered'));
@@ -224,8 +227,8 @@
     $('#topic-search').value=state.query;
     $('#domain-select').innerHTML=`<option value="all">${c.familyLabel?'All subject areas':'All families'}</option>`+c.domains.map(d=>`<option value="${escape(d.id)}" ${state.domain===d.id?'selected':''}>${escape(d.id)} · ${escape(d.title)}</option>`).join('');
     $('#mode-tabs').style.setProperty('--mode-count',availableModes().length);
-    $('#mode-tabs').innerHTML=availableModes().map(m=>`<button class="mode-tab ${state.mode===m.id?'active':''}" data-action="mode" data-mode="${m.id}" aria-pressed="${state.mode===m.id}"><span class="mode-icon ${m.color}">${icon(m.icon)}</span><span class="min-w-0"><span class="mode-label block text-[13px] font-semibold ${state.mode===m.id?'text-brand':'text-ink'}">${c.series&&m.id==='scenarios'?'Practice':c.series&&m.id==='code'?'Code & labs':m.label}</span><span class="mode-count block mt-1 text-[10px] text-muted">${m.id==='coding'?`${labQuestions().length} questions · run C++`:m.id==='outline'?(c.teaching?`${c.chapters.length} ${c.series?'reading maps':'chapter maps'}`:`${t.topics} lessons`):m.id==='flashcards'?`${t.cards} cards`:m.id==='scenarios'?`${t.scenarios} ${c.series?'prompts':'cases'}`:m.id==='lectures'?`${Object.keys(c.lectures||{}).length} chapters`:m.id==='uml'?`${Object.values(c.diagrams||{}).reduce((n,d)=>n+1+(d.extra_overviews||[]).length,0)} diagram views`:m.id==='book'?`${c.series.counts.chapters} chapters · PDF & EPUB`:c.series?`${c.series.listings.length} source listings`:`${Object.keys(c.examples||{}).length} working examples`}</span></span></button>`).join('');
-    $('#workspace-label').textContent={outline:'READ, UNDERSTAND, AND DISCUSS',flashcards:'TRAIN YOUR RECALL',scenarios:'PUT IT INTO PRACTICE',uml:'FOLLOW THE RELATIONSHIPS',code:'READ THE WORKING C++',lectures:'LECTURE MATERIALS',book:'THE COMPLETE BOOK',coding:'BUILD IT. TEST IT. UNDERSTAND IT.'}[state.mode];
+    $('#mode-tabs').innerHTML=availableModes().map(m=>`<button class="mode-tab ${state.mode===m.id?'active':''}" data-action="mode" data-mode="${m.id}" aria-pressed="${state.mode===m.id}"><span class="mode-icon ${m.color}">${icon(m.icon)}</span><span class="min-w-0"><span class="mode-label block text-[13px] font-semibold ${state.mode===m.id?'text-brand':'text-ink'}">${c.series&&m.id==='scenarios'?'Practice':c.series&&m.id==='code'?'Code & labs':m.label}</span><span class="mode-count block mt-1 text-[10px] text-muted">${m.id==='slides'?'Interactive lecture':m.id==='coding'?`${labQuestions().length} questions · run C++`:m.id==='outline'?(c.teaching?`${c.chapters.length} ${c.series?'reading maps':'chapter maps'}`:`${t.topics} lessons`):m.id==='flashcards'?`${t.cards} cards`:m.id==='scenarios'?`${t.scenarios} ${c.series?'prompts':'cases'}`:m.id==='lectures'?`${Object.keys(c.lectures||{}).length} chapters`:m.id==='uml'?`${Object.values(c.diagrams||{}).reduce((n,d)=>n+1+(d.extra_overviews||[]).length,0)} diagram views`:m.id==='book'?`${c.series.counts.chapters} chapters · PDF & EPUB`:c.series?`${c.series.listings.length} source listings`:`${Object.keys(c.examples||{}).length} working examples`}</span></span></button>`).join('');
+    $('#workspace-label').textContent={slides:'PRESENT. EXPLORE. RUN THE CODE.',outline:'READ, UNDERSTAND, AND DISCUSS',flashcards:'TRAIN YOUR RECALL',scenarios:'PUT IT INTO PRACTICE',uml:'FOLLOW THE RELATIONSHIPS',code:'READ THE WORKING C++',lectures:'LECTURE MATERIALS',book:'THE COMPLETE BOOK',coding:'BUILD IT. TEST IT. UNDERSTAND IT.'}[state.mode];
     $('#filter-status').innerHTML=state.query||state.bookmarksOnly?`<button class="filter-chip" data-action="clear-filters">${escape(state.query?`“${state.query.length>22?state.query.slice(0,22)+'…':state.query}”`:'Saved topics')} ${icon('close')}</button>`:'';
     $('#pack-notice').textContent=isBook()?`${c.title} · ${c.author||'Dr. Charles Dorner'} · Offline reading · online Coding Lab`:'Your study material · Stored locally in this browser.';
     $('#storage-warning').innerHTML=storageOK?'':'<div class="storage-warning">Browser storage is unavailable. Your work is usable in this session; export a backup to keep your progress.</div>';
@@ -250,6 +253,8 @@
   function topicBadge(t) {if(isBook())return bookTopicBadge(t);return `<span class="pill bg-brand-soft text-brand">DOMAIN ${escape(t.domain)}</span><span class="text-[10px] text-muted">${escape(t.id)}</span>`;}
   function renderWorkspace() {
     labBeforeRender();
+    slidesBeforeRender();
+    if(state.mode==='slides'){renderSlidesWorkspace();return;}
     if(state.mode==='coding'){$('#workspace').innerHTML=`<div class="coding-workspace">${renderCodingLab()}</div>`;labRefresh();return;}
     if(!course().topics.length){$('#workspace').innerHTML=`<section class="panel empty fade-in">${icon('book')}<h2>Make this space yours.</h2><p>Add your own topic, question-and-answer cards, and a practice scenario. Or import a study pack to start another curriculum.</p><div class="flex flex-wrap gap-3 justify-center"><button class="btn btn-primary" data-action="add-topic">${icon('plus')} Add a topic</button><button class="btn" data-action="import">${icon('upload')} Import study pack</button></div></section>`;return;}
     if(!visibleTopics().length){$('#workspace').innerHTML=`<section class="panel empty fade-in">${icon('search')}<h2>No matching topics.</h2><p>Try another search, select all domains, or clear the saved-topic filter.</p><button class="btn btn-primary" data-action="clear-filters">Clear filters</button></section>`;return;}
@@ -298,6 +303,7 @@
     renderAll();
   }
   function navigate(delta) {
+    if(state.mode==='slides'){slidesGo(slidesIndex()+delta);return;}
     if(state.mode==='book')return;
     if(['uml','code','lectures'].includes(state.mode)){const chapters=course().chapters.filter(c=>c.number>0);const i=chapters.findIndex(c=>c.number===topic()?.chapter);const next=chapters[i+delta];if(next)goChapter(next.number);return;}
     const list=state.mode==='outline'?readingTopics():deck();
@@ -448,7 +454,7 @@
     if(Array.isArray(value.courses)){if(value.courses.length>30)throw new Error('Too many curricula.');clean.courses=value.courses.map(validateCourse);}
     const ids=new Set(seed.courses.map(c=>c.id));for(const c of clean.courses){if(ids.has(c.id))throw new Error('Duplicate curriculum ID in backup.');ids.add(c.id);}
     for(const [id,p] of Object.entries(isObject(value.progress)?value.progress:{}))if(ids.has(id))clean.progress[id]=cleanProgress(p);
-    const ui=isObject(value.ui)?value.ui:{};clean.ui.courseId=ids.has(ui.courseId)?ui.courseId:'design-patterns-cpp';clean.ui.mode=['outline','flashcards','scenarios','uml','code','lectures','book','coding'].includes(ui.mode)?ui.mode:'outline';clean.ui.large=!!ui.large;
+    const ui=isObject(value.ui)?value.ui:{};clean.ui.courseId=ids.has(ui.courseId)?ui.courseId:'design-patterns-cpp';clean.ui.mode=['outline','flashcards','scenarios','uml','code','lectures','book','coding','slides'].includes(ui.mode)?ui.mode:'outline';clean.ui.large=!!ui.large;
     for(const [id,p] of Object.entries(isObject(ui.positions)?ui.positions:{}))if(ids.has(id)&&isObject(p))clean.ui.positions[id]={topicId:validId(p.topicId)?p.topicId:null,cardId:validId(p.cardId)?p.cardId:null,scenarioId:validId(p.scenarioId)?p.scenarioId:null};
     return clean;
   }
@@ -521,6 +527,7 @@
     const tag=event.target.tagName;const interactive=['INPUT','TEXTAREA','SELECT'].includes(tag)||event.target.isContentEditable;
     if(event.key==='Escape'){if(state.sidebarOpen){state.sidebarOpen=false;renderDrawer();}return;}
     if(interactive)return;
+    if(state.mode==='slides'&&event.target.id==='slides-splitter')return;
     const key=event.key.toLowerCase();
     if(key==='/'){event.preventDefault();if(innerWidth<=800){state.sidebarOpen=true;renderDrawer();}$('#topic-search').focus();}
     else if(key==='arrowleft'){event.preventDefault();navigate(-1);}
@@ -593,6 +600,7 @@
   /*__SERIES_JS__*/
   /*__CODING_CORE__*/
   /*__CODING_JS__*/
+  /*__SLIDES_JS__*/
   function writeRoute(){
     const url=new URL(location.href);url.searchParams.set('course',state.courseId);
     if(topic())url.searchParams.set('chapter',String(topic().chapter));else url.searchParams.delete('chapter');
@@ -600,6 +608,7 @@
     url.searchParams.set('view',state.mode);url.searchParams.set('lesson',state.lessonView||'lesson');
     if(state.cardId&&state.mode==='flashcards')url.searchParams.set('card',state.cardId);else url.searchParams.delete('card');
     if(state.scenarioId&&state.mode==='scenarios')url.searchParams.set('practice',state.scenarioId);else url.searchParams.delete('practice');
+    if(state.mode==='slides'&&slidesCurrent())url.searchParams.set('slide',String(slidesIndex()+1));else url.searchParams.delete('slide');
     const route=url.href;if(route!==location.href)history.replaceState(null,'',route);
   }
   async function readRoute(){
@@ -611,6 +620,7 @@
     if(n!==null){const t=c.topics.find(t=>String(t.chapter)===n);if(t){state.chapter=n;state.topicId=c.teaching?.[n]?.startTopicId||t.id;state.lessonView='map';}}
     const t=params.get('topic');if(t&&c.topics.some(x=>x.id===t)){state.topicId=t;state.chapter=String(topic().chapter);}
     if(params.get('view'))state.mode=params.get('view');
+    if(state.mode==='slides'&&params.has('slide')){const n=Number(params.get('slide'));if(Number.isInteger(n)&&n>0&&n<10000)slidesState().index=n-1;}
     if(params.get('lesson'))state.lessonView=params.get('lesson');
     state.cardId=params.get('card')||state.cardId;state.scenarioId=params.get('practice')||state.scenarioId;
   }
