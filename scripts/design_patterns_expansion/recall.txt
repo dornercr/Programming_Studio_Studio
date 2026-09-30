@@ -1,0 +1,195 @@
+# 1
+A new JSON record needs the same validation and stored prefix. Which two types change?|Add a Record implementation and an ArchiveJob creator that returns it. Keep ArchiveJob::run unchanged so every format still passes the same input gate and prefix step.
+Why is returning a pointer to a local Record from make unsafe?|The local object dies when make returns. Its address would dangle before run calls format. Return an owning unique_ptr to a separately allocated product instead.
+Would a switch be simpler for two formats that will never grow?|Yes. A small fixed choice may need only a function and a switch. Factory Method pays for a changing family of creators or a framework-controlled workflow, not for every construction call.
+Does const on ArchiveJob::run mean no allocation occurs?|No. It prevents ordinary mutation of that job through this method. The method may create and destroy a separate Record, and allocation can still fail.
+What must a counting mock creator observe for empty input?|Zero calls to make. The text gate runs first. This tests workflow order, which matching one successful output cannot prove.
+Can replacing unique_ptr with shared_ptr fix a null product?|No. Both smart pointers can be empty. The contract check is still required; shared ownership would change lifetime policy without repairing a missing product.
+Why retain the EmptyJob negative test when all current real creators are correct?|A future creator can violate the nonnull rule. The test keeps the framework boundary explicit and prevents a later unchecked dereference.
+# 2
+Two encoders emit identical bytes today. Must their decoders be interchangeable forever?|No. Matching a few outputs does not establish the whole protocol contract. Test the complete supported input domain and malformed inputs before claiming interchangeability.
+Where should a client choose the codec family for one session?|Choose one factory at the session boundary and obtain both products from it. Choosing each product independently makes accidental mixed families easier.
+Would one encode/decode object be simpler than two product interfaces?|Yes, if clients always need both together and neither varies independently. Abstract Factory is useful when several related products must be supplied through separate roles.
+Why test all ten digits instead of only seven?|The domain is tiny, so exhaustive valid-input checks are cheap. They catch endpoint and off-by-one defects that a single demonstration misses.
+Does a unique_ptr<Decoder> express protocol compatibility?|No. It expresses ownership and the Decoder interface. Family compatibility remains a design rule enforced by factory construction and tests.
+What should happen to d=04 in this chapter's protocol?|Reject it. The supported tagged form has exactly one digit, so accepting an extra zero silently broadens the language beyond the stated contract.
+How can a new family be added without editing round_trip?|Implement matching Encoder and Decoder products plus a CodecFactory. round_trip depends on those interfaces and checks that decoding recovers the original digit.
+# 3
+Why does build return a Plan value instead of a reference to the draft?|The finished plan must survive later draft edits and reset. Returning a reference would tie the result to mutable builder storage and make old plans change unexpectedly.
+Should add reject a draft total above ninety immediately in this implementation?|The delivered builder checks each session during add and the combined total during build. Moving the total check changes when failure occurs, so callers and tests must agree on that revised contract.
+Is resetting a builder the same as destroying a finished Plan?|No. Reset clears only draft state. Finished Plan values own their title and durations independently.
+When would a plain Plan constructor be preferable?|When all required values are known together and construction has few choices. A builder helps when a valid result needs several ordered or named steps and drafts may be incomplete.
+Why can named return PlanBuilder& safely here?|It returns a reference to the same live builder, allowing chained calls. The reference must not be retained after that builder dies.
+What test detects accidental accumulation across reset?|Build an old draft, reset, then build a new seven-minute plan. Assert the new total is seven and the old Plan still has its original total.
+Why is a director optional rather than another required object?|A director is simply a reusable recipe. introduction is a function that performs such a recipe; a separate director class adds little when no state or multiple operations are needed.
+# 4
+Why is copying a unique_ptr member not a valid deep-copy implementation?|unique_ptr deliberately forbids copying ownership. The copy constructor must allocate a new string and copy the string value, giving each object its own release responsibility.
+Can clone return the same object under a new unique_ptr?|No. Two independent unique_ptr owners of one address would both delete it. A clone must be a distinct owned object under this contract.
+Why test destruction of the original before using the clone?|It checks independence of lifetime, not just equality of text. A shallow borrow may appear correct until the original goes away.
+Would a copied shared_ptr meet the independent-edit contract?|Not by itself. It would share one mutable object, so edits could leak between copies. Immutable sharing or copy-on-write would need an explicitly different design.
+What does copying through Cue& preserve that slicing Cue by value would lose?|Virtual clone selects the actual concrete kind. Base-value copying would not preserve derived state, and this abstract Cue cannot be instantiated as a value at all.
+Which part of ListCue makes its default copy sufficient?|vector<string> owns its elements as values. Copying it copies the strings; there are no borrowed element pointers that require a separate deep-copy loop.
+When is Prototype unnecessary?|When callers know the concrete type and ordinary value copying already expresses the requirement. Prototype helps copy through a common interface without naming every concrete kind.
+# 5
+Does safe construction of a local static make every operation thread-safe?|No. C++ protects the one-time initialization. Ticket counter updates still require their own lock, which LocalTickets::take holds across checking and incrementing.
+Why does the test use LocalTickets instead of resetting the singleton?|A local instance gives each test fresh state without a global reset hook. Resetting a shared service can interfere with other clients and hide order-dependent tests.
+Does one singleton imply one dispenser across several processes?|No. This object lives within a process. Separate processes have separate memory; a cross-process ticket service needs another coordination mechanism.
+Why should admit accept TicketSource& rather than fetch the global instance itself?|The dependency becomes visible and replaceable. Production can pass the singleton while tests or independent sessions pass local sources.
+What is wrong with unlocking between checking the limit and incrementing?|Two threads could both pass the same check before either advances the counter. Keep the state transition within one lock scope.
+When would a normal owned service be clearer than a singleton?|When lifetime, configuration, or independent sessions matter. One application-owned object passed to clients often gives uniqueness without hidden global access.
+Why can test execution order expose a hidden singleton dependency?|A prior test may consume tickets. A later test then sees an exhausted global source even though its own local setup is fresh; that is shared state leaking across test boundaries.
+# 6
+Why is a reference member not proof that the scale owns its device?|A reference is a borrow. The LegacyScale must outlive ScaleAdapter; destroying the device first leaves the adapter with an invalid reference.
+Would renaming milligrams to grams be a correct adapter?|No. The units differ by a factor of one thousand. Interface compatibility includes meaning and error behavior, not only method names.
+Why subtract calibration after conversion in this example?|The offset is measured in grams. Subtracting it from raw milligrams would mix units and produce a numerically plausible but wrong result.
+When can the adapter be a free function instead of a class?|When the caller needs one conversion and no persistent Scale interface or borrowed device. A class is useful when existing client code already consumes Scale polymorphically.
+What additional test is needed if floating readings replace integer milligrams?|Test nonfinite values and rounding near boundaries. The current integer device cannot produce NaN, but a new floating device can.
+Does a valid converted value prove the device reading was valid?|No. A negative device error might become plausible after careless arithmetic. Validate the raw error signal before converting or calibrating.
+Why keep light_enough independent of LegacyScale?|Its rule is about grams and a Scale contract. Keeping the old device API outside the client makes replacement devices easier to integrate and test.
+# 7
+Why are CountCsv and WarningCsv subclasses unnecessary?|The report supplies meaning and delegates representation to Writer. Csv can be paired with both existing report types without multiplying combined subclasses.
+What lifetime condition must hold for a Report constructed from a Writer reference?|The writer must remain alive for every report call. Constructing a report from a temporary writer and retaining it would leave a dangling borrow.
+Is Bridge the same as converting milligrams to grams?|No. Adapter repairs a mismatch with an existing interface. This Bridge separates report meaning from formatting so both dimensions can grow independently.
+Where should a new warning threshold be implemented?|In report policy, not Csv or Brackets. Writers receive an already chosen label and number and should not decide when a count is high.
+Would a function parameter for formatting be simpler?|Often yes, if the behavior is small and the report does not need a persistent polymorphic interface. Bridge describes the separation, not a requirement to maximize classes.
+Why test one writer with two report kinds?|It checks that the new representation composes with existing meanings. Testing only one combination may miss a hard-coded label or special case.
+Does sharing a const Writer reference guarantee thread safety?|No general guarantee follows from const alone. A concrete writer could use mutable state or external resources; its implementation must supply any concurrency guarantee.
+# 8
+Why is an empty Group valid while a null child is invalid?|An empty group has a well-defined sum of zero. A null entry claims a child position without an object on which minutes or steps can be called.
+Why does Group own children with unique_ptr rather than borrow them?|The tree controls child lifetime. Removing or destroying an owning group recursively destroys its descendants without requiring callers to track each child separately.
+What change would sharing one child between two parents require?|A different ownership model and a clear counting rule. Shared ownership might keep the child alive, but it would not decide whether the shared work should be counted once or twice.
+Why check n against 10000 minus total before adding?|The design rejects an over-budget sum before accepting the new total. Checking only after arbitrary signed addition is unsafe in more general unbounded versions.
+Could a single struct with a variant replace the virtual Work hierarchy?|Yes. A closed set of node kinds may be clearer as values with a tagged alternative. The interface hierarchy is useful when new kinds must be added separately.
+Why are minutes and steps different operations on the same tree?|Minutes measures duration; steps counts leaves. A zero-minute leaf contributes zero to one and one to the other, exposing assumptions hidden by ordinary positive examples.
+What test detects accidentally counting groups as steps?|Nest an empty group and a one-leaf group inside a parent. The leaf count should be one, regardless of the number of internal groups.
+# 9
+Why does reversing two wrappers often change the result?|Each wrapper receives the result of its inner object. Limiting before adding text differs from limiting after adding it, so the composition is generally order-sensitive.
+Does Decorator require every wrapper to add characters?|No. Limit removes characters while keeping the Message interface. The common property is wrapping an object and changing behavior, not always increasing output size.
+Why are wrapper service objects nonmovable while their unique_ptr handles can move?|Moving the handle transfers ownership without relocating the service object. This preserves object identity and avoids supporting partially moved service states.
+Could one formatting function replace this wrapper graph?|Yes for a small fixed pipeline. Wrappers earn their cost when callers assemble and reorder optional behavior through a shared interface.
+Why should a null-inner check run during construction?|It prevents creating a wrapper that can never satisfy text(). Detecting the error at assembly time is clearer than crashing during a later render.
+How would byte limits differ from display-character limits?|std::string::substr counts bytes. A UTF-8 character can use several bytes, so a byte cut may split it. A display-text contract needs a suitable text-aware representation.
+What ownership action happens when the outermost wrapper is destroyed?|Its unique_ptr destroys the inner object, which destroys its own inner object in turn. Virtual destructors allow deletion through Message to reach the actual types.
+# 10
+Why is accepting the prefix of 7x a parsing bug rather than a range bug?|Seven is in range, but the complete token is not an integer. Syntax validation must establish full consumption before numeric range validation is meaningful.
+Does a Facade forbid clients from using subsystem classes directly?|No. It offers a simpler supported route. Direct calls may be useful but must respect the subsystem preconditions, such as validating values before summarizing.
+Why is mean implemented through run rather than duplicating parsing?|run already coordinates syntax, count and range checks. Reusing it keeps a new operation from silently accepting inputs that the old operation rejects.
+What prevents total overflow under this example's stated bounds?|At most one thousand values each lie between minus one hundred and one hundred. The total magnitude is at most one hundred thousand, which fits the required int implementation used here.
+What test should accompany an increased input-count limit?|Recheck arithmetic bounds and memory behavior, not only the new count boundary. A previously safe accumulator may become unsafe when the accepted domain grows.
+Would a single import function be an acceptable facade?|Yes. A facade is an easier entry point over coordinated operations; it need not be a stateful class when a function expresses that job clearly.
+Why can a successful mean test miss malformed-token bugs?|An ordinary numeric string never exercises the parser's end pointer. Test junk suffixes and fractional tokens separately from arithmetic results.
+# 11
+Why does the pool key exclude a Mark's position?|Position differs for each use, so including it would prevent useful style sharing. Name and size define the intrinsic shared value; position remains local.
+Can clearing the pool guarantee immediate destruction of every style?|No. Marks may still own shared references. Clearing drops only the pool's ownership, and each style dies when its last owner releases it.
+Why is shared_ptr<const Style> preferable to shared_ptr<Style> here?|Clients should not mutate a style shared by many marks. The const target blocks ordinary mutation through those handles and protects the meaning of the pool key.
+Does an equal style value imply an equal pointer after clear?|No. A new allocation can hold the same name and size. Value equality and identity are different questions, especially across pool generations.
+When is Flyweight a poor tradeoff?|When there are few repetitions or small cheap values. Maps, pointers and allocation overhead can cost more than storing the data directly; measure the actual workload.
+Why does std::move(left) still leave this Mark usable in the supplied program?|Mark declares copy operations and no move constructor. The rvalue binds to its copy constructor, which copies the shared pointer and position; std::move alone does not perform a move.
+What should a memory test measure besides pool.count()?|Count retained styles and client references over time. A small current pool does not imply little live memory if old marks keep earlier styles alive.
+# 12
+Why must permission be checked before consulting a populated cache?|A cached value is still protected information. Returning it first would let a client read after access was revoked.
+What is the difference between unloaded and uncached here?|Unloaded means no RealHours object exists. Uncached means no remembered opening value exists. Invalidation can clear the value while retaining the already constructed service.
+Why use optional<int> instead of zero as the empty-cache marker?|Midnight is a valid zero opening hour. optional represents absence separately from all valid integer values.
+Does caching promise that opening always returns current source data?|No. This proxy explicitly allows staleness until invalidate or refresh. Freshness is part of the contract and must be clear to callers.
+When would direct access be simpler than this proxy?|When source reads are cheap and no caching, delayed construction or access control is needed. An extra proxy then adds state without solving a real problem.
+Why does a denied refresh leave the old cache intact?|Permission is tested before invalidation. A rejected request must not change the cache or perform a source read under this contract.
+What lifetime issue is not solved by owning RealHours?|Both the proxy and real service borrow Source. Owning the service does not extend the source's lifetime; the caller must keep Source alive.
+# 13
+Why does an empty optional differ from an empty string reply?|An empty optional means decline and continue. A present empty string is still a reply and stops the chain, so the representation separates absence from reply content.
+Why put page validation before the handler loop?|The input rule applies to all destinations. Without one shared gate, an early permissive rule might accept a request that later rules would reject.
+When would a map from format to handler be simpler?|When formats are distinct keys with no overlap or priority. A chain is useful when multiple rules can match and ordered choice is intentional.
+What regression test should accompany inserting a broad handler near the front?|Check requests previously handled by later specific rules. A broad match can shadow them even when its own isolated tests pass.
+Does this chain call every accepting handler?|No. It returns at the first present Reply. A broadcast pipeline is a different contract and needs different control flow and tests.
+Why is a vector of functions sufficient for this example?|Each rule has one operation and needs no exposed object state. A class hierarchy would add machinery without improving this small callable contract.
+What should happen if a Rule itself throws?|The supplied route does not catch it, so the exception propagates and later handlers do not run. Continuing after failure would require an explicit error policy.
+# 14
+Why must rollback run in reverse execution order?|Each command saved the receiver value produced by earlier commands. Reversing unwinds those dependent changes back to the original state.
+Does run_batch roll back every possible exception?|No. It catches out_of_range only and assumes undo succeeds for its intended Move commands. A general transaction system needs policies for other failures and failed undo.
+Why does constructing Move leave Marker unchanged?|A Command represents a request before executing it. Separating creation from execution allows queuing and inspection without immediate side effects.
+What keeps a queued Move's receiver alive?|The caller's lifetime discipline. Move holds Marker by reference, so the marker must outlive queued execution and any later undo.
+Why set applied only after marker.set succeeds?|A rejected target must not mark the command as applied. Otherwise undo could pretend to reverse a change that never occurred.
+Could a lambda replace Command for a fire-and-forget action?|Yes. The interface is useful when the caller needs shared operations such as execute and undo. A single callable can be simpler when undo and stored status are unnecessary.
+What additional test is needed for a batch starting from position one?|Fail after two successful moves and assert rollback reaches one, not zero. This catches implementations that reset to a hard-coded default instead of restoring history.
+# 15
+Why copy the current element out of Cursor::read?|The caller receives an int value rather than a reference into vector storage. A later append cannot invalidate that copied number, though it invalidates the cursor.
+Does the version stamp keep a destroyed Readings owner alive?|No. It detects mutations only while the borrowed owner is alive. Using a cursor after owner destruction is still invalid.
+Why validate done as well as read?|A stale cursor must not silently appear finished or unfinished against a changed collection. Every operation that observes traversal state must respect invalidation.
+Would standard vector iterators be preferable in ordinary code?|Usually, if their invalidation rules satisfy the requirement. This custom cursor adds a checked version contract for teaching and for clients needing explicit stale-view errors.
+Why check version exhaustion before appending?|The version must never wrap to an old value and falsely validate a stale cursor. The check prevents mutation when no fresh stamp is available.
+What does independent position mean when two cursors share one owner?|They read the same collection but track separate indices. Advancing one cursor must not advance the other; appending to the owner invalidates both.
+Why use remaining minus one for reverse read?|remaining counts unread elements. For a nonempty view, the next reverse index is one less than that count; checking empty first prevents unsigned underflow.
+# 16
+Why does NameField report a change instead of directly enabling SaveButton?|The field knows its value but not the complete form policy. Form combines name, consent and hold in one place, preventing inconsistent partial decisions.
+Why are silent button updates important?|If enabling the button emitted another change that repeated coordination, it could form a feedback loop. The mediator updates derived state without recursively notifying itself.
+Does an unchanged name need another event here?|No. NameField checks equality first. The current value has not changed, so the form does not need a redundant recomputation for that input.
+What invariant should a table-driven test cover?|For all combinations, enabled equals nonempty name AND accepted consent AND no hold. Testing the truth table catches accidentally dropped conditions.
+Could Form become too large as fields grow?|Yes. A mediator reduces links among controls but can collect too much policy. Split independent coordination responsibilities when they no longer belong to one coherent form rule.
+Why is copying Form forbidden?|NameField stores a reference to its mediator. A naive copy could leave the copied field reporting to the original form instead of its new owner.
+When would direct field interaction be simpler?|For two controls with one stable rule and no growing web of dependencies. Central coordination becomes valuable as several inputs jointly determine behavior.
+# 17
+Why does History store snapshots instead of accessing Selection's private fields?|Selection owns the rule for creating valid saved state. History can keep and return opaque values without learning or duplicating that internal representation.
+Is this snapshot tied to the identity of one Selection object?|No. It holds a valid interval pair and can restore another Selection. An identity-bound snapshot would need a different contract and checks.
+Why copy the history before eviction and insertion?|If allocation fails while building the proposed history, the original history remains unchanged. Evicting first would lose an entry before the new one was safely stored.
+What happens when undo succeeds?|The most recent snapshot restores the selection, then that history entry is removed. A second undo moves to an older entry rather than repeating the same restore forever.
+When can saving a whole object be too expensive?|When state is very large or changes frequently. Deltas, persistent structures or explicit commands may reduce storage, at the cost of more complex restore behavior.
+What distinguishes Memento from Command undo in these chapters?|Memento restores saved state. Command remembers an operation and enough information to reverse it. Both can support undo but store different kinds of history.
+Why validate a pair before assigning either endpoint?|The relation low <= high spans both values. Partial assignment followed by rejection could leave an invalid interval even though the operation reported failure.
+# 18
+Does a throwing listener undo earlier deliveries?|No. Total changes its sum before its hook, and earlier listeners may already have run. The exception stops later delivery but does not roll back completed effects.
+Why store weak_ptr registrations instead of shared_ptr registrations?|The feed does not own listener lifetime. A client can release its listener without a permanent feed reference keeping it alive.
+What keeps a listener alive during one update call?|Locking its weak_ptr produces a temporary shared_ptr. That temporary keeps the listener alive for the call even if other owners release it meanwhile.
+How does the older snapshot-policy lab differ from Feed?|The snapshot lab copies its listener list before dispatch. Feed instead rejects registration changes during dispatch. These are alternative policies, not conflicting guarantees of Observer itself.
+Why forbid nested publish in this Feed?|Nested delivery can create unexpected order and recursive calls. This example chooses a simple nonreentrant contract and reports the attempt instead of pretending to support it.
+What must a cleanup guard restore after callback failure?|The notifying flag. Without scope-based cleanup, one exception would leave the feed permanently busy even though no delivery is active.
+Does weak_ptr make concurrent subscribe and publish safe?|No. It manages lifetime, not unsynchronized access to the registration vector and flag. This example does not provide a multithreaded publication contract.
+# 19
+Why does next return a proposed state rather than delete the current state itself?|The current virtual call must finish before its object is destroyed. Session receives the proposal and only then replaces its owning pointer.
+What distinguishes an invalid event from a self-transition here?|An invalid event returns no proposal and send returns false. The context remains unchanged without constructing a replacement object.
+Could an enum and switch be simpler for three states?|Yes. This hierarchy demonstrates delegating behavior to state objects. For a small stable transition table, an enum can be clearer and require fewer allocations.
+Why does the capstone's enum not automatically make it the State pattern?|A state machine describes permitted transitions. The object-oriented State pattern specifically delegates state-dependent behavior to state objects; the capstone uses explicit guards instead.
+What test distinguishes cancel from finish?|Begin, then cancel, and assert idle; begin, then finish, and assert done. Both stop active work but permit different next events.
+Why keep state_ private to Session?|The context must control replacement timing and preserve its nonnull current state. Exposing the owner lets callers bypass transition rules or clear it.
+What should happen if allocation of a proposed state fails?|The exception propagates before replacement, leaving the current owned state intact. The caller can report failure without claiming the transition completed.
+# 20
+Why does Monitor validate input before calling the selected strategy?|The algorithms rely on a shared nonempty bounded domain. One gate gives every strategy the same safe preconditions and prevents duplicated checks from drifting.
+Why is Middle's sorting copy deliberate?|The caller's order is not part of the algorithm's output. Sorting the caller's vector would add an unexpected side effect to a read operation.
+Is runtime polymorphism required for every strategy choice?|No. A function, callable parameter or compile-time policy can be simpler. An owned virtual strategy fits this example because callers replace behavior at runtime through one interface.
+Why validate a new strategy before assigning rule_?|A null proposal must not destroy the currently working strategy. Validation before ownership replacement preserves behavior after a rejected change.
+What separates Strategy from State here?|The client selects an algorithm for the same task. There is no state-transition protocol that chooses the next behavior based on events.
+Why test both even and odd sample counts for Middle?|They use different formulas: one central value versus the mean of two central values. An odd-only test can pass while the even path is wrong.
+Does the average's integer result round to nearest?|No. For this nonnegative input domain, integer division discards the fractional part. A different rounding requirement must be stated and tested explicitly.
+# 21
+Why is run nonvirtual while convert is virtual?|The base class fixes the workflow order. Subclasses supply a conversion step without replacing the shared validation, formatting and postcondition checks.
+What is the difference between a required step and an optional hook?|convert is pure virtual and must be supplied. suffix has a default empty result, so subclasses may keep it or override it.
+Why validate converted output if raw input was valid?|A derived hook can still violate its contract. BrokenImport demonstrates that valid raw input alone does not guarantee a valid result.
+Could passing a conversion callable be simpler than inheritance?|Yes, especially for one small varying step. Template Method is useful when a base workflow coordinates several overridable steps or an existing inheritance framework requires them.
+Why should expected-output comparison preserve the trailing space?|The supplied formatter intentionally emits it. Trimming output can hide formatting regressions and make the printed contract differ from what the program actually returns.
+Does const run forbid changes anywhere in the program?|No. It constrains ordinary mutation through this object. A derived hook could still touch mutable or external state; such effects need their own documented contract.
+What regression test protects a new subclass from bypassing input rules?|Call it with empty input and with 101, and require the same base exceptions as older subclasses. Successful new output alone does not verify the inherited gates.
+# 22
+Why does visitor.visit(*this) choose a type-specific overload inside accept?|Inside Bolts::accept, *this has the Bolts type. Overload selection identifies visit(Bolts), then virtual dispatch chooses that operation's implementation on the actual visitor.
+What becomes expensive when adding a new Part kind?|Every Visitor implementation must support the new visit overload. Visitor favors adding operations over adding element types frequently.
+Why is adding Labels cheaper than editing every element's formatting method?|Labels adds a separate operation through the existing accept interface. Bolts and Cable need no new formatting-specific fields or methods.
+Can the same Price instance be reused for several parts?|Yes; it intentionally accumulates cents. Use a fresh visitor when a new independent total is required, or add an explicit reset contract.
+Why check the remaining price capacity before addition?|The one-million-cent limit is part of the visitor invariant. Rejection must leave the accumulated total unchanged instead of accepting a partial or wrapped value.
+Would a switch over a variant be a reasonable alternative?|Yes for a closed set of value-like element kinds. Both approaches make operations handle each kind; their maintenance costs differ in allocation, extensibility and compiler support.
+Why keep quantity validation in Bolts and Cable rather than Price?|Validity of an element must hold for every operation, including Labels. Putting it only in Price would let invalid elements reach other visitors.
+# 23
+Why must unit conversion happen before the alert strategy?|The strategy contract uses Celsius. Comparing raw Fahrenheit with a Celsius threshold can produce a plausible but false alert decision.
+Does a valid prefix of a batch become visible before a bad final record?|No. Monitor stages a private copy and commits only after the entire batch passes. A late error must leave the public record vector unchanged.
+Why compare a new ID with staged.back rather than only the old history?|The staged vector includes earlier records in the same batch. Checking only old history would miss duplicate or decreasing IDs within the new batch.
+Why retain the bool alert in each Record instead of recomputing it in reports?|It records the policy decision made at intake. Recomputing after a strategy change would rewrite the meaning of historical records.
+What is the safe meaning of a band with equal endpoints?|Only that exact Celsius value is inside the safe band. Values below or above it alert; equality itself does not.
+Why permit rule replacement only while idle or paused?|The contract gives changes a clear boundary between intake periods. A running replacement would make the policy timing harder to reason about.
+Does the state enum implement the polymorphic State pattern?|No. It supports an explicit state machine with guards. The capstone intentionally uses the simpler form while combining Adapter, Strategy and Facade responsibilities.
+What survives a failed null replacement while paused?|The old owned rule and all records remain. Check the proposed pointer before assigning it so a rejected change cannot disable future intake.
+Why is a reference to the records vector different from a reference to one element?|The vector object remains a member of Monitor. Commit swaps its storage, which can invalidate references to old elements; a reference to the vector object still names that member.
+What does noexcept on AlertRule::alert promise?|An implementation must not let an exception escape. Violating that promise terminates the program; it is not a mechanism for safely catching arbitrary strategy errors.
+Why does ReportFacade use the classic locale?|The printed decimal separator must match the recorded output regardless of a user's locale. Stable formatting makes exact verification meaningful.
+Can successful output alone prove the batch guarantee?|No. Test a batch with an early valid item and a late invalid one, then compare the complete previous report. Success cases do not exercise partial-commit risks.
+Why should adapter tests include invalid units and nonfinite values?|An unknown unit or NaN can bypass ordinary threshold intuition. The normalization boundary must reject values that cannot satisfy the sensor domain.
+What should an eighth stored record do compared with a ninth?|The eighth fits the fixed capacity; a ninth is rejected before any history change. Capacity is a domain rule here, not a claim that vector cannot grow.
+Why keep ownership tests when every current strategy has no resource besides numbers?|Future strategies may hold resources. Deleting through AlertRule must still call the actual destructor when replacing a rule or destroying Monitor.
+When would copying the whole history stop being an appropriate transaction method?|When histories become large or throughput matters. A bounded eight-record example makes copying simple; larger systems may stage only new data or use another commit representation.
+Why is stop final rather than another kind of pause?|The state contract provides resume only from paused. A stopped monitor cannot restart; a new session requires a new object.
+What integration test distinguishes old and new policy decisions on equal temperatures?|Ingest 61 under OutsideBand(20,60), pause and select AtLeast(100), then ingest 61 again. The first record alerts and the second does not, proving historical decisions persist.

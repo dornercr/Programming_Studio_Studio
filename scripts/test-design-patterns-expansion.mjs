@@ -1,0 +1,15 @@
+import fs from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';import {execFile} from 'node:child_process';import {promisify} from 'node:util';
+import {designPatternsExpansion as pack} from './design-patterns-expansion.mjs';import {labBuildProgram,labParseResponse} from '../src/coding-core.mjs';
+const exec=promisify(execFile),temp=await fs.mkdtemp(path.join(os.tmpdir(),'dp-expansion-')),results=[],worked=[],lines=text=>text.trimEnd().split('\n').map(text=>({text}));
+async function run(binary){try{return {...await exec(binary,[],{timeout:5000}),code:0};}catch(e){if(e.signal)throw e;return {stdout:e.stdout,stderr:e.stderr,code:e.code};}}
+async function compile(name,source){const file=path.join(temp,name+'.cpp'),binary=file.slice(0,-4);await fs.writeFile(file,source);try{await exec('g++',['-std=c++20','-Wall','-Wextra','-Wpedantic','-pthread',file,'-o',binary],{timeout:30000});}catch(e){throw Error(name+' compile: '+e.stderr);}return binary;}
+const jobs=[...pack.questions.map(q=>async()=>{
+ const row={id:q.id,checks:q.tests.length};
+ for(const [kind,source,mode]of [['solution',q.solution,'test'],['sample',q.solution,'run'],['starter',q.starter,'test']]){
+  const binary=await compile(q.id+'-'+kind,labBuildProgram(source,q,mode,'local')),actual=await run(binary);
+  if(kind==='sample'){assert.equal(actual.code,0,q.id+' sample exit: '+actual.stderr);assert.equal(actual.stdout,q.sampleOutput,q.id+' sample output');row.sampleVerified=true;}
+  else{const result=labParseResponse({code:actual.code,didExecute:true,stdout:lines(actual.stdout),stderr:lines(actual.stderr),buildResult:{code:0,stderr:[]}},q,'local');if(kind==='solution'){assert.ok(result.passed,q.id+' solution: '+JSON.stringify(result));row.referencePassed=true;}else{assert.ok(!result.passed,q.id+' starter unexpectedly passes');assert.ok(result.cases.length===q.tests.length,q.id+' starter must run all checks');row.starterFailures=result.cases.filter(c=>!c.passed).map(c=>({label:c.label,actual:c.actual,expected:c.expected}));}}
+ }
+ results.push(row);console.log(q.id+': solution, sample, failing starter verified');
+}),...pack.workedPrograms.map(w=>async()=>{const binary=await compile(w.id,w.source),actual=await run(binary);assert.equal(actual.code,0,w.id);assert.equal(actual.stdout,w.sampleOutput,w.id);assert.equal(actual.stderr,'',w.id);worked.push(w.id);})];
+try{let next=0;const errors=[];await Promise.all(Array.from({length:4},async()=>{while(next<jobs.length){const job=jobs[next++];try{await job();}catch(e){errors.push(String(e));console.error(String(e));}}}));results.sort((a,b)=>a.id.localeCompare(b.id));await fs.writeFile('tests/design-patterns-expansion-verification.json',JSON.stringify({compiler:(await exec('g++',['--version'])).stdout.split('\n')[0],questions:results.length,checks:results.reduce((n,x)=>n+x.checks,0),workedPrograms:worked.length,results,errors},null,2)+'\n');assert.equal(errors.length,0,errors.join('\n'));}finally{await fs.rm(temp,{recursive:true,force:true});}

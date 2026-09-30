@@ -1,3 +1,4 @@
+import {withoutDesignPatternsExpansion,withoutDesignPatternsCoding} from '../scripts/design-patterns-expansion.mjs';
 import {withoutBookOneExpansion} from '../scripts/book-one-expansion.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
 import {sourceData,sourceCoding} from '../scripts/read-source.mjs';
@@ -23,6 +24,6 @@ test('Book III workshops cover all 68 exact C++ listings through 66 runnable pro
  }
 });
 test('All original educational content and every earlier coding item remain byte-equivalent',()=>{
- const baseline=JSON.parse(fs.readFileSync('docs/book-three-baseline.json','utf8'));assert.equal(hash(withoutBookOneExpansion(all)),baseline.contentHash);
- for(const key of ['questions','workedPrograms'])for(const old of baseline[key])assert.equal(hash(coding[key].find(x=>x.id===old.id)),old.hash,old.id);
+ const baseline=JSON.parse(fs.readFileSync('docs/book-three-baseline.json','utf8'));assert.equal(hash(withoutBookOneExpansion(withoutDesignPatternsExpansion(all))),baseline.contentHash);
+ for(const key of ['questions','workedPrograms'])for(const old of baseline[key])assert.equal(hash(withoutDesignPatternsCoding(coding)[key].find(x=>x.id===old.id)),old.hash,old.id);
 });

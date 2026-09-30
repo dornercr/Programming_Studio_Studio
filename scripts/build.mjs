@@ -18,7 +18,7 @@ for(const c of data.courses){
  if(c.series)meta.series.listings=c.series.listings.map(l=>pick(l,['id','topicId','chapter','blockId','language','title','filename','kind','completeCandidate']));
  meta._chapters={};
  for(const f of entry.chunks){const dest=`${dir}/${path.basename(f)}`;await fs.cp(`content/${f}`,`dist/${dest}`,{recursive:true,force:true}).catch(async e=>{if(e.code!=='ENOENT')throw e;await fs.mkdir(`dist/${dir}`,{recursive:true});await fs.copyFile(`content/${f}`,`dist/${dest}`);});const chunk=await readJSON(`content/${f}`);const n=path.basename(f).slice(2,-5);meta._chapters[n]=dest;}
- const lab=await readJSON(`content/${c.id}/coding.json`);meta._coding=`${dir}/coding.json`;meta._lab={questions:lab.questions.map(q=>pick(q,['id','courseId','chapter','title','chapterTitle'])),workedPrograms:lab.workedPrograms.map(q=>pick(q,['id','courseId','chapter','title','chapterTitle','sourceId','sourcePartIds']))};await writeJSON(`dist/${meta._coding}`,lab);
+ const lab=await readJSON(`content/${c.id}/coding.json`);meta._coding=`${dir}/coding.json`;meta._lab={questions:lab.questions.map(q=>pick(q,['id','courseId','chapter','title','chapterTitle'])),workedPrograms:lab.workedPrograms.map(q=>pick(q,['id','courseId','chapter','title','chapterTitle','sourceId','sourcePartIds','sourceVariant']))};await writeJSON(`dist/${meta._coding}`,lab);
  // Separate search-only text preserves the original substring search, including code.
  // Compressed shards are fetched only for a search in the selected book.
  let shard={},bytes=0,i=0;meta._search=[];

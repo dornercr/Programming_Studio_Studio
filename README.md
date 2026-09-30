@@ -1,6 +1,20 @@
 # Programming Studio — modular edition (2.1)
 
-Ten complete curricula by **Dr. Charles Dorner**: Design Patterns, Systems Programming and Machine Organization, and eight C++ textbooks. The lossless modular architecture is retained. Version 2.1 adds the Book III coding expansion without changing any original educational content, source books, lectures, examples, diagrams, earlier coding exercises or study functions.
+Ten complete curricula by **Dr. Charles Dorner**: Design Patterns, Systems Programming and Machine Organization, and eight C++ textbooks. The lossless modular architecture is retained. The current study patch expands Design Patterns and corrects repeated lesson presentation. Original content identities, source books, programs and existing diagrams are preserved; deliberate wording corrections have a reversible editorial ledger.
+
+## Design Patterns: corrected lessons and expanded practice
+
+Design Patterns now has **1,009 flashcards, 47 diagram views, 50 coding challenges with 388 public checks, and 69 checked original programs**. Lessons keep their own explanations and examples; the complete shared workshop appears on the chapter map. Original examples, extension starters and completed extensions have separate recorded outputs. The older Observer snapshot exercise is explicitly distinguished from the chapter's nonreentrant Feed policy.
+
+```sh
+npm ci
+npm run build
+npm test
+npm run test:design-patterns-expansion
+npm run test:design-patterns-expansion-browser
+```
+
+The C++ check needs g++ with C++20 support and pthreads. The browser check needs Playwright Chromium; set `CHROMIUM_PATH` for an existing executable. It compiles browser submissions locally and does not send code to an external service. See [the change report and patch instructions](docs/DESIGN_PATTERNS_STUDY_EXPANSION.md).
 
 ## New: Book III worked examples and coding practice
 
@@ -12,7 +26,7 @@ npm run test:book-three-browser # local server + Chromium; no external code subm
 npm run package:book-three      # standalone companion ZIP after verification
 ```
 
-The standalone companion includes a study guide, separate explained answer key, every original Book III listing, starter/solution/driver files, all workshops, and the original multi-file HarborRoutes project. Its `node verify.mjs` needs only Node and g++, not npm dependencies or internet. See [BOOK_III.md](docs/BOOK_III.md). The full library now has 90 coding questions with 425 checks and 230 source-linked runnable workshops across Books I–III; the rest of the library is preserved.
+The standalone companion includes a study guide, separate explained answer key, every original Book III listing, starter/solution/driver files, all workshops, and the original multi-file HarborRoutes project. Its `node verify.mjs` needs only Node and g++, not npm dependencies or internet. See [BOOK_III.md](docs/BOOK_III.md). That earlier Book III release had 90 coding questions with 425 checks and 230 runnable workshops. With the Book I and Design Patterns study patches, the library has 161 questions with 929 checks and 299 registered worked programs.
 
 ## Build and run
 

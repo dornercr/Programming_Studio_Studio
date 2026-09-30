@@ -10,3 +10,7 @@ await fs.rm('src/content.json');await fs.rm('src/coding-content.json');
 // Reapply the independently authored Book I additions after legacy generators.
 const expansion=spawnSync(process.execPath,['scripts/book-one-expansion.mjs','--apply'],{stdio:'inherit'});
 if(expansion.status!==0)throw Error('Could not restore Book I expansion');
+
+// Restore reviewed Design Patterns corrections and linked studies.
+const dpExpansion=spawnSync(process.execPath,["scripts/design-patterns-expansion.mjs","--apply"],{stdio:"inherit"});
+if(dpExpansion.status!==0)throw Error("Could not restore Design Patterns expansion");

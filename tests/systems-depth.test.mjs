@@ -1,3 +1,4 @@
+import {withoutDesignPatternsExpansion} from '../scripts/design-patterns-expansion.mjs';
 import {sourceData,sourceCoding} from '../scripts/read-source.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import crypto from 'node:crypto';
 const root=new URL('../',import.meta.url),data=sourceData(),c=data.courses.find(c=>c.id==='systems-programming');
@@ -12,4 +13,4 @@ test('Every Systems chapter has all three runnable files, exercises, glossary an
  }
 });
 test('Every Systems lab compiled, ran and matched its output',()=>{const r=JSON.parse(fs.readFileSync(new URL('docs/systems-lab-verification.json',root)));assert.equal(r.programs.length,122);for(const p of r.programs){assert.ok(p.compiled&&p.outputMatch,p.file);assert.ok(!p.error);assert.equal(crypto.createHash('sha256').update(fs.readFileSync(new URL(p.file,root))).digest('hex'),p.sha256);}});
-test('Approved Design Patterns curriculum is unchanged',()=>{const before=fs.readFileSync(new URL('docs/design-patterns-approved.sha256',root),'utf8').trim();const stable=x=>Array.isArray(x)?'['+x.map(stable).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+stable(x[k])).join(',')+'}':JSON.stringify(x);const actual=crypto.createHash('sha256').update(stable(data.courses[0])).digest('hex');assert.equal(actual,before);});
+test('Approved Design Patterns curriculum is reconstructible outside the explicit editorial ledger',()=>{const before=fs.readFileSync(new URL('docs/design-patterns-approved.sha256',root),'utf8').trim();const stable=x=>Array.isArray(x)?'['+x.map(stable).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+stable(x[k])).join(',')+'}':JSON.stringify(x);const actual=crypto.createHash('sha256').update(stable(withoutDesignPatternsExpansion(data).courses[0])).digest('hex');assert.equal(actual,before);});
