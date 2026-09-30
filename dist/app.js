@@ -639,7 +639,7 @@
     return `<div class="lesson-bottom teaching-footer"><button class="btn" data-action="previous" ${index<=0?'disabled':''}>${icon('left')} Previous lesson</button><button class="btn ${read?'btn-success':'btn-primary'}" data-action="reviewed" aria-pressed="${read}">${icon('check')} ${read?'Reviewed':'Mark reviewed'}</button><button class="btn" data-action="next" ${index>=list.length-1?'disabled':''}>Next lesson ${icon('right')}</button></div>`;
   }
   function renderChapterMap(t,g){
-    return `<article class="panel teaching-reader chapter-guide">${guideTrail(t,g)}<div class="teaching-hero"><div><div class="flex gap-2 items-center justify-between">${topicBadge(t)}${bookmarkButton(t)}</div><span class="teaching-kicker">CHAPTER MAP</span><h2 class="lesson-heading">${escape(g.title)}</h2><p class="chapter-problem">${escape(g.workshop.problem)}</p><div class="teaching-actions"><button class="btn btn-primary" data-action="workshop-jump">Start with the example ${icon('right')}</button><button class="btn" data-action="read-topic" data-id="${escape(g.firstLessonId||g.startTopicId)}">Read the first lesson</button></div></div><aside class="chapter-goals"><span class="teaching-kicker">BY THE END, YOU CAN</span><ul>${g.objectives.map(x=>`<li>${escape(x)}</li>`).join('')}</ul><p>${g.sections.length} sections · ${g.sections.reduce((n,s)=>n+s.topics.length,0)} reading entries<br>One connected example, with discussion and practice.</p></aside></div><section class="map-intro"><h3>Your route through this chapter</h3><p>The numbered sections are the outline. Open a lesson for its explanation, or start with the chapter’s worked example below.</p></section>${chapterMapCards(g)}${workshopPanel(g)}<section class="next-practice"><h3>Now use the idea</h3><p>Explain the result without looking. Change one assumption. Then test your reasoning with the chapter’s questions.</p><div class="flex gap-2 flex-wrap"><button class="btn" data-action="mode" data-mode="flashcards">${icon('layers')} Recall the concepts</button><button class="btn" data-action="mode" data-mode="scenarios">${icon('scenario')} Apply the chapter</button>${course().diagrams?.[String(t.chapter)]?`<button class="btn" data-action="mode" data-mode="uml">${icon('grid')} Follow the UML</button>`:''}</div></section>${teachingNotes(t)}${readingFooter(t)}</article>`;
+    return `<article class="panel teaching-reader chapter-guide">${guideTrail(t,g)}<div class="teaching-hero"><div><div class="flex gap-2 items-center justify-between">${topicBadge(t)}${bookmarkButton(t)}</div><span class="teaching-kicker">CHAPTER MAP</span><h2 class="lesson-heading">${escape(g.title)}</h2><p class="chapter-problem">${escape(g.workshop.problem)}</p><div class="teaching-actions"><button class="btn btn-primary" data-action="workshop-jump">Start with the example ${icon('right')}</button><button class="btn" data-action="read-topic" data-id="${escape(g.firstLessonId||g.startTopicId)}">Read the first lesson</button></div></div><aside class="chapter-goals"><span class="teaching-kicker">BY THE END, YOU CAN</span><ul>${g.objectives.map(x=>`<li>${escape(x)}</li>`).join('')}</ul><p>${g.sections.length} sections · ${g.sections.reduce((n,s)=>n+s.topics.length,0)} reading entries<br>One connected example, with discussion and practice.</p></aside></div><section class="map-intro"><h3>Your route through this chapter</h3><p>The numbered sections are the outline. Open a lesson for its explanation, or start with the chapter’s worked example below.</p></section>${chapterMapCards(g)}${patternInlineExamples(t.chapter)}${workshopPanel(g)}<section class="next-practice"><h3>Now use the idea</h3><p>Explain the result without looking. Change one assumption. Then test your reasoning with the chapter’s questions.</p><div class="flex gap-2 flex-wrap"><button class="btn" data-action="mode" data-mode="flashcards">${icon('layers')} Recall the concepts</button><button class="btn" data-action="mode" data-mode="scenarios">${icon('scenario')} Apply the chapter</button>${course().diagrams?.[String(t.chapter)]?`<button class="btn" data-action="mode" data-mode="uml">${icon('grid')} Follow the UML</button>`:''}</div></section>${teachingNotes(t)}${readingFooter(t)}</article>`;
   }
   function sourceMaterial(t){
     const companion=(t.sourceCompanions||[]).map(id=>course().topics.find(x=>x.id===id)).filter(Boolean);
@@ -656,7 +656,7 @@
   }
   function renderPatternLesson(t,g){
     const discussion=t.reading?.discussion;
-    return `<article class="panel teaching-reader pattern-focused-lesson">${guideTrail(t,g)}<div class="teaching-lesson-head"><div class="flex items-center justify-between gap-3">${topicBadge(t)}${bookmarkButton(t)}</div><h2 class="lesson-heading">${escape(t.reading?.title||t.title)}</h2></div><section class="lesson-explanation" id="lesson-idea">${lessonTheory(t)}</section>${discussionPanel(discussion,'Discuss this lesson')}<section class="context-link"><h3>Put this lesson into practice</h3><p>The complete chapter example, trace, output and design comparison are on the chapter map. The Code view keeps the original example, extension starting point and solution separate.</p><div class="flex gap-2 flex-wrap"><button class="btn" data-action="chapter-map">Open ${escape(g.title)} worked example</button><button class="btn" data-action="mode" data-mode="code">Read the complete C++</button><button class="btn" data-action="mode" data-mode="uml">Follow the diagrams</button><button class="btn" data-action="lab-open-question" data-id="dpx-${String(t.chapter).padStart(2,'0')}-a">Repair and test this chapter</button></div></section>${sourceMaterial(t)}${bookSourceLine(t)}${teachingNotes(t)}${readingFooter(t)}</article>`;
+    return `<article class="panel teaching-reader pattern-focused-lesson">${guideTrail(t,g)}<div class="teaching-lesson-head"><div class="flex items-center justify-between gap-3">${topicBadge(t)}${bookmarkButton(t)}</div><h2 class="lesson-heading">${escape(t.reading?.title||t.title)}</h2></div><section class="lesson-explanation" id="lesson-idea">${lessonTheory(t)}</section>${patternRelatedCode(t)}${discussionPanel(discussion,'Discuss this lesson')}<section class="context-link"><h3>Put this lesson into practice</h3><p>The complete chapter example, trace, output and design comparison are on the chapter map. The Code view keeps the original example, extension starting point and solution separate.</p><div class="flex gap-2 flex-wrap"><button class="btn" data-action="chapter-map">Open ${escape(g.title)} worked example</button><button class="btn" data-action="mode" data-mode="code">Read the complete C++</button><button class="btn" data-action="mode" data-mode="uml">Follow the diagrams</button><button class="btn" data-action="lab-open-question" data-id="dpx-${String(t.chapter).padStart(2,'0')}-a">Repair and test this chapter</button></div></section>${sourceMaterial(t)}${bookSourceLine(t)}${teachingNotes(t)}${readingFooter(t)}</article>`;
   }
   function renderGuidedLesson(t,g){
     if(course().id==='design-patterns-cpp'&&t.chapter>=1&&t.chapter<=23)return renderPatternLesson(t,g);
@@ -701,6 +701,60 @@
       case 'guide-section':state.mode='outline';state.lessonView='map';renderAll();document.getElementById('map-'+el.dataset.section)?.scrollIntoView({behavior:'instant',block:'start'});break;
       case 'download-workshop':{const w=chapterGuide()?.workshop;if(!w)break;const a=document.createElement('a'),u=URL.createObjectURL(new Blob([w.code],{type:'text/plain'}));a.href=u;a.download=`${course().id}_ch${String(topic().chapter).padStart(2,'0')}_workshop.cpp`;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);break;}
     }
+  });
+
+  // BEGIN OUTLINE EXAMPLE MODEL — also exercised by the local C++ verification.
+  function patternFormatCpp(code){
+    let out='',indent=0,line='',quote='',escaped=false,parens=0;const blockParens=[];
+    const flush=()=>{if(line.trim()){out+='  '.repeat(Math.max(0,indent))+line.trim()+'\n';line='';}};
+    for(const ch of code){
+      if(quote){line+=ch;if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch===quote)quote='';continue;}
+      if(ch==='"'||ch==="'"){quote=ch;line+=ch;continue;}
+      if(ch==='(')parens++;if(ch===')')parens--;
+      if(ch==='{'){blockParens.push(parens);line+=ch;flush();indent++;}
+      else if(ch==='}'){flush();indent--;blockParens.pop();line+=ch;}
+      else if(ch===';'&&parens===(blockParens.at(-1)??0)){line+=ch;flush();}
+      else line+=ch;
+    }
+    flush();return out.trimEnd();
+  }
+  function patternInlineModels(c,n){
+    if(c.id!=='design-patterns-cpp')return [];
+    const source=c.examples?.[String(n)]?.solutions;if(!source?.code)return [];
+    const prefix=source.code.split('int main()')[0];
+    const helper=`// True only if the callable throws the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n`;
+    return c.topics.filter(t=>t.chapter===n).flatMap(t=>t.cards||[]).filter(card=>card.category==='trace'&&card.id.startsWith('dpx-')).map((card,i)=>{
+      const split=card.answer.indexOf('. '),value=card.answer.slice(0,split),why=card.answer.slice(split+2),expected=value.startsWith('"')?JSON.parse(value):value;
+      const call=`std::cout << std::boolalpha << ${card.code} << '\\n';`;
+      return {id:card.id,title:card.question.split('. What does')[0],code:patternFormatCpp(call),output:expected+'\n',why,labId:card.labId,filename:`dp_ch${String(n).padStart(2,'0')}_outline_${i+1}.cpp`,sourceFilename:source.filename.startsWith('companion/')?source.filename:'companion/'+source.filename,program:prefix+helper+'\nint main() {\n'+patternFormatCpp(call)+'\n}\n'};
+    });
+  }
+  // END OUTLINE EXAMPLE MODEL
+
+  function patternInlineExamples(n){
+    const examples=patternInlineModels(course(),n);if(!examples.length)return '';
+    return `<section class="outline-examples" id="outline-code-examples"><span class="teaching-kicker">WORKED C++ · READ IT HERE</span><h3>Eight examples you can trace and run</h3><p>These calls use the completed chapter extension. Each one isolates a result or boundary. The complete program below each explanation includes every required class and header.</p><details class="answer-reveal"><summary>How to read the example syntax</summary><p><code>[] { … }()</code> creates and immediately calls a small unnamed function, called a lambda. Its <code>return</code> supplies the value printed by <code>std::cout</code>. <code>std::boolalpha</code> prints Boolean values as <code>true</code> or <code>false</code>; <code>'\\n'</code> ends the output line.</p><p><code>dpx_rejects&lt;E&gt;</code> is a supplied test helper: it returns true when the action throws an exception of type E. <code>[&amp;]</code> lets a lambda borrow nearby variables. <code>auto</code> asks the compiler to determine a variable's type. Braces hold a body or an initializer list. In <code>for (const auto&amp; item : items)</code>, the colon means “for each item in items”; the reference avoids copying, and const prevents ordinary edits through that reference.</p></details>${examples.map(e=>`<article class="outline-example"><h4>${escape(e.title)}</h4><p class="code-ref">Call-site excerpt using ${escape(e.sourceFilename)}. Complete runnable file: ${escape(e.filename)}.</p><div class="outline-example-grid"><div><pre><code>${escape(e.code)}</code></pre><h5>Expected output</h5><pre class="expected-output"><code>${escape(e.output)}</code></pre>${e.output==='\n'?'<p>The program prints one empty line.</p>':''}</div><aside><h5>What happens, and why</h5>${prose(e.why)}<h5>Try changing one thing</h5><p>Change one input or operation in this call. Predict the new result before running it. For a checked repair with hints and a reference solution, open the matching challenge.</p><button class="btn" data-action="lab-open-question" data-id="${escape(e.labId)}">Open related repair</button></aside></div><details class="answer-reveal"><summary>Complete program and build command</summary><button class="btn" data-action="download-outline-example" data-id="${escape(e.id)}">Download this complete example</button><pre><code>g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread ${escape(e.filename)} -o example
+./example</code></pre><pre><code>${escape(e.program)}</code></pre></details></article>`).join('')}</section>`;
+  }
+  function patternRelatedCode(t){
+    if(t.title==='Execution trace')return patternInlineExamples(t.chapter);
+    if(t.title==='Failure cases and repairs'){
+      const cards=(t.cards||[]).filter(c=>c.category==='debug');
+      return cards.length?`<section class="outline-examples"><h3>Spot the defect in the code</h3>${cards.map(c=>`<article class="outline-example"><p>${escape(c.question)}</p><pre><code>${escape(c.code)}</code></pre><h4>Why this is wrong and how to repair it</h4>${prose(c.answer)}<button class="btn" data-action="lab-open-question" data-id="${escape(c.labId)}">Test this repair</button></article>`).join('')}</section>`:'';
+    }
+    // Existing code and exercise answers remain in their own lessons. Add actual
+    // implementation detail only to prose-only mechanism/role lessons.
+    if(t.blocks.some(b=>b.type==='code')||!t.sectionId?.endsWith('-2'))return '';
+    const focuses=course().diagrams?.[String(t.chapter)]?.focus||[];
+    const words=(t.summary+' '+(t.reading?.paragraphs||[]).join(' ')).match(/[A-Za-z_][A-Za-z_0-9]{3,}/g)||[];
+    const score=f=>[...new Set(words)].filter(w=>f.code.includes(w)).length;
+    const f=[...focuses].sort((a,b)=>score(b)-score(a))[0];if(!f)return '';
+    return `<section class="outline-examples"><h3>Connect the explanation to actual C++</h3><h4>${escape(f.title)}</h4><p>${escape(f.where)} ${escape(f.what)}</p><p class="code-ref">${escape(f.file)}:${f.lineStart}–${f.lineEnd} · Excerpt from the original example.</p><pre><code>${escape(f.code)}</code></pre><h4>Read it line by line</h4><ol class="outline-code-lines">${f.explain.map((text,i)=>`<li><strong>Line ${f.lineStart+i}:</strong> ${escape(text)}</li>`).join('')}</ol><h4>Why this design works</h4>${prose(f.why)}<h4>Rule to preserve</h4>${prose(f.invariant)}<h4>A common mistake</h4>${prose(f.risk)}</section>`;
+  }
+  document.addEventListener('click',event=>{
+    const el=event.target.closest('[data-action="download-outline-example"]');if(!el)return;
+    const e=patternInlineModels(course(),topic().chapter).find(e=>e.id===el.dataset.id);if(!e)return;
+    const url=URL.createObjectURL(new Blob([e.program],{type:'text/plain'})),a=document.createElement('a');a.href=url;a.download=e.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
 
     // Complete EPUB reading and source-led practice for the eight-book C++ series.
