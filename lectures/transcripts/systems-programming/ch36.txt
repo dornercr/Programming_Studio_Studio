@@ -1,0 +1,699 @@
+Systems Programming and Machine Organization
+Chapter 36: Memory-Mapped Files — extent, backing, and lifetime
+Dr. Charles Dorner
+
+1. Mapping gives bytes an address, with a bounded lifetime
+Problem and first experiment
+
+SAY
+A file parser can repeatedly call read, or it can ask the operating system to make a file region accessible through memory addresses. The second option is memory mapping. It changes how the program reaches bytes; it does not remove file size, permission, and lifetime rules. A pointer into the region is valid only inside the mapped extent while that mapping remains alive. Pages may need operating-system work when first touched, so a successful mmap is not proof that every later access is immediate. We will use controlled temporary files and bounded accesses to study the mechanism without touching device registers or existing documents.
+
+DO
+Name the mapping owner before showing pointer syntax.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.004 · 36.1 mmap
+
+------------------------------------------------------------
+
+2. The mapping can outlive its original descriptor
+Problem and first experiment
+
+SAY
+This actual Linux and POSIX program writes byte values three, five, and seven, then creates a read-only private mapping of those three bytes. It closes the original FILE before reading through the mapping. On this platform, closing that descriptor does not remove the established mapping, so the sum is still fifteen. Only munmap ends the address range used by the loop. The program checks mapping failure against MAP_FAILED, not against null. The output proves the mapping-lifetime relationship in this controlled case; it does not claim that a separate process may safely truncate the backing file or that pages were copied at a particular moment.
+
+DO
+Predict fifteen before Run and point to the actual lifetime-ending call.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch36.json → SP36.006 · 36.2 Address mappings
+
+------------------------------------------------------------
+
+3. Mapping offsets have alignment rules
+Problem and first experiment
+
+SAY
+A record beginning at byte nine thousand is not necessarily a legal mapping offset. With an illustrative page size of four thousand ninety-six, the aligned base is eight thousand one hundred ninety-two and the internal displacement is eight hundred eight. To access one hundred record bytes, the requested region must cover at least nine hundred eight bytes from that base. This arithmetic is about mapping extent, not record interpretation. Query the actual platform requirements rather than assuming the illustrative page size. Also check that displacement plus requested length fits the addressable size and remains within the stable file region before constructing pointers.
+
+DO
+Separate the page-aligned base from the requested record offset.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.004 · 36.1 mmap
+
+------------------------------------------------------------
+
+4. Private writes are not file updates
+Problem and first experiment
+
+SAY
+The second actual mapping demo begins with byte value four. It maps that byte privately with read and write permission, stores nine through the mapping, and reads the backing file through pread. The mapped value is nine, while the backing value remains four. That is the declared private-modification behavior, not a failed save. A program expecting file updates selected the wrong sharing contract. MAP_SHARED has different propagation rules, but it still requires synchronization and an appropriate durability protocol for stronger promises. The test uses one process and one byte, checks all relevant operations, and never treats a private assignment as evidence of persistent output.
+
+DO
+Predict the two different byte values before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch36.json → SP36.020 · Worked example — Private versus shared mapping
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Model a file-backed byte sequence. A private view gets its own copy; a shared view refers to the backing bytes.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Contrast an independent snapshot with a shared reference to backing bytes. Then destroy the original handle and verify a copied owner still keeps the backing alive.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+This string model does not implement mmap or prove that a write is durable. A real mapping can also become unsafe if the file is truncated underneath it.
+
+A related failure in the generalized operation is concrete: Store only a raw pointer from backing.get(), reset the last owner, then dereference that pointer.
+
+The repair changes the operation at the point where the rule can be enforced: Retain ownership for as long as the object must live, or ensure a borrowed view ends before its owner. A borrowed address cannot keep backing alive.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Shared ownership and shared data are related but different facts. A shared_ptr keeps this object alive; a separate string snapshot copies its characters. A real memory mapping is governed by OS mapping and file-lifetime rules rather than shared_ptr counts. The model makes the intended aliasing and cleanup relationships inspectable without pretending to implement mmap.
+
+A plausible alternative: Explicit read/write calls can be clearer for streaming access; mapping can suit random access when lifetime and bounds are controlled.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.03
+
+------------------------------------------------------------
+
+8. Chapter 36 — Memory-Mapped Files
+Systems mechanisms and source lecture
+
+SAY
+A memory mapping exposes a file region through virtual addresses. The program accesses bytes with ordinary loads and stores, while the kernel supplies backing pages and enforces mapping permissions. This can simplify random access, but it does not remove I/O, faults, concurrency, or lifetime concerns. [ R14 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.001, SP36.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+36.1 mmap 36.2 Address mappings 36.3 File-backed pages 36.4 Page faults ...plus 6 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.003
+
+------------------------------------------------------------
+
+10. mmap
+Systems mechanisms and source lecture
+
+SAY
+mmap requests a mapping with a length, protection flags, sharing mode, descriptor, and offset. Failure is reported as MAP_FAILED , not as a null pointer. A zero-length mapping is not a valid substitute for handling an empty file. The offset must satisfy the platform’s alignment requirements, normally a multiple of the relevant page size. Mapping an arbitrary record offset often requires rounding the mapping base down to a page boundary and retaining an internal displacement, with overflow checks on the total mapped length.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.004, SP36.005
+
+------------------------------------------------------------
+
+11. Address mappings
+Systems mechanisms and source lecture
+
+SAY
+The returned address identifies the beginning of the mapping in the process’s virtual space. Its validity lasts until the mapping is removed or otherwise changed. Closing the original descriptor does not by itself remove an established mapping on Linux. Pointers into the region become invalid after munmap . A function borrowing the mapping must not retain those pointers beyond the owner’s lifetime. Mapping ownership deserves the same discipline as allocation ownership: one clear owner, explicit extent, and structured cleanup.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.006, SP36.007
+
+------------------------------------------------------------
+
+12. File-backed pages
+Systems mechanisms and source lecture
+
+SAY
+File-backed pages associate virtual regions with file contents. A shared writable mapping can propagate modifications to the underlying file according to synchronization and filesystem rules. A private mapping provides private modification semantics instead of updating the file with those writes. Mapping flags are not a complete interprocess synchronization protocol. Multiple writers need an agreed layout and synchronization mechanism. Data-race rules still apply to threads in one process, and process-shared synchronization requires facilities designed for that purpose.
+
+In plain English: The program uses a map of memory addresses. The operating system translates that map to where the data is actually stored.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.008, SP36.009
+
+------------------------------------------------------------
+
+13. Page faults
+Systems mechanisms and source lecture
+
+SAY
+The first access to a mapped page may fault so that the kernel can establish backing. Later accesses can still fault under memory-management activity. A mapping therefore does not promise that every load has register-like or even DRAM-like cost. Concurrent file truncation is a serious hazard. Accessing a mapped region whose backing has been removed can generate SIGBUS on Linux. Checking file size before mapping is not enough when another actor can shrink the file afterward. The example below requires a stable regular file throughout the mapping’s lifetime.
+
+In plain English: The program uses a map of memory addresses. The operating system translates that map to where the data is actually stored.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.010, SP36.011
+
+------------------------------------------------------------
+
+14. Mapping permissions
+Systems mechanisms and source lecture
+
+SAY
+Protection flags specify permitted reads, writes, and instruction execution. They must be compatible with the mapping and descriptor’s access rights. A read-only mapping is appropriate for a checksum or parser that does not need to modify the file. Use the least authority required. Do not request writable executable memory merely because it seems convenient. For writable shared file mappings, msync can request synchronization under its documented semantics, while a complete durable-update protocol may require additional filesystem operations. [ R31 , R32 , R33 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.012, SP36.013
+
+------------------------------------------------------------
+
+15. Memory-mapped I/O
+Systems mechanisms and source lecture
+
+SAY
+The phrase memory-mapped I/O also describes device registers placed in an address map. Device mappings are not ordinary file-data mappings: accesses can have side effects, supported widths, ordering requirements, and cacheability constraints. A volatile pointer alone does not provide every device-ordering or synchronization guarantee. Device access must follow the operating system’s driver interfaces and architecture-specific requirements. This book’s user-space file-mapping labs do not access physical device registers.
+
+In plain English: The program asks the operating system to move bytes to or from a resource, much like using a numbered ticket to ask a clerk for the right item.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.014, SP36.015
+
+------------------------------------------------------------
+
+16. A read-only mapped byte sum
+Systems mechanisms and source lecture
+
+SAY
+This Linux/POSIX utility accepts a regular-file path, handles the empty-file case, checks that the length fits size_t , maps read-only, and computes an unsigned 64-bit byte sum. The sum is a teaching checksum, not a cryptographic integrity mechanism. Companion listing: ch36/mapped_sum.c A file containing exactly ABC produces 198 because 65 + 66 + 67 = 198 on the stated ASCII-compatible reference environment. A binary fixture containing bytes 0, 1, 127, 128, and 255 produces 511. The test suite supplies controlled temporary files; it does not mutate an existing user document.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.016, SP36.017
+
+------------------------------------------------------------
+
+17. Summing a mapped file
+Systems mechanisms and source lecture
+
+SAY
+Map a read-only file region with mmap , then treat the mapped bytes as memory within the valid range. The first access to a page may fault so the kernel can establish a page backed by file data. Subsequent accesses can proceed through ordinary load instructions. Unmapping ends the virtual mapping, not the file’s existence.
+
+In plain English: The program asks the operating system to move bytes to or from a resource, much like using a numbered ticket to ask a clerk for the right item.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.018, SP36.019
+
+------------------------------------------------------------
+
+18. Private versus shared mapping
+Systems mechanisms and source lecture
+
+SAY
+With a private writable file mapping, a process can modify its page without necessarily updating the underlying file; copy-on-write supplies private pages. With a shared mapping, permitted writes can propagate to the file-backed shared state. The mapping flags therefore define visibility semantics, not merely performance.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.020, SP36.021
+
+------------------------------------------------------------
+
+19. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 36. Run the utility on the empty fixture, ABC , and the five-byte binary fixture. Compare with the Chapter 34 copy path followed by an independent byte-sum calculation. Do not truncate a live mapping as an ordinary test; analyze that failure contract instead. Review 1. Why is mapping == NULL the wrong failure test? Review 2. Why does a stable-file assumption matter even after a successful fstat ?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.022, SP36.023
+
+------------------------------------------------------------
+
+20. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is memory-mapped files. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.024
+
+------------------------------------------------------------
+
+21. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Process Creation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.025
+
+------------------------------------------------------------
+
+22. Failure is MAP_FAILED; empty input is its own case
+Reason about the implementation
+
+SAY
+An allocation-style habit can be misleading here: mmap reports failure with MAP_FAILED, not a null pointer. A check written as if not region does not implement that contract. An empty file also needs a direct path because a zero-length mapping is not the right way to represent an empty region. For a checksum, the empty result can be returned without constructing a mapping. Before mapping nonempty data, check that the file length fits the program's size type and that the object has the expected capabilities. These guards make later pointer arithmetic meaningful. The compiler accepts pointer syntax without proving the external mapped extent.
+
+DO
+Compare the documented failure sentinel with an ordinary pointer-null check.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.004 · 36.1 mmap
+
+------------------------------------------------------------
+
+23. A page fault is deferred work, not always a bug
+Reason about the implementation
+
+SAY
+Accessing a mapped address can trigger a page fault so the kernel establishes the page needed for that virtual address. That is often normal deferred work, not a crash. But an address being inside the originally mapped length is not enough if another actor truncates the backing file. On Linux, touching missing backing can produce SIGBUS. The source therefore requires a stable regular file throughout its read-only checksum operation. Checking size once does not lock the file forever. Keep that stability assumption in the API contract, especially if a later maintenance change allows another component to resize the same file while the mapping is borrowed.
+
+DO
+Distinguish a normal demand fault from lost backing after truncation.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.010 · 36.4 Page faults
+
+------------------------------------------------------------
+
+24. Permissions and sharing answer different questions
+Reason about the implementation
+
+SAY
+A writable private mapping and a read-only shared mapping answer different combinations of questions. Protection says what access this process may perform. Sharing says how modifications relate to backing and other mappings. Neither is a lock. Two threads concurrently changing shared mapped data still need synchronization under the language rules, and separate processes need facilities designed for shared-process use. Use only the authority needed: a parser that never edits data should normally request read-only access. Adding write or execute permission for convenience increases the set of mistakes that can affect the region without helping the parsing requirement.
+
+DO
+Ask separate questions for permission, visibility, and synchronization.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.012 · 36.5 Mapping permissions
+
+------------------------------------------------------------
+
+25. Device mappings are a different contract
+Reason about the implementation
+
+SAY
+The phrase memory-mapped I/O can refer to device registers as well as ordinary file data. A device read might acknowledge an event, and a write might start hardware work. Access width, order, and cacheability can therefore be part of correctness. A plain file parser's habit of reading bytes freely is not a valid device protocol. Marking a pointer volatile does not automatically provide every hardware ordering or interthread synchronization guarantee. Follow the operating system's driver interface and the device's documented rules. Our user-space temporary-file programs deliberately make no claim about physical device access; they teach file mapping only.
+
+DO
+State the boundary between the demonstrated file mapping and device protocols.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.014 · 36.6 Memory-mapped I/O
+
+------------------------------------------------------------
+
+26. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Model a file-backed byte sequence. A private view gets its own copy; a shared view refers to the backing bytes.
+
+Create views. both initially read cat. The model makes sharing policy explicit.
+
+Write the private view. private_view becomes bat. The backing bytes remain unchanged by this private write.
+
+Write the shared view. backing becomes car. The shared reference names the same bytes. Real mapped I/O also needs bounds, lifetime, synchronization, and persistence rules.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch36/main.cpp
+
+------------------------------------------------------------
+
+27. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Create views. both initially read cat. The model makes sharing policy explicit.
+
+Write the private view. private_view becomes bat. The backing bytes remain unchanged by this private write.
+
+Write the shared view. backing becomes car. The shared reference names the same bytes. Real mapped I/O also needs bounds, lifetime, synchronization, and persistence rules.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch36/main.cpp
+
+------------------------------------------------------------
+
+28. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Shared ownership and shared data are related but different facts. A shared_ptr keeps this object alive; a separate string snapshot copies its characters. A real memory mapping is governed by OS mapping and file-lifetime rules rather than shared_ptr counts. The model makes the intended aliasing and cleanup relationships inspectable without pretending to implement mmap.
+
+Retain ownership for as long as the object must live, or ensure a borrowed view ends before its owner. A borrowed address cannot keep backing alive.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch36/main.cpp:1-13
+
+------------------------------------------------------------
+
+29. Private and shared mappings have different write effects
+Code, diagrams, and debugging
+
+SAY
+Private and shared mappings have different write effects. This value copy owns a separate string initialized to cat, modeling a private snapshot.
+
+Model a file-backed byte sequence. A private view gets its own copy; a shared view refers to the backing bytes.
+
+The model makes sharing policy explicit. The backing bytes remain unchanged by this private write. The shared reference names the same bytes. Real mapped I/O also needs bounds, lifetime, synchronization, and persistence rules.
+
+This value copy owns a separate string initialized to cat, modeling a private snapshot.
+
+The & creates an alias for the existing backing string, modeling shared visibility.
+
+Changing the private copy produces bat while leaving backing untouched.
+
+Changing the shared alias changes backing to car. This demonstrates visibility rules but does not call mmap or model persistence.
+
+The private string owns separate characters while shared_view aliases backing. A write through the shared alias is visible through backing.
+
+This string model does not implement mmap or prove that a write is durable. A real mapping can also become unsafe if the file is truncated underneath it. In the extended lab: Store only a raw pointer from backing.get(), reset the last owner, then dereference that pointer.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch36/main.cpp:7-10
+
+------------------------------------------------------------
+
+30. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Store only a raw pointer from backing.get(), reset the last owner, then dereference that pointer.
+
+Retain ownership for as long as the object must live, or ensure a borrowed view ends before its owner. A borrowed address cannot keep backing alive.
+
+The reference solution makes the contract executable with assertions. Shared ownership and shared data are related but different facts. A shared_ptr keeps this object alive; a separate string snapshot copies its characters. A real memory mapping is governed by OS mapping and file-lifetime rules rather than shared_ptr counts. The model makes the intended aliasing and cleanup relationships inspectable without pretending to implement mmap.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.06
+
+------------------------------------------------------------
+
+31. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch36/starter.cpp. Implement the first acceptance case for return an owned mapping snapshot. State the function inputs and result before adding code. First case: Private snapshot edits do not alter shared backing.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.07
+
+------------------------------------------------------------
+
+32. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch36/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.08
+
+------------------------------------------------------------
+
+33. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Store only a raw pointer from backing.get(), reset the last owner, then dereference that pointer. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.09
+
+------------------------------------------------------------
+
+34. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Would unmapping the private view make its changes appear in the file? Compare the selected design with this plausible alternative: Explicit read/write calls can be clearer for streaming access; mapping can suit random access when lifetime and bounds are controlled.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.10
+
+------------------------------------------------------------
+
+35. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch36/starter.cpp. Contrast an independent snapshot with a shared reference to backing bytes. Then destroy the original handle and verify a copied owner still keeps the backing alive. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch36/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.11
+
+------------------------------------------------------------
+
+36. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Return an owned mapping snapshot belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.12
+
+------------------------------------------------------------
+
+37. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Contrast an independent snapshot with a shared reference to backing bytes. Then destroy the original handle and verify a copied owner still keeps the backing alive.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch36/starter.cpp
+
+------------------------------------------------------------
+
+38. Review the extension solution
+Practice and extension
+
+SAY
+Shared ownership and shared data are related but different facts. A shared_ptr keeps this object alive; a separate string snapshot copies its characters. A real memory mapping is governed by OS mapping and file-lifetime rules rather than shared_ptr counts. The model makes the intended aliasing and cleanup relationships inspectable without pretending to implement mmap. Repair principle: Retain ownership for as long as the object must live, or ensure a borrowed view ends before its owner. A borrowed address cannot keep backing alive.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Retain ownership for as long as the object must live, or ensure a borrowed view ends before its owner. A borrowed address cannot keep backing alive.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch36/solution.cpp
+
+------------------------------------------------------------
+
+39. Application case: Memory-Mapped Files
+Practice and extension
+
+SAY
+A file-backed mapping is accessed beyond the file’s valid backing after truncation.
+
+What must the design consider?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.CASE
+
+------------------------------------------------------------
+
+40. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Shared ownership and shared data are related but different facts. A shared_ptr keeps this object alive; a separate string snapshot copies its characters. A real memory mapping is governed by OS mapping and file-lifetime rules rather than shared_ptr counts. The model makes the intended aliasing and cleanup relationships inspectable without pretending to implement mmap.
+
+Choose a simpler approach when its narrower contract is enough. Explicit read/write calls can be clearer for streaming access; mapping can suit random access when lifetime and bounds are controlled.
+
+When this system changes, retain a check that exposes the known failure: Store only a raw pointer from backing.get(), reset the last owner, then dereference that pointer. Retain ownership for as long as the object must live, or ensure a borrowed view ends before its owner. A borrowed address cannot keep backing alive.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch36.json → SYS36.14
+
+------------------------------------------------------------
+
+41. Choose mapping for a real access pattern
+Recall and transfer
+
+SAY
+Memory mapping may be convenient when many bounded reads revisit a stable file and ordinary address-based access simplifies the algorithm. Buffered or positional reads can be simpler when work is sequential, windows are short-lived, or the program wants explicit transfer results at each step. Neither option eliminates error handling. Mapping shifts some work to later page accesses and makes pointer lifetime central. Reads return counts that the application must process correctly. Compare the actual workload and failure model before choosing. A small file parser does not become more correct merely because it uses mmap, and a mapping-based parser should not retain dangling views after its owner unmaps.
+
+DO
+Choose an ownership design for a returned parsed slice.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.006 · 36.2 Address mappings
+
+------------------------------------------------------------
+
+42. Recall address, extent, backing, and owner
+Recall and transfer
+
+SAY
+The complete mapping story has four pieces: an address range, its extent, its backing contract, and its owner. The first demo showed that closing the original descriptor does not end an established Linux mapping. The second showed that private writable memory does not update the file. The remaining risks follow from confusing those contracts: using a view after unmap, indexing beyond the checked extent, expecting a private write to persist, or allowing backing to shrink during access. Keep the program's stated platform visible because these are operating-system interfaces. Test controlled fixtures and boundaries without intentionally performing invalid memory accesses.
+
+DO
+Have learners explain the four pieces using one mapped record.
+
+SOURCE
+content/systems-programming/ch36.json → SP36.006 · 36.2 Address mappings

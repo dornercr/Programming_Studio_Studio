@@ -1,0 +1,235 @@
+{
+  "chapter": 54,
+  "title": "Measuring Performance",
+  "opening": [
+    {
+      "title": "Measure a named boundary before comparing numbers",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "concept",
+      "keyPoints": [
+        "Latency has a start and completion event",
+        "Throughput counts useful completions per interval",
+        "CPU time and elapsed time answer different questions"
+      ],
+      "narration": "A benchmark number has little meaning until we know what happened inside its boundary. A request's latency might include waiting in a queue, parsing, computation, and delivery, while a kernel benchmark may time only one prepared loop. Throughput counts completed useful work over an elapsed interval. CPU time counts processor execution under the operating system's accounting rules. These are not interchangeable units of success. This chapter uses both actual timing mechanics and explicitly supplied observations. When we calculate a model result, we will label it as such rather than pretending that deterministic output is a measurement of this machine.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.004: 54.1 Latency",
+      "question": {
+        "prompt": "Why is comparing one system\u2019s median computation time with another\u2019s end-to-end p99 misleading?",
+        "answer": "The timing boundaries and distribution statistics differ. The numbers describe different events and populations."
+      }
+    },
+    {
+      "title": "Concurrent request durations are not the elapsed interval",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "code",
+      "keyPoints": [
+        "Three requests overlap from 0 to 10 milliseconds",
+        "Each latency is 10 milliseconds",
+        "Three completions in 10 milliseconds give 300 per second"
+      ],
+      "narration": "Our supplied observations describe three requests that all begin at zero and complete at ten milliseconds. Adding their durations produces thirty milliseconds of request time, but the observed wall interval is only ten. Dividing three by that actual interval gives three hundred completions per second. The incorrect serial assumption gives one hundred. The program prints both calculations and labels the sum-based one wrong. These are arithmetic over a stated fixture, not timings collected by the program. This distinction matters whenever requests overlap: throughput needs a completion count and an elapsed observation window, not the sum of individual response durations.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.006: 54.2 Throughput",
+      "question": {
+        "prompt": "Why is the sum of these three latencies not a valid throughput denominator?",
+        "answer": "The requests overlap. Their 30 milliseconds of combined request time occurred within a 10-millisecond wall interval."
+      },
+      "code": {
+        "filename": "sys_ch54_overlap_metrics.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\n#include <numeric>\nint main() {\n    const std::array<int, 3> latency_ms{10, 10, 10};\n    const int wall_ms = 10; // Supplied overlapping interval, not measured.\n    const int summed_ms = std::accumulate(latency_ms.begin(), latency_ms.end(), 0);\n    std::cout << \"mean latency=\" << summed_ms / latency_ms.size() << \"ms\\n\";\n    std::cout << \"wall throughput=\" << latency_ms.size() * 1000 / wall_ms << \"/s\\n\";\n    std::cout << \"wrong serial rate=\" << latency_ms.size() * 1000 / summed_ms << \"/s\\n\";\n}\n",
+        "expectedStdout": "mean latency=10ms\nwall throughput=300/s\nwrong serial rate=100/s\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Arithmetic over supplied overlapping request observations; no clock is read."
+      }
+    },
+    {
+      "title": "One average can hide very different users\u2019 waits",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "code",
+      "keyPoints": [
+        "Nine requests take 1 ms; one takes 91 ms",
+        "Mean is 10 ms while the median is 1 ms",
+        "Nearest-rank p95 is 91 ms for this small sample"
+      ],
+      "narration": "This supplied sample has nine quick requests and one slow request. The total is one hundred milliseconds across ten observations, giving a mean of ten. After sorting, the lower central observation is one, and both middle observations are one, so the median is one. Under the nearest-rank percentile rule, the ninety-fifth percentile selects rank ten and is ninety-one. The output makes the long tail visible, but ten samples do not establish a reliable population tail estimate. A percentile needs a stated definition, sample count, and representative workload. Sorting a local vector is acceptable here because the fixture's original order is not needed later.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.016: 54.7 Measurement error",
+      "question": {
+        "prompt": "Does a p95 of 91 ms from ten supplied observations prove the real service\u2019s p95 is 91 ms?",
+        "answer": "No. It is the selected order statistic of this small fixture. Population inference needs enough representative measurements and uncertainty analysis."
+      },
+      "code": {
+        "filename": "sys_ch54_tail_summary.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <cmath>\n#include <iostream>\n#include <numeric>\n#include <vector>\nint main() {\n    std::vector<int> milliseconds{1, 1, 1, 1, 1, 1, 1, 1, 1, 91};\n    const int total = std::accumulate(milliseconds.begin(), milliseconds.end(), 0);\n    std::sort(milliseconds.begin(), milliseconds.end());\n    const auto rank = static_cast<std::size_t>(std::ceil(0.95 * milliseconds.size()));\n    std::cout << \"mean=\" << total / milliseconds.size()\n              << \" median=\" << milliseconds[4]\n              << \" nearest-rank-p95=\" << milliseconds[rank - 1] << \"ms\\n\";\n}\n",
+        "expectedStdout": "mean=10 median=1 nearest-rank-p95=91ms\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Statistics over a fixed illustrative sample, not a live benchmark."
+      }
+    },
+    {
+      "title": "CPU seconds can exceed elapsed seconds",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "concept",
+      "keyPoints": [
+        "A process may execute on several cores",
+        "Waiting contributes wall time without equal CPU time",
+        "State whether accounting covers one thread or the whole job"
+      ],
+      "narration": "A four-thread computation can use roughly four CPU seconds during one second of elapsed time if all four run continuously on separate cores. That is not a broken clock; CPU time adds execution charged across threads. Conversely, a job can take two wall seconds while using only six-tenths of a CPU second because it waits for I/O or scheduling. The difference suggests where to investigate, but does not identify one cause by itself. Helper processes and kernel accounting boundaries can also matter. Record whether your number covers one thread, one process, or the complete multi-process job.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.008: 54.3 CPU time",
+      "question": {
+        "prompt": "Is process CPU time greater than wall time automatically invalid?",
+        "answer": "No. Multiple threads can accumulate CPU execution simultaneously on different cores. The accounting scope must be stated."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "A clock read has cost and a limited resolution",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "concept",
+      "keyPoints": [
+        "Use a monotonic clock for durations",
+        "Very short work can be smaller than clock granularity",
+        "Batch enough work without silently changing the workload"
+      ],
+      "narration": "Civil time can be adjusted, so duration measurements should normally use a monotonic clock such as steady_clock. Even that clock has a finite resolution and reading it has overhead. If one operation is extremely short, a measured zero does not imply infinite speed; it may be below the clock's visible scale. Batching operations can enlarge the interval, but also changes cache reuse and amortizes setup. State whether that batch represents the actual requirement. Keep the clock outside the operation only when the boundary excludes its overhead, and compare repeated observations under documented conditions.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.010: 54.4 Wall-clock time",
+      "question": {
+        "prompt": "What are two reasons a tiny operation might report zero elapsed time?",
+        "answer": "Clock resolution can be too coarse, or the intended work may have been optimized away. Check both measurement mechanics and observable results."
+      }
+    },
+    {
+      "title": "A benchmark must make the intended work observable",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate a result outside the timed interval",
+        "Do not discard the only output of the hot loop",
+        "Inspect implausible generated code rather than guessing"
+      ],
+      "narration": "If a loop computes a result that the program never uses, an optimizing compiler may legally remove it. Timing the empty remainder does not measure the intended calculation. The source benchmark keeps a checksum and compares it with an independent formula after the timed interval. That verifies useful behavior without including verification time in that chosen boundary. Using volatile everywhere is not a general repair because it changes access semantics and may create a different workload. If a result looks implausibly fast, inspect the generated code, build options, input size, and timing boundary before announcing an optimization win.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.018: Worked example \u2014 A checksum-protected timing boundary",
+      "question": {
+        "prompt": "Why should the correctness check use an independent formula when practical?",
+        "answer": "It reduces the chance that the benchmark and its checker repeat the same defect, while establishing that the intended computation produced the required result."
+      }
+    },
+    {
+      "title": "High utilization is not proof of useful progress",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "concept",
+      "keyPoints": [
+        "A spin loop can keep a core busy",
+        "A saturated dependency can leave other resources idle",
+        "Measure completions and wait time alongside utilization"
+      ],
+      "narration": "A core at one hundred percent can be calculating useful results, spinning on a lock, or repeatedly handling irrelevant events. The utilization number alone cannot distinguish them. Likewise, low CPU use does not mean the service has spare end-to-end capacity: a serialized storage or network dependency may be saturated. Use utilization to guide a hypothesis, then connect it to completions, latency, and queue growth. If adding clients raises CPU use while throughput stays flat and latency rises, more admitted work may simply be increasing contention. The objective is useful completion under constraints, not the highest busy percentage.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.012: 54.5 Utilization",
+      "question": {
+        "prompt": "What evidence would make high CPU utilization a warning rather than a success?",
+        "answer": "Flat useful throughput together with rising latency, contention, or queue length suggests the busy CPU is not improving the service objective."
+      }
+    },
+    {
+      "title": "Control comparisons without hiding variation",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "concept",
+      "keyPoints": [
+        "Record compiler flags, input, and machine context",
+        "Alternate comparison order where practical",
+        "Report spread and uncertainty instead of one favorite run"
+      ],
+      "narration": "Running version A once on a cool idle machine and B once after background work begins is a weak comparison. Repeat representative runs, record relevant conditions, and alternate ordering when practical to reduce drift. Variation can come from frequency changes, cache state, page faults, scheduling, contention, and instrumentation. Repetition reveals spread but does not automatically remove bias. If an apparent improvement is smaller than the experiment's noise, the evidence is weak. A statistically clear difference can still be operationally unimportant, so report both uncertainty and the size of the effect relevant to users.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.016: 54.7 Measurement error",
+      "question": {
+        "prompt": "Why should you avoid reporting only the fastest run of the preferred version?",
+        "answer": "It selects favorable noise and conceals the distribution. A comparison needs a consistent sampling and reporting policy for both versions."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Keep setup in or out for a stated reason",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "concept",
+      "keyPoints": [
+        "Kernel timing may exclude allocation and input creation",
+        "End-to-end timing includes required setup and delivery",
+        "Both views can be useful if labeled consistently"
+      ],
+      "narration": "An optimized index can answer one query quickly after expensive construction. Timing only the query answers one question; timing construction plus the workload answers another. Neither boundary is inherently dishonest if stated clearly, but comparing them as if they were the same is misleading. The chapter's checksum example constructs data before timing because it studies summation mechanics. A file-processing service must also measure reading, allocation, parsing, and final delivery when those are part of the user's wait. Preserve separate measurements if they help diagnose where total time goes, then judge the change against the real objective.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.014: 54.6 Benchmarking",
+      "question": {
+        "prompt": "When is excluding index construction from a query benchmark reasonable?",
+        "answer": "When the stated workload reuses an already-built index and the benchmark explicitly measures query cost. End-to-end amortization still needs separate evaluation."
+      }
+    },
+    {
+      "title": "Write the measurement claim so someone can reproduce it",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 54",
+      "kind": "concept",
+      "keyPoints": [
+        "Name the workload and completion criterion",
+        "Name the timing and accounting boundaries",
+        "Separate measured values from calculated models",
+        "Include correctness evidence and limitations"
+      ],
+      "narration": "A useful result might say that this build processed this many bounded records, produced this checksum, and completed within a distribution of elapsed times under these conditions. That statement is much stronger than calling an implementation fast. Keep fixture arithmetic, modeled ceilings, and actual clock observations visibly separate. The lecture programs printed fixed statistics because their inputs were supplied; the source timing program prints a duration that varies. In a review, ask whether another person could reproduce the build, input, measurement boundary, and correctness check. If not, improve the experiment before arguing over a small speed difference.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch54.json \u2192 SP54.024: Guided lab and review",
+      "question": {
+        "prompt": "What does a deterministic printed timing-like number prove when its inputs are supplied constants?",
+        "answer": "It proves the program calculated that model or fixture correctly. It does not measure the current machine\u2019s performance."
+      }
+    }
+  ]
+}

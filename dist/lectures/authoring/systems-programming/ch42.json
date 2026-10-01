@@ -1,0 +1,234 @@
+{
+  "chapter": 42,
+  "title": "Shell Architecture: from typed syntax to jobs",
+  "opening": [
+    {
+      "title": "A shell converts syntax into a resource plan",
+      "eyebrow": "A SHELL CONVERTS SYNTAX INTO A RESOURCE PLAN",
+      "kind": "concept",
+      "keyPoints": [
+        "Parsing decides what commands mean",
+        "Execution creates processes and descriptors",
+        "Malformed syntax should fail before side effects"
+      ],
+      "narration": "A shell does more than split text at spaces. It interprets a small language, then builds a plan for programs, arguments, pipes, files, jobs, and waiting. For a command that writes to an output file, opening that file too early could truncate it even though a later quote is unfinished. Separate parsing from execution so invalid syntax can be rejected without touching external resources. An abstract command plan is data describing intended work, not the work itself. We can test that data with no children and no file changes. Only after the plan is valid should the executor acquire resources and launch the stages.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch42.json \u2192 SP42.001",
+      "question": {
+        "prompt": "Why should parsing avoid opening a redirection target immediately?",
+        "answer": "A later syntax error could leave a file changed even though no valid command plan was produced."
+      }
+    },
+    {
+      "title": "Word boundaries carry meaning after quotes disappear",
+      "eyebrow": "WORD BOUNDARIES CARRY MEANING AFTER QUOTES DISAPPEAR",
+      "kind": "concept",
+      "keyPoints": [
+        "An empty quoted word is still an argument",
+        "A quoted pipe is data",
+        "Token kind must survive removal of quote characters"
+      ],
+      "narration": "Compare a quoted vertical bar with an unquoted vertical bar. Both may have the text | after quote characters are removed, but only the unquoted operator connects pipeline stages. The lexer must retain a token kind as well as text. Likewise, echo followed by two quotes contains an empty second argument; dropping an empty text field would change what the child receives. These rules explain why a simple string split cannot grow into a correct shell merely by adding more delimiters. Define the supported quoting and escaping language, preserve its structure, and reject unfinished forms before deciding which executable to launch.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch42.json \u2192 SP42.004",
+      "question": {
+        "prompt": "Why is token text alone insufficient after quote removal?",
+        "answer": "A quoted pipe word and a pipe operator have identical text but different syntax roles."
+      }
+    },
+    {
+      "title": "Run a typed-token parser model",
+      "eyebrow": "RUN A TYPED-TOKEN PARSER MODEL",
+      "kind": "code",
+      "keyPoints": [
+        "Words become arguments",
+        "A Pipe kind divides stages",
+        "No token launches a process"
+      ],
+      "narration": "The demonstration starts after lexical analysis. Its input tokens represent print, a quoted pipe word, an actual pipe operator, and count. The parser groups Word tokens into argument lists and opens a new stage only for the Pipe kind. It prints stages=2, first arguments=2, and literal argument=|. Those lines prove that the quoted bar remained data instead of creating an extra stage. This is a parser model, not a complete lexer or shell. It intentionally performs no expansion, redirection, or execution. That narrow boundary lets us check syntax behavior without creating operating-system resources or accidentally executing teaching input.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch42.json \u2192 SP42.022",
+      "question": {
+        "prompt": "Why are there two first-stage arguments even though one is a vertical bar?",
+        "answer": "Its token kind is Word, so it remains an argument. Only the separate Pipe token creates a second stage."
+      },
+      "code": {
+        "filename": "sys_ch42_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n#include <vector>\nenum class Kind { word, pipe };\nstruct Token { Kind kind; std::string text; };\nint main() {\n    const std::vector<Token> tokens{{Kind::word,\"print\"},\n        {Kind::word,\"|\"}, {Kind::pipe,\"|\"}, {Kind::word,\"count\"}};\n    std::vector<std::vector<std::string>> stages(1);\n    for (const auto& token : tokens) {\n        if (token.kind == Kind::pipe) {\n            if (stages.back().empty()) throw std::runtime_error(\"empty stage\");\n            stages.emplace_back();\n        } else stages.back().push_back(token.text);\n    }\n    if (stages.back().empty()) throw std::runtime_error(\"trailing pipe\");\n    std::cout << \"stages=\" << stages.size() << '\\n';\n    std::cout << \"first arguments=\" << stages[0].size() << '\\n';\n    std::cout << \"literal argument=\" << stages[0][1] << '\\n';\n}\n",
+        "expectedStdout": "stages=2\nfirst arguments=2\nliteral argument=|\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Parses already-typed tokens; no lexer or operating-system execution."
+      }
+    },
+    {
+      "title": "Redirection order changes the descriptor graph",
+      "eyebrow": "REDIRECTION ORDER CHANGES THE DESCRIPTOR GRAPH",
+      "kind": "code",
+      "keyPoints": [
+        "Duplicate the destination that exists now",
+        "Later reassignment does not rewrite earlier copies",
+        "Keep redirections ordered in the parsed plan"
+      ],
+      "narration": "This second program is a descriptor-relationship model using names instead of real descriptors. First it redirects output to file and then duplicates output into error, so both names become file. The other order first duplicates the current terminal output into error, then changes output to file. Error remains terminal. It prints file/file and file/terminal respectively. The model does not open or truncate any file. It shows why the parser must retain the written redirection order rather than collect redirections in an unordered set. Real descriptor duplication shares the referenced open-file relationship at that moment; a later reassignment of one descriptor does not retroactively retarget the duplicate.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch42.json \u2192 SP42.010",
+      "question": {
+        "prompt": "Why does the second error destination remain terminal?",
+        "answer": "The duplication happened before output was reassigned, so it copied the earlier terminal relationship."
+      },
+      "code": {
+        "filename": "sys_ch42_redirection_order.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\nstruct Descriptors {\n    std::string out = \"terminal\";\n    std::string err = \"terminal\";\n};\nint main() {\n    // Names model relationships; no real file is opened.\n    Descriptors first;\n    first.out = \"file\";\n    first.err = first.out;\n    Descriptors second;\n    second.err = second.out;\n    second.out = \"file\";\n    std::cout << \"output-then-duplicate=\" << first.out << '/' << first.err << '\\n';\n    std::cout << \"duplicate-then-output=\" << second.out << '/' << second.err << '\\n';\n}\n",
+        "expectedStdout": "output-then-duplicate=file/file\nduplicate-then-output=file/terminal\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Sequential descriptor-relationship model; strings are not OS file descriptors."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "A pipeline needs overlapping stages",
+      "eyebrow": "A PIPELINE NEEDS OVERLAPPING STAGES",
+      "kind": "concept",
+      "keyPoints": [
+        "Bounded pipes cannot store unlimited output",
+        "Launch the consumer before waiting for the producer",
+        "Close every inherited end that has no role"
+      ],
+      "narration": "Suppose a producer writes more bytes than a pipe can hold. If the shell waits for that producer to finish before starting its consumer, the producer blocks waiting for space and the shell waits for the blocked producer. A pipeline is therefore a connected set of overlapping activities, not a list of programs to run to completion one by one. Descriptor lifetime also matters. An extra open write end can prevent a reader from seeing end-of-file even after the intended producer exits. Draw each stage's input and output ownership, then close all unused ends in both parent and children as the execution plan is realized.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch42.json \u2192 SP42.012",
+      "question": {
+        "prompt": "How can the shell itself create a pipeline deadlock without any mutex?",
+        "answer": "It can wait for a producer that needs a consumer to drain a full pipe before launching that consumer."
+      }
+    },
+    {
+      "title": "Some built-ins must change the shell itself",
+      "eyebrow": "SOME BUILT-INS MUST CHANGE THE SHELL ITSELF",
+      "kind": "concept",
+      "keyPoints": [
+        "A child has its own process state",
+        "cd in a child cannot change the parent directory",
+        "Choose built-in execution context deliberately"
+      ],
+      "narration": "Imagine implementing every command by creating a child, running the requested operation, and waiting. That works for many external programs, but not for changing the interactive shell's current directory. A child can change its own directory and exit while the parent shell stays where it was. Built-ins therefore require an execution policy based on context, not a blanket fork-everything rule. A built-in used inside a pipeline may have different requirements from the same command entered alone. Keep that decision visible in the command plan and tests. The distinction concerns which process owns the state being changed; it is not merely a performance shortcut to avoid launching a program.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch42.json \u2192 SP42.006",
+      "question": {
+        "prompt": "Why does a child-only cd leave the next parent-shell command in the old directory?",
+        "answer": "The directory change affects the child process state, not the parent shell\u2019s state."
+      }
+    },
+    {
+      "title": "A job is more than one child identifier",
+      "eyebrow": "A JOB IS MORE THAN ONE CHILD IDENTIFIER",
+      "kind": "concept",
+      "keyPoints": [
+        "A pipeline contains several processes",
+        "Foreground ownership applies to a process group",
+        "Completion requires all relevant child statuses"
+      ],
+      "narration": "A two-stage pipeline may finish its first child while the second is still writing. Reporting the job as complete when one PID exits would be wrong. An interactive shell tracks a job containing all its members, often organized as a process group. Terminal foreground ownership and terminal-generated signals then apply to the job relationship, not just one remembered child. The shell must regain the terminal after the foreground job finishes or stops. Background jobs still need status collection even though the shell accepts new commands immediately. Storing a vector of PIDs helps bookkeeping but does not itself establish process groups, terminal ownership, or safe launch ordering.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch42.json \u2192 SP42.020",
+      "question": {
+        "prompt": "Why is waiting for one pipeline PID insufficient for job completion?",
+        "answer": "Other pipeline members can still be running or stopped, so the job\u2019s aggregate state is not determined by one child alone."
+      }
+    },
+    {
+      "title": "Partial launch failure still leaves real resources",
+      "eyebrow": "PARTIAL LAUNCH FAILURE STILL LEAVES REAL RESOURCES",
+      "kind": "concept",
+      "keyPoints": [
+        "Track every successful child creation",
+        "Close descriptors on each failure path",
+        "An exec failure must not return to the shell loop"
+      ],
+      "narration": "A pipeline launch can fail after some resources already exist. Perhaps the first child was created and the second fork fails. The shell must close its remaining pipe ends and apply a documented policy to the already-started child, then collect its status. A child whose exec fails must report that failure and end the child branch; returning to the ordinary interactive loop could create an unintended extra shell. These cases show why parsing and execution should remain separate and why the executor needs explicit ownership records. Failure handling is part of the launch algorithm, not an afterthought after the successful diagram has been drawn.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch42.json \u2192 SP42.008",
+      "question": {
+        "prompt": "What is dangerous about returning normally to the command loop after exec fails in a child?",
+        "answer": "The child may start behaving as an extra interactive shell instead of ending the failed command branch."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose a shell only when shell syntax is required",
+      "eyebrow": "CHOOSE A SHELL ONLY WHEN SHELL SYNTAX IS REQUIRED",
+      "kind": "concept",
+      "keyPoints": [
+        "A fixed helper can receive an argument vector directly",
+        "Shell expansion adds interpretation rules",
+        "Validate plans before effects"
+      ],
+      "narration": "An application that needs to run one fixed helper often does not need a general shell at all. Supplying an argument vector directly preserves one argument containing spaces without asking another language to interpret quotes, pipes, substitutions, or redirections. A shell is appropriate when the product intentionally offers that language and its process-control behavior. The choice affects both correctness and exposure to unwanted interpretation. Our typed-token example belongs to the shell side of that boundary; it teaches language structure. In application code, first ask whether users actually need operators or whether their input should remain plain data passed to a known executable.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch42.json \u2192 SP42.008",
+      "question": {
+        "prompt": "When is direct argument-vector execution the simpler design?",
+        "answer": "When the application needs one known helper and user input should remain arguments rather than shell syntax."
+      }
+    },
+    {
+      "title": "Test plans before testing launched processes",
+      "eyebrow": "TEST PLANS BEFORE TESTING LAUNCHED PROCESSES",
+      "kind": "concept",
+      "keyPoints": [
+        "Reject empty pipeline stages",
+        "Preserve empty and quoted arguments",
+        "Then test ownership, waiting, and cleanup separately"
+      ],
+      "narration": "Build the test suite in layers. Lexer tests establish that an empty quoted argument survives and that a quoted bar remains a word. Parser tests reject a leading pipe, trailing pipe, missing redirection destination, or a background marker in an unsupported position. None of those tests should launch a child. Executor tests then check descriptor closure, redirection order, partial failure, and collection of every child. Finally, interactive job-control tests cover terminal handoff and stopped jobs. This progression keeps a syntax defect from being confused with a process-lifetime defect. A small supported language with explicit limits is easier to maintain than accidental behavior advertised as a complete shell.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch42.json \u2192 SP42.028",
+      "question": {
+        "prompt": "Which tests can run without creating any processes?",
+        "answer": "Lexical and parsing tests, including quoting, empty arguments, operator kinds, missing operands, and invalid pipeline structure."
+      }
+    }
+  ]
+}

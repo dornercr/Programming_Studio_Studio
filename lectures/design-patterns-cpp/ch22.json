@@ -1,0 +1,1685 @@
+{
+  "schemaVersion": 1,
+  "courseId": "design-patterns-cpp",
+  "courseTitle": "Design Patterns in C++",
+  "chapter": 22,
+  "title": "Visitor",
+  "author": "Dr. Charles Dorner",
+  "sourceTopics": [
+    {
+      "id": "C22.01",
+      "title": "Pattern overview"
+    },
+    {
+      "id": "C22.02",
+      "title": "The problem: the parts stay familiar while reports multiply"
+    },
+    {
+      "id": "C22.03",
+      "title": "One visitor operation has one entry point for each kind"
+    },
+    {
+      "id": "C22.04",
+      "title": "Why a single overloaded call is not enough"
+    },
+    {
+      "id": "C22.05",
+      "title": "Follow ownership without giving it to the visitor"
+    },
+    {
+      "id": "C22.06",
+      "title": "The price calculation also needs ordinary correctness"
+    },
+    {
+      "id": "C22.07",
+      "title": "Choose which direction of change should be easy"
+    },
+    {
+      "id": "C22.08",
+      "title": "Roles in the implementation"
+    },
+    {
+      "id": "C22.09",
+      "title": "Worked example: contracts and alternatives"
+    },
+    {
+      "id": "C22.10",
+      "title": "Execution trace"
+    },
+    {
+      "id": "C22.11",
+      "title": "Failure cases and repairs"
+    },
+    {
+      "id": "C22.12",
+      "title": "Code focus: The element supplies its exact type"
+    },
+    {
+      "id": "C22.13",
+      "title": "Code focus: The visitor owns the type-specific operation"
+    },
+    {
+      "id": "C22.14",
+      "title": "Exercise 22.1: Guided modification"
+    },
+    {
+      "id": "C22.15",
+      "title": "Exercise 22.2: Trace unfamiliar code"
+    },
+    {
+      "id": "C22.16",
+      "title": "Exercise 22.3: Diagnose a bug"
+    },
+    {
+      "id": "C22.17",
+      "title": "Exercise 22.4: Choose a design"
+    },
+    {
+      "id": "C22.18",
+      "title": "Exercise 22.5: Extend without regressions"
+    },
+    {
+      "id": "C22.19",
+      "title": "Exercise 22.6: Justify a decision"
+    },
+    {
+      "id": "C22.20",
+      "title": "Implementation lab"
+    },
+    {
+      "id": "C22.21",
+      "title": "Chapter summary"
+    },
+    {
+      "id": "C22.22",
+      "title": "Application case 1"
+    },
+    {
+      "id": "C22.23",
+      "title": "Application case 2"
+    }
+  ],
+  "slides": [
+    {
+      "title": "The parts stay; the reports multiply",
+      "eyebrow": "VISITOR / THE PROBLEM",
+      "kind": "cover",
+      "keyPoints": [
+        "Bolts use a piece count",
+        "Cable uses whole metres",
+        "Price, labels, and audits need different operations"
+      ],
+      "narration": "A workshop order contains bolts and cable. Bolts are measured in pieces; cable is measured in whole metres. Pricing is easy at first: multiply each quantity by its rate and add the results. Then the workshop asks for labels, packing summaries, and audit reports. The data types are stable, but the operations keep growing. Putting every new report into every part class spreads reporting changes across those classes. We need to send a mixed list through one traversal while each outside operation still receives the exact kind of part. Visitor addresses that direction of change. Before reaching its mechanism, keep the two units distinct and the original arithmetic visible.",
+      "actions": [
+        "Ask which is changing more often: element types or reports.",
+        "Name the units before multiplying quantities."
+      ],
+      "sourceRef": "manuscript/ch22.json → The problem: the parts stay familiar while reports multiply",
+      "question": {
+        "prompt": "What change pressure makes Visitor relevant here?",
+        "answer": "Many new operations must work across a fairly stable set of part types. Keeping each operation together avoids editing every part class for each report."
+      },
+      "section": "Problem and first design",
+      "topicIds": [
+        "C22.01"
+      ],
+      "id": "dp-ch22-01"
+    },
+    {
+      "title": "State the price and ownership contracts",
+      "eyebrow": "VISITOR / REQUIREMENTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Each quantity is from 0 through 100",
+        "Bolts cost 5 cents each; cable costs 40 cents per metre",
+        "Total stays at or below 1,000,000 cents",
+        "Reports read parts without owning them"
+      ],
+      "narration": "The sample has three bolts and two metres of cable. Three times five contributes fifteen cents; two times forty contributes eighty, giving ninety-five cents. Constructors reject quantities below zero or above one hundred. A report's running total must not exceed one million cents. A new report starts from zero, and a rejected addition must leave the old total intact. We also need an ownership rule. The order owns its parts; a report only borrows each part long enough to read it. These rules are independent of the dispatch mechanism. A beautiful Visitor diagram would still be wrong if it used the cable rate for bolts or reused an old report total accidentally.",
+      "actions": [
+        "Calculate both terms with their units.",
+        "Ask which object should destroy the parts when the order ends."
+      ],
+      "sourceRef": "manuscript/ch22.json → The price calculation also needs ordinary correctness",
+      "question": {
+        "prompt": "Why is 95 the expected mixed-order price?",
+        "answer": "Three bolts contribute 3 × 5 = 15 cents, and two metres of cable contribute 2 × 40 = 80 cents. The total is 95."
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch22-02"
+    },
+    {
+      "title": "For one operation, direct functions are enough",
+      "eyebrow": "VISITOR / RUN THE BASELINE",
+      "kind": "code",
+      "keyPoints": [
+        "Small value records hold validated quantities",
+        "Separate price overloads express different units",
+        "A known pair needs no hierarchy"
+      ],
+      "narration": "This complete baseline uses two small value records and overloaded price functions. Overloading gives functions the same name with different parameter types. The compiler chooses the Bolts overload for the bolts variable and the Cable overload for the cable variable. Each constructor checks its own quantity before any price calculation. The program prints one total, and it does not need inheritance, heap allocation, or a visitor. This is a strong choice when callers already know the concrete types and pricing is the main operation. The limitation appears when callers traverse a mixed collection through one common interface and many outside operations need each exact type.",
+      "actions": [
+        "Predict the total for four bolts and three metres.",
+        "Identify which overload each expression selects during compilation."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch22.json → The problem: the parts stay familiar while reports multiply",
+      "question": {
+        "prompt": "Why does the baseline not need Visitor to choose the correct price function?",
+        "answer": "The argument expressions already have concrete Bolts and Cable types, so compile-time overload resolution selects the correct functions."
+      },
+      "code": {
+        "filename": "dp_ch22_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\nstruct Bolts {\n    int count;\n    explicit Bolts(int value) : count(value) {\n        if (value < 0 || value > 100)\n            throw std::out_of_range(\"bolt count\");\n    }\n};\nstruct Cable {\n    int metres;\n    explicit Cable(int value) : metres(value) {\n        if (value < 0 || value > 100)\n            throw std::out_of_range(\"cable length\");\n    }\n};\nint price(const Bolts& bolts) { return bolts.count * 5; }\nint price(const Cable& cable) { return cable.metres * 40; }\nint main() {\n    const Bolts bolts(4);\n    const Cable cable(3);\n    std::cout << \"total=\" << price(bolts) + price(cable) << '\\n';\n}\n",
+        "expectedStdout": "total=140\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-03.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_baseline.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch22-03"
+    },
+    {
+      "title": "A base reference does not select a derived overload",
+      "eyebrow": "VISITOR / CONTROLLED FAILURE",
+      "kind": "code",
+      "keyPoints": [
+        "The object remains Bolts",
+        "The expression can have type Part&",
+        "Overload resolution uses the expression’s static type"
+      ],
+      "narration": "This demonstration creates one Bolts object and gives it two names: a concrete variable and a reference viewed as Part. The two report calls print different labels even though they refer to the same object. The reason is overload resolution, the compiler's choice among functions with the same name. That choice uses the type known at the call site. report(as_part) selects the Part parameter; it does not search for a better overload based on the object's runtime kind. In the chapter's Visitor interface there is no Part overload, so a direct visit of a Part reference would fail to compile. Adding a fallback overload would compile but would not create automatic concrete dispatch.",
+      "actions": [
+        "Predict each printed label before Run.",
+        "Ask whether making the base destructor virtual changes overload resolution."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch22.json → Why a single overloaded call is not enough",
+      "question": {
+        "prompt": "Does the Part reference copy or slice the Bolts object?",
+        "answer": "No. It refers to the same complete Bolts object. The different selected overload comes from the expression’s static type, not object slicing."
+      },
+      "code": {
+        "filename": "dp_ch22_static_overload.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nstruct Part { virtual ~Part() = default; };\nstruct Bolts final : Part {};\nvoid report(const Part&) { std::cout << \"Part overload\\n\"; }\nvoid report(const Bolts&) { std::cout << \"Bolts overload\\n\"; }\nint main() {\n    Bolts bolts;\n    const Part& as_part = bolts; // Borrows the same complete object.\n    report(bolts);\n    report(as_part);\n    std::cout << \"same object: \" << std::boolalpha\n              << (&as_part == static_cast<const Part*>(&bolts)) << '\\n';\n}\n",
+        "expectedStdout": "Bolts overload\nPart overload\nsame object: true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-04.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_static_overload.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch22-04"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json",
+      "title": "The contract we must preserve",
+      "keyPoints": [
+        "Support bolt counts and cable lengths with distinct units.",
+        "Compute exact integer-cent totals with a one-million-cent limit.",
+        "Keep reporting operations outside stable part data classes."
+      ],
+      "narration": "Price a mixed workshop order. Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.\n\nSupport bolt counts and cable lengths with distinct units. Compute exact integer-cent totals with a one-million-cent limit. Keep reporting operations outside stable part data classes.\n\nEach part quantity is in 0 through 100. Price is between zero and one million cents. A visitor reads parts without taking ownership. Every concrete visitor supplies an operation for every declared element kind. These are the rules that define a correct extension, even if it has the right C++ types. Virtual price members are simpler if price is intrinsic and the operation set is stable. A variant and std::visit suit a closed set of simple value types. Visitor is useful when adding operations across stable element types is the main change.",
+      "comparisons": [
+        {
+          "label": "Chosen design",
+          "text": "Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total."
+        },
+        {
+          "label": "A reasonable alternative",
+          "text": "Virtual price members are simpler if price is intrinsic and the operation set is stable. A variant and std::visit suit a closed set of simple value types. Visitor is useful when adding operations across stable element types is the main change."
+        }
+      ],
+      "question": {
+        "prompt": "Which promise would a new Visitor implementation be allowed to break?",
+        "answer": "None of the stated requirements. The implementation may change, but these rules remain: Each part quantity is in 0 through 100. Price is between zero and one million cents. A visitor reads parts without taking ownership. Every concrete visitor supplies an operation for every declared element kind."
+      },
+      "topicIds": [
+        "C22.09"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch22-05"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → The problem: the parts stay familiar while reports multiply",
+      "title": "The problem: the parts stay familiar while reports multiply",
+      "keyPoints": [
+        "A workshop order contains two kinds of item: a group of bolts counted by pieces, and a cable measured in whole metres.",
+        "Adding every report as another virtual member makes stable data types change whenever a reporting team needs a new operation."
+      ],
+      "narration": "A workshop order contains two kinds of item: a group of bolts counted by pieces, and a cable measured in whole metres. Each quantity must be between zero and one hundred. A price report charges five cents per bolt and forty cents per metre. The total cannot exceed one million cents. Direct price methods on Bolts and Cable are a reasonable first design when price is the one operation every item must offer. The next requests are labels, packing summaries, and audit reports, each with different output needs.\n\nAdding every report as another virtual member makes stable data types change whenever a reporting team needs a new operation. A large switch on a type code moves the work outside the classes but loses compiler-checked access to the distinct data of each kind. We need to let an outside operation receive the exact kind of part while callers still traverse a mixed list through the common Part interface. The Visitor pattern provides this connection, at a cost: the set of element types becomes explicit in the visitor interface.",
+      "excerpt": {
+        "text": "const int bolt_cost = bolts.count() * 5;\nconst int cable_cost = cable.metres() * 40;",
+        "filename": "Excerpt - simplest starting point",
+        "explain": []
+      },
+      "question": {
+        "prompt": "Why can putting every new report directly into Bolts and Cable make maintenance harder?",
+        "answer": "Each new operation forces changes to both element types. If the element kinds are stable but reports keep growing, separating operations can make extensions easier to review."
+      },
+      "reading": [
+        "A workshop order contains two kinds of item: a group of bolts counted by pieces, and a cable measured in whole metres. Each quantity must be between zero and one hundred. A price report charges five cents per bolt and forty cents per metre. The total cannot exceed one million cents. Direct price methods on Bolts and Cable are a reasonable first design when price is the one operation every item must offer. The next requests are labels, packing summaries, and audit reports, each with different output needs.",
+        "Adding every report as another virtual member makes stable data types change whenever a reporting team needs a new operation. A large switch on a type code moves the work outside the classes but loses compiler-checked access to the distinct data of each kind. We need to let an outside operation receive the exact kind of part while callers still traverse a mixed list through the common Part interface. The Visitor pattern provides this connection, at a cost: the set of element types becomes explicit in the visitor interface."
+      ],
+      "topicIds": [
+        "C22.02"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch22-06"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → One visitor operation has one entry point for each kind",
+      "title": "One visitor operation has one entry point for each kind",
+      "keyPoints": [
+        "Visitor declares two overloaded visit functions: one taking const Bolts& and one taking const Cable&.",
+        "Part declares accept(Visitor&) const."
+      ],
+      "narration": "Visitor declares two overloaded visit functions: one taking const Bolts& and one taking const Cable&. Overloading means several functions share a name but have different parameter lists. Price implements both. It keeps a running cents_ total and uses the correct unit for each kind. Bolts exposes a count getter; Cable exposes a metres getter. Neither class needs to know the price rules or the output format of a future label report.\n\nPart declares accept(Visitor&) const. Each concrete element implements accept and calls visitor.visit with a reference to itself. The const qualifier at the end means this accepting operation cannot change the element through its ordinary members. The visitor reference is not const, because a report visitor may update its own running result. A read-only element and a changing report are compatible: const applies to a particular object and access path, not to the entire call tree.",
+      "question": {
+        "prompt": "Explain the design choice in “One visitor operation has one entry point for each kind” using this chapter's objects.",
+        "answer": "Part declares accept(Visitor&) const. Each concrete element implements accept and calls visitor.visit with a reference to itself. The const qualifier at the end means this accepting operation cannot change the element through its ordinary members. The visitor reference is not const, because a report visitor may update its own running result. A read-only element and a changing report are compatible: const applies to a particular object and access path, not to the entire call tree."
+      },
+      "reading": [
+        "Visitor declares two overloaded visit functions: one taking const Bolts& and one taking const Cable&. Overloading means several functions share a name but have different parameter lists. Price implements both. It keeps a running cents_ total and uses the correct unit for each kind. Bolts exposes a count getter; Cable exposes a metres getter. Neither class needs to know the price rules or the output format of a future label report.",
+        "Part declares accept(Visitor&) const. Each concrete element implements accept and calls visitor.visit with a reference to itself. The const qualifier at the end means this accepting operation cannot change the element through its ordinary members. The visitor reference is not const, because a report visitor may update its own running result. A read-only element and a changing report are compatible: const applies to a particular object and access path, not to the entire call tree."
+      ],
+      "topicIds": [
+        "C22.03"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch22-07"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → Why a single overloaded call is not enough",
+      "title": "Why a single overloaded call is not enough",
+      "keyPoints": [
+        "Imagine a Part& variable that actually refers to a Bolts object.",
+        "Instead the loop calls part->accept(price)."
+      ],
+      "narration": "Imagine a Part& variable that actually refers to a Bolts object. Calling visitor.visit(part) cannot select visit(const Bolts&) merely because the runtime object happens to be bolts. Overload resolution, the choice among same-name functions, uses the expression’s static type during compilation. Here the static type is Part&, and Visitor does not offer a Part overload. A downcast at every caller would move type-checking knowledge into all loops, defeating the goal of a common traversal.\n\nInstead the loop calls part->accept(price). Virtual dispatch chooses Bolts::accept during execution because the actual element is Bolts. Inside that member, *this has the type const Bolts, so the compiler selects visit(const Bolts&) when compiling that function. Calling the selected virtual visit then dispatches to the implementation belonging to the actual visitor object, Price. The behavior depends on both the element kind and visitor kind. This two-stage selection is called double dispatch. It combines static overload choice with virtual calls; it does not make ordinary C++ overload resolution dynamic.",
+      "question": {
+        "prompt": "Explain the design choice in “Why a single overloaded call is not enough” using this chapter's objects.",
+        "answer": "Instead the loop calls part->accept(price). Virtual dispatch chooses Bolts::accept during execution because the actual element is Bolts. Inside that member, *this has the type const Bolts, so the compiler selects visit(const Bolts&) when compiling that function. Calling the selected virtual visit then dispatches to the implementation belonging to the actual visitor object, Price. The behavior depends on both the element kind and visitor kind. This two-stage selection is called double dispatch. It combines static overload choice with virtual calls; it does not make ordinary C++ overload resolution dynamic."
+      },
+      "reading": [
+        "Imagine a Part& variable that actually refers to a Bolts object. Calling visitor.visit(part) cannot select visit(const Bolts&) merely because the runtime object happens to be bolts. Overload resolution, the choice among same-name functions, uses the expression’s static type during compilation. Here the static type is Part&, and Visitor does not offer a Part overload. A downcast at every caller would move type-checking knowledge into all loops, defeating the goal of a common traversal.",
+        "Instead the loop calls part->accept(price). Virtual dispatch chooses Bolts::accept during execution because the actual element is Bolts. Inside that member, *this has the type const Bolts, so the compiler selects visit(const Bolts&) when compiling that function. Calling the selected virtual visit then dispatches to the implementation belonging to the actual visitor object, Price. The behavior depends on both the element kind and visitor kind. This two-stage selection is called double dispatch. It combines static overload choice with virtual calls; it does not make ordinary C++ overload resolution dynamic."
+      ],
+      "topicIds": [
+        "C22.04"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch22-08"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → Follow ownership without giving it to the visitor",
+      "title": "Follow ownership without giving it to the visitor",
+      "keyPoints": [
+        "The parts vector owns unique_ptr<Part> values whose actual objects are Bolts and Cable.",
+        "The forward declarations class Bolts and class Cable tell the compiler that those type names exist before Visitor uses references to them."
+      ],
+      "narration": "The parts vector owns unique_ptr<Part> values whose actual objects are Bolts and Cable. Part has a virtual destructor so destroying an owning base pointer properly destroys the complete concrete object. Price is a separate local object in main. During accept it borrows each part through a const reference. It does not retain those references, own the parts, or change their quantities. After traversal, the visitor owns only its numeric result.\n\nThe forward declarations class Bolts and class Cable tell the compiler that those type names exist before Visitor uses references to them. A reference declaration does not need the complete class layout. The later class definitions provide constructors, getters, and accept bodies. This arrangement resolves the header dependency between the visitor interface and its element types. In a multi-file program, separate headers and forward declarations keep that dependency controlled; putting every implementation in one header can make every report change trigger broad recompilation.",
+      "question": {
+        "prompt": "Explain the design choice in “Follow ownership without giving it to the visitor” using this chapter's objects.",
+        "answer": "The forward declarations class Bolts and class Cable tell the compiler that those type names exist before Visitor uses references to them. A reference declaration does not need the complete class layout. The later class definitions provide constructors, getters, and accept bodies. This arrangement resolves the header dependency between the visitor interface and its element types. In a multi-file program, separate headers and forward declarations keep that dependency controlled; putting every implementation in one header can make every report change trigger broad recompilation."
+      },
+      "reading": [
+        "The parts vector owns unique_ptr<Part> values whose actual objects are Bolts and Cable. Part has a virtual destructor so destroying an owning base pointer properly destroys the complete concrete object. Price is a separate local object in main. During accept it borrows each part through a const reference. It does not retain those references, own the parts, or change their quantities. After traversal, the visitor owns only its numeric result.",
+        "The forward declarations class Bolts and class Cable tell the compiler that those type names exist before Visitor uses references to them. A reference declaration does not need the complete class layout. The later class definitions provide constructors, getters, and accept bodies. This arrangement resolves the header dependency between the visitor interface and its element types. In a multi-file program, separate headers and forward declarations keep that dependency controlled; putting every implementation in one header can make every report change trigger broad recompilation."
+      ],
+      "topicIds": [
+        "C22.05"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch22-09"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → The price calculation also needs ordinary correctness",
+      "title": "The price calculation also needs ordinary correctness",
+      "keyPoints": [
+        "Design structure does not make arithmetic automatically safe.",
+        "The sample order contains three bolts and two metres of cable."
+      ],
+      "narration": "Design structure does not make arithmetic automatically safe. Constructors reject negative quantities and quantities above one hundred. Each price term is therefore bounded before multiplication: at most five hundred cents for bolts or four thousand cents for cable. Price::add checks whether the accumulated total exceeds one million minus the next nonnegative term. Only then does it add. Checking before addition avoids computing an overflowed result and trying to diagnose it afterward. The chosen limits fit the required int range on the documented compiler platform.\n\nThe sample order contains three bolts and two metres of cable. The terms are fifteen and eighty, so the result is ninety-five cents. A fresh visitor starts at zero; a zero-quantity element changes nothing. For the limit test, two hundred fifty visits to a one-hundred-metre cable reach exactly one million. The next visit throws and leaves the old total intact. The visitor therefore has its own invariant and failure policy, separate from those of the elements. Reusing the same Price visitor for another order would accumulate into the previous result unless the caller deliberately creates a new visitor.",
+      "question": {
+        "prompt": "Explain the design choice in “The price calculation also needs ordinary correctness” using this chapter's objects.",
+        "answer": "The sample order contains three bolts and two metres of cable. The terms are fifteen and eighty, so the result is ninety-five cents. A fresh visitor starts at zero; a zero-quantity element changes nothing. For the limit test, two hundred fifty visits to a one-hundred-metre cable reach exactly one million. The next visit throws and leaves the old total intact. The visitor therefore has its own invariant and failure policy, separate from those of the elements. Reusing the same Price visitor for another order would accumulate into the previous result unless the caller deliberately creates a new visitor."
+      },
+      "reading": [
+        "Design structure does not make arithmetic automatically safe. Constructors reject negative quantities and quantities above one hundred. Each price term is therefore bounded before multiplication: at most five hundred cents for bolts or four thousand cents for cable. Price::add checks whether the accumulated total exceeds one million minus the next nonnegative term. Only then does it add. Checking before addition avoids computing an overflowed result and trying to diagnose it afterward. The chosen limits fit the required int range on the documented compiler platform.",
+        "The sample order contains three bolts and two metres of cable. The terms are fifteen and eighty, so the result is ninety-five cents. A fresh visitor starts at zero; a zero-quantity element changes nothing. For the limit test, two hundred fifty visits to a one-hundred-metre cable reach exactly one million. The next visit throws and leaves the old total intact. The visitor therefore has its own invariant and failure policy, separate from those of the elements. Reusing the same Price visitor for another order would accumulate into the previous result unless the caller deliberately creates a new visitor."
+      ],
+      "topicIds": [
+        "C22.06"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch22-10"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → Choose which direction of change should be easy",
+      "title": "Choose which direction of change should be easy",
+      "keyPoints": [
+        "Adding Labels in the lab changes no Bolts, Cable, or Part class.",
+        "C++17 offers another option for a closed set of types: std::variant<BoltsData, CableData> can store exactly one alternative, and std::visit selects a callable for the active alternative."
+      ],
+      "narration": "Adding Labels in the lab changes no Bolts, Cable, or Part class. Labels implements both visits and appends strings with quantities and unit names. The same traversal works. However, adding a new element kind such as Paint requires a new visit overload in the Visitor interface and an implementation in every concrete visitor. This can be useful: the compiler forces every operation to decide how to handle Paint. It can also be costly when new element kinds arrive frequently and the operation set barely changes.\n\nC++17 offers another option for a closed set of types: std::variant<BoltsData, CableData> can store exactly one alternative, and std::visit selects a callable for the active alternative. This can avoid a heap allocation and a virtual base hierarchy for simple value data. It still makes the type set explicit, and visitors must handle its alternatives. Ordinary virtual members remain simpler when new types are common and the operation set is stable. Visitor is a tradeoff between these directions of change, not a general rule to move every method out of its class.",
+      "question": {
+        "prompt": "Why keep quantity validation in Bolts and Cable rather than Price?",
+        "answer": "Validity of an element must hold for every operation, including Labels. Putting it only in Price would let invalid elements reach other visitors."
+      },
+      "reading": [
+        "Adding Labels in the lab changes no Bolts, Cable, or Part class. Labels implements both visits and appends strings with quantities and unit names. The same traversal works. However, adding a new element kind such as Paint requires a new visit overload in the Visitor interface and an implementation in every concrete visitor. This can be useful: the compiler forces every operation to decide how to handle Paint. It can also be costly when new element kinds arrive frequently and the operation set barely changes.",
+        "C++17 offers another option for a closed set of types: std::variant<BoltsData, CableData> can store exactly one alternative, and std::visit selects a callable for the active alternative. This can avoid a heap allocation and a virtual base hierarchy for simple value data. It still makes the type set explicit, and visitors must handle its alternatives. Ordinary virtual members remain simpler when new types are common and the operation set is stable. Visitor is a tradeoff between these directions of change, not a general rule to move every method out of its class."
+      ],
+      "topicIds": [
+        "C22.07"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch22-11"
+    },
+    {
+      "title": "Give every operation an entry for every part kind",
+      "eyebrow": "VISITOR / RESPONSIBILITIES",
+      "kind": "concept",
+      "keyPoints": [
+        "Part offers accept(Visitor&) const",
+        "Visitor offers visit(Bolts) and visit(Cable)",
+        "Price implements both and owns its running total"
+      ],
+      "narration": "Visitor is an interface for outside operations. It declares one visit overload for each supported part type. Price implements both overloads and owns a running cents total. Part is the common element interface and offers accept. Bolts and Cable each implement accept by passing themselves to the visitor. The loop can now work through Part while the operation still receives a precise concrete reference. This arrangement makes a new operation, such as Labels, one new visitor with explicit cases for both kinds. It also exposes the tradeoff immediately: a new kind of part requires another overload in the Visitor interface and a response from every concrete visitor.",
+      "actions": [
+        "Match Part, Bolts, Cable, Visitor, and Price to their roles.",
+        "Ask where the cents total belongs and why."
+      ],
+      "sourceRef": "manuscript/ch22.json → One visitor operation has one entry point for each kind",
+      "question": {
+        "prompt": "What must a new Labels visitor implement?",
+        "answer": "A visit overload for Bolts and one for Cable. It can use the existing accept methods and traversal without changing the element classes."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch22-12"
+    },
+    {
+      "title": "Trace both runtime choices and the static bridge",
+      "eyebrow": "VISITOR / DOUBLE DISPATCH",
+      "kind": "concept",
+      "keyPoints": [
+        "Virtual accept selects the concrete element",
+        "Inside Bolts::accept, *this is a Bolts expression",
+        "Overload resolution selects the Bolts visit signature",
+        "Virtual visit selects the concrete operation"
+      ],
+      "narration": "Double dispatch means the result depends on two runtime kinds: the element and the visitor. Follow a Part pointer owning Bolts while the operation object is Price. Calling accept makes the first virtual choice and reaches Bolts::accept. Inside that member, the compiler knows that *this refers to a Bolts object. It selects visit(const Bolts&) when compiling that call. The selected visit is itself virtual, so execution then chooses Price's implementation of that signature. There are two virtual selections with a compile-time overload choice between them. Ordinary overload resolution has not become dynamic. The accept method supplies the concrete static type that the outer mixed-list loop lacks.",
+      "actions": [
+        "Speak the full call path, including the compile-time step.",
+        "Ask learners to mark which choices depend on the element and visitor objects."
+      ],
+      "sourceRef": "manuscript/ch22.json → Why a single overloaded call is not enough",
+      "question": {
+        "prompt": "Which step makes the concrete Bolts type visible to overload resolution?",
+        "answer": "Entering Bolts::accept. Inside that member, *this has the concrete Bolts type, so the compiler selects visit(const Bolts&)."
+      },
+      "theory": {
+        "what": "Two virtual calls use a concrete accept body as the overload-selection bridge.",
+        "where": "The Part traversal enters accept, which calls the selected Visitor::visit signature.",
+        "why": "A common element loop can invoke type-specific outside operations.",
+        "invariant": "Each element forwards itself using its own precise type.",
+        "risk": "Calling visit directly with a base expression selects only a base signature, if one exists; it cannot infer a derived overload."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch22-13"
+    },
+    {
+      "title": "Read-only parts and a changing report can coexist",
+      "eyebrow": "VISITOR / CONST AND BORROWING",
+      "kind": "concept",
+      "keyPoints": [
+        "accept is const on the part",
+        "The visitor reference is mutable",
+        "visit receives const Bolts& or const Cable&",
+        "The report retains results, not borrowed parts"
+      ],
+      "narration": "The signature accept(Visitor&) const contains two different permissions. The trailing const says the operation does not change the part through this call. The visitor parameter lacks const because a report may update its own running result. Inside Price::visit, a const reference lets the visitor read the quantity without taking ownership or making a part copy. Price keeps the resulting number, not a pointer to the visited part. This distinction matters when the order goes out of scope. The report's numeric result can remain useful without keeping parts alive. const is attached to particular objects and access paths; it does not mean every object touched by the whole call tree is frozen.",
+      "actions": [
+        "Identify which object changes during Price::visit.",
+        "Ask what remains in Price after a visited Cable is destroyed."
+      ],
+      "sourceRef": "manuscript/ch22.json → One visitor operation has one entry point for each kind",
+      "question": {
+        "prompt": "Why is accept const while its Visitor& parameter is not const?",
+        "answer": "The part is read-only during acceptance, but the visitor may update its own report state, such as the running price."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch22-14"
+    },
+    {
+      "title": "Dependencies do not imply ownership",
+      "eyebrow": "VISITOR / LIFETIME AND HEADERS",
+      "kind": "concept",
+      "keyPoints": [
+        "The vector owns unique_ptr<Part> elements",
+        "Part has a virtual destructor",
+        "The local visitor borrows during each call",
+        "Forward declarations allow reference declarations"
+      ],
+      "narration": "The mixed vector owns unique_ptr<Part> handles. Destroying the vector destroys those handles and the complete concrete elements. Part needs a virtual destructor because destruction occurs through the base type. Price is a separate local object owned by its scope, not by any part. A dependency arrow in the class diagram means one type knows or calls another; it does not transfer ownership. The source starts by announcing Bolts and Cable before Visitor mentions references to them. Those forward declarations name types without giving their full layout. Reference declarations can use those names; later complete definitions provide getters and accept bodies. In a larger project, this distinction helps control header dependencies and rebuild costs.",
+      "actions": [
+        "Separate ownership edges from dependency arrows in the diagram.",
+        "Ask whether accepting a visitor transfers either object’s ownership."
+      ],
+      "sourceRef": "manuscript/ch22.json → Follow ownership without giving it to the visitor",
+      "question": {
+        "prompt": "Does accept(Visitor&) give the part ownership of the visitor?",
+        "answer": "No. It borrows the visitor for the call. The local scope owns the visitor, and the vector’s unique pointers own the parts."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch22-15"
+    },
+    {
+      "title": "Check the total before adding the next term",
+      "eyebrow": "VISITOR / NUMERIC INVARIANTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Validated quantities bound each price term",
+        "Reject when total > limit − next term",
+        "A rejected addition preserves the previous total",
+        "A reused visitor continues accumulating"
+      ],
+      "narration": "The pattern handles routing, but Price still needs ordinary arithmetic discipline. Quantity checks keep each bolt term at most five hundred cents and each cable term at most four thousand. Before adding a nonnegative term, add checks whether the current total is greater than one million minus that term. This avoids forming an excessive total and checking afterward. At exactly one million, a further positive term throws and leaves the total unchanged. The visitor also has lifetime state: its total starts at zero and grows with visits. Reusing the same Price for another order does not reset it. Two identical ninety-five-cent orders produce one hundred ninety if the same visitor accumulates both.",
+      "actions": [
+        "Calculate the number of 100-metre cable visits needed to reach the limit.",
+        "Ask learners to separate a fresh report from continuation of an existing report."
+      ],
+      "sourceRef": "manuscript/ch22.json → The price calculation also needs ordinary correctness",
+      "question": {
+        "prompt": "Why does the source test the limit before modifying cents_?",
+        "answer": "So rejection leaves the existing total intact and the calculation avoids relying on a potentially invalid sum after it has already been formed."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch22-16"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → C22.08 concepts",
+      "title": "Map the roles to the actual types",
+      "keyPoints": [
+        "Element interface → Part::accept",
+        "Concrete Elements → Bolts and Cable",
+        "Visitor interface → Visitor with two visit overloads",
+        "Concrete Visitors → Price; Labels in the lab",
+        "Object structure / client → parts vector and main"
+      ],
+      "narration": "Element interface → Part::accept. Let a caller apply an operation through a common element interface.\n\nConcrete Elements → Bolts and Cable. Carry distinct data and forward acceptance using their exact concrete type.\n\nVisitor interface → Visitor with two visit overloads. Require a type-specific operation for each supported element kind.\n\nConcrete Visitors → Price; Labels in the lab. Implement one complete operation across the element set and retain any needed result.\n\nObject structure / client → parts vector and main. Traverse mixed elements and apply the visitor without type tests.",
+      "comparisons": [
+        {
+          "label": "Element interface → Part::accept",
+          "text": "Let a caller apply an operation through a common element interface."
+        },
+        {
+          "label": "Concrete Elements → Bolts and Cable",
+          "text": "Carry distinct data and forward acceptance using their exact concrete type."
+        },
+        {
+          "label": "Visitor interface → Visitor with two visit overloads",
+          "text": "Require a type-specific operation for each supported element kind."
+        },
+        {
+          "label": "Concrete Visitors → Price; Labels in the lab",
+          "text": "Implement one complete operation across the element set and retain any needed result."
+        },
+        {
+          "label": "Object structure / client → parts vector and main",
+          "text": "Traverse mixed elements and apply the visitor without type tests."
+        }
+      ],
+      "question": {
+        "prompt": "In Visitor, which part plays Element interface and what does it do?",
+        "answer": "Part::accept. Let a caller apply an operation through a common element interface."
+      },
+      "topicIds": [
+        "C22.08"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch22-17"
+    },
+    {
+      "eyebrow": "CLASS DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch22/main.cpp:1-98; content/design-patterns-cpp/ch22.json → diagrams.22",
+      "title": "Visitor: outside operations on stable element kinds",
+      "keyPoints": [
+        "Read the class relationships in the named example.",
+        "Each part quantity is in 0 through 100.",
+        "Price is between zero and one million cents."
+      ],
+      "narration": "Inheritance arrows point from concrete classes toward their bases. Dependency arrows show parameter knowledge and calls, not ownership. The actual part vector owns elements, and the caller owns Price. The focused trace explains the two dispatch steps that a class diagram alone cannot show.\n\nEach Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.\n\nA new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.",
+      "diagram": {
+        "chapter": 22,
+        "view": "overview",
+        "index": -1
+      },
+      "theory": {
+        "what": "Visitor: outside operations on stable element kinds",
+        "where": "companion/examples/ch22/main.cpp",
+        "why": "Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.",
+        "invariant": "Each part quantity is in 0 through 100. Price is between zero and one million cents. A visitor reads parts without taking ownership. Every concrete visitor supplies an operation for every declared element kind.",
+        "risk": "Call visit directly with a Part reference and expect the Bolts overload to be chosen dynamically. The call does not compile with this interface because neither concrete-reference overload accepts a Part reference. Reuse one Price object for two independent identical orders without resetting it. The second displayed total becomes 190 instead of 95."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Inheritance arrows point from concrete classes toward their bases. Dependency arrows show parameter knowledge and calls, not ownership. The actual part vector owns elements, and the caller owns Price. The focused trace explains the two dispatch steps that a class diagram alone cannot show."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch22-18"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch22/main.cpp:1-98; content/design-patterns-cpp/ch22.json → diagrams.22",
+      "title": "Visitor — chronological driver trace",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "Each part quantity is in 0 through 100.",
+        "Price is between zero and one million cents."
+      ],
+      "narration": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.\n\nEach Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.\n\nA new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.",
+      "diagram": {
+        "chapter": 22,
+        "view": "extra",
+        "index": 0
+      },
+      "theory": {
+        "what": "Visitor — chronological driver trace",
+        "where": "companion/examples/ch22/main.cpp",
+        "why": "Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.",
+        "invariant": "Each part quantity is in 0 through 100. Price is between zero and one million cents. A visitor reads parts without taking ownership. Every concrete visitor supplies an operation for every declared element kind.",
+        "risk": "Call visit directly with a Part reference and expect the Bolts overload to be chosen dynamically. The call does not compile with this interface because neither concrete-reference overload accepts a Part reference. Reuse one Price object for two independent identical orders without resetting it. The second displayed total becomes 190 instead of 95."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch22-19"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch22/main.cpp:28-33",
+      "title": "The element supplies its exact type",
+      "keyPoints": [
+        "This member bridges a base-class traversal to a concrete-type visitor overload.",
+        "Inside this member, the compiler knows the element is Bolts.",
+        "The visitor receives a read-only reference to the original element."
+      ],
+      "narration": "This member bridges a base-class traversal to a concrete-type visitor overload. Virtual dispatch selects it when the actual Part object is Bolts. Inside this member, the compiler knows the element is Bolts.\n\nDeclare a read-only accept operation borrowing a visitor. Require this declaration to override the Part interface, then open its body. The comment announces the precise element type. Bind a const Bolts reference to this actual element; the asterisk dereferences this. Call the Bolts overload; virtual dispatch chooses the concrete visitor implementation. Close accept and label its source boundary.\n\nThe visitor receives a read-only reference to the original element. A direct visit(Part&) cannot select the concrete overload merely from runtime type.",
+      "diagram": {
+        "chapter": 22,
+        "view": "focus",
+        "index": 0
+      },
+      "theory": {
+        "title": "The element supplies its exact type",
+        "start": "void accept(Visitor& operation) const",
+        "end": "} // bolt accept",
+        "what": "This member bridges a base-class traversal to a concrete-type visitor overload.",
+        "where": "Virtual dispatch selects it when the actual Part object is Bolts.",
+        "why": "Inside this member, the compiler knows the element is Bolts.",
+        "invariant": "The visitor receives a read-only reference to the original element.",
+        "risk": "A direct visit(Part&) cannot select the concrete overload merely from runtime type.",
+        "explain": [
+          "Declare a read-only accept operation borrowing a visitor.",
+          "Require this declaration to override the Part interface, then open its body.",
+          "The comment announces the precise element type.",
+          "Bind a const Bolts reference to this actual element; the asterisk dereferences this.",
+          "Call the Bolts overload; virtual dispatch chooses the concrete visitor implementation.",
+          "Close accept and label its source boundary."
+        ],
+        "resolved_start": 28,
+        "resolved_end": 33,
+        "lineStart": 28,
+        "lineEnd": 33,
+        "code": "    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept",
+        "file": "examples/ch22/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "A direct visit(Part&) cannot select the concrete overload merely from runtime type."
+      },
+      "topicIds": [
+        "C22.12"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch22-20"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch22/main.cpp:58-62",
+      "title": "The visitor owns the type-specific operation",
+      "keyPoints": [
+        "This member prices a quantity measured as a count of bolts.",
+        "Pricing stays outside Bolts, allowing another visitor to report labels or other results.",
+        "A bolt count is valid before multiplication and add checks the total limit."
+      ],
+      "narration": "This member prices a quantity measured as a count of bolts. The selected Bolts overload runs on the actual Price visitor. Pricing stays outside Bolts, allowing another visitor to report labels or other results.\n\nDefine Price implementation of the Bolts overload. The comment states the unit-specific pricing task. Multiply the validated bolt count by five cents per bolt. Pass the bounded term to the checked accumulation operation. Close this overload and label its boundary.\n\nA bolt count is valid before multiplication and add checks the total limit. Confusing counts and metres gives the wrong units even if all C++ types compile.",
+      "diagram": {
+        "chapter": 22,
+        "view": "focus",
+        "index": 1
+      },
+      "theory": {
+        "title": "The visitor owns the type-specific operation",
+        "start": "void visit(const Bolts& bolts) override {",
+        "end": "} // bolt price",
+        "what": "This member prices a quantity measured as a count of bolts.",
+        "where": "The selected Bolts overload runs on the actual Price visitor.",
+        "why": "Pricing stays outside Bolts, allowing another visitor to report labels or other results.",
+        "invariant": "A bolt count is valid before multiplication and add checks the total limit.",
+        "risk": "Confusing counts and metres gives the wrong units even if all C++ types compile.",
+        "explain": [
+          "Define Price implementation of the Bolts overload.",
+          "The comment states the unit-specific pricing task.",
+          "Multiply the validated bolt count by five cents per bolt.",
+          "Pass the bounded term to the checked accumulation operation.",
+          "Close this overload and label its boundary."
+        ],
+        "resolved_start": 58,
+        "resolved_end": 62,
+        "lineStart": 58,
+        "lineEnd": 62,
+        "code": "    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price",
+        "file": "examples/ch22/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Confusing counts and metres gives the wrong units even if all C++ types compile."
+      },
+      "topicIds": [
+        "C22.13"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch22-21"
+    },
+    {
+      "eyebrow": "ORIGINAL CHECKED C++",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch22/main.cpp",
+      "title": "Run the complete chapter program",
+      "keyPoints": [
+        "Price a mixed workshop order",
+        "The executable checks a mixed order total, a fresh empty result, zero quantity, rejected negative cable length, exact price limit, and rejection above the limit without mutation. The code guards upper quantity bounds, but the primary tests do not enumerate every constructor bound."
+      ],
+      "narration": "We now join the small pieces into the complete working program. Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.\n\nThe executable checks a mixed order total, a fresh empty result, zero quantity, rejected negative cable length, exact price limit, and rejection above the limit without mutation. The code guards upper quantity bounds, but the primary tests do not enumerate every constructor bound.\n\nA new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/examples/ch22/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\nint main() {\n    std::vector<std::unique_ptr<Part>> parts;\n    parts.push_back(std::make_unique<Bolts>(3));\n    parts.push_back(std::make_unique<Cable>(2));\n    Price price;\n    for (const auto& part : parts) { part->accept(price); }\n    check(price.cents() == 95);\n    std::cout << \"price cents: \" << price.cents() << '\\n';\n    Price empty;\n    check(empty.cents() == 0);\n    Bolts zero(0);\n    zero.accept(empty);\n    check(empty.cents() == 0);\n    bool invalid = false;\n    try { Cable bad(-1); }\n    catch (const std::out_of_range&) { invalid = true; }\n    check(invalid);\n    Cable reel(100);\n    Price capped;\n    for (int i = 0; i < 250; ++i) { reel.accept(capped); }\n    check(capped.cents() == 1000000);\n    bool overflow = false;\n    try { reel.accept(capped); }\n    catch (const std::overflow_error&) { overflow = true; }\n    check(overflow && capped.cents() == 1000000);\n    std::cout << \"price limit: preserved\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "price cents: 95\nprice limit: preserved\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-22.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "question": {
+        "prompt": "Does matching the demonstration output prove every promised behavior?",
+        "answer": "No. The executable checks a mixed order total, a fresh empty result, zero quantity, rejected negative cable length, exact price limit, and rejection above the limit without mutation. The code guards upper quantity bounds, but the primary tests do not enumerate every constructor bound. A printed result shows that run; the checks and stated limits explain what was actually verified."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch22-22"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → trace",
+      "title": "Follow one request through the objects",
+      "keyPoints": [
+        "parts[0] owns Bolts(3), traversed through Part.",
+        "Virtual accept selects Bolts::accept.",
+        "Inside accept, self is const Bolts&.",
+        "Virtual visit selects Price::visit(Bolts); adds 15.",
+        "Cable(2) adds 80; total=95."
+      ],
+      "narration": "Step 1. parts[0] owns Bolts(3), traversed through Part.. The pointer static type hides which concrete element it owns.\n\nStep 2. Virtual accept selects Bolts::accept.. The actual element type controls the first dispatch.\n\nStep 3. Inside accept, self is const Bolts&.. Compile-time overload resolution selects the Bolts visit signature.\n\nStep 4. Virtual visit selects Price::visit(Bolts); adds 15.. The actual visitor type controls the second dispatch.\n\nStep 5. Cable(2) adds 80; total=95.. Its accept selects the Cable overload with metres as the unit.",
+      "walkthrough": [
+        {
+          "label": "Step 1",
+          "text": "parts[0] owns Bolts(3), traversed through Part.",
+          "reason": "The pointer static type hides which concrete element it owns."
+        },
+        {
+          "label": "Step 2",
+          "text": "Virtual accept selects Bolts::accept.",
+          "reason": "The actual element type controls the first dispatch."
+        },
+        {
+          "label": "Step 3",
+          "text": "Inside accept, self is const Bolts&.",
+          "reason": "Compile-time overload resolution selects the Bolts visit signature."
+        },
+        {
+          "label": "Step 4",
+          "text": "Virtual visit selects Price::visit(Bolts); adds 15.",
+          "reason": "The actual visitor type controls the second dispatch."
+        },
+        {
+          "label": "Step 5",
+          "text": "Cable(2) adds 80; total=95.",
+          "reason": "Its accept selects the Cable overload with metres as the unit."
+        }
+      ],
+      "question": {
+        "prompt": "Which operation makes the next step possible?",
+        "answer": "parts[0] owns Bolts(3), traversed through Part. — The pointer static type hides which concrete element it owns.\nVirtual accept selects Bolts::accept. — The actual element type controls the first dispatch.\nInside accept, self is const Bolts&. — Compile-time overload resolution selects the Bolts visit signature.\nVirtual visit selects Price::visit(Bolts); adds 15. — The actual visitor type controls the second dispatch.\nCable(2) adds 80; total=95. — Its accept selects the Cable overload with metres as the unit."
+      },
+      "topicIds": [
+        "C22.10"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch22-23"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → example.failures",
+      "title": "Debug the promise: Call visit directly with a Part reference and expect the Bolts overload to be chosen dynamically.",
+      "keyPoints": [
+        "Call visit directly with a Part reference and expect the Bolts overload to be chosen dynamically.",
+        "The call does not compile with this interface because neither concrete-reference overload accepts a Part reference."
+      ],
+      "narration": "Call visit directly with a Part reference and expect the Bolts overload to be chosen dynamically. The call does not compile with this interface because neither concrete-reference overload accepts a Part reference. Overload resolution uses the static expression type; accept supplies the missing concrete-type step.\n\nThe executable checks a mixed order total, a fresh empty result, zero quantity, rejected negative cable length, exact price limit, and rejection above the limit without mutation. The code guards upper quantity bounds, but the primary tests do not enumerate every constructor bound.\n\nA new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "The call does not compile with this interface because neither concrete-reference overload accepts a Part reference."
+        },
+        {
+          "label": "Why it fails",
+          "text": "Overload resolution uses the static expression type; accept supplies the missing concrete-type step."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "Overload resolution uses the static expression type; accept supplies the missing concrete-type step. The call does not compile with this interface because neither concrete-reference overload accepts a Part reference."
+      },
+      "topicIds": [
+        "C22.11"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch22-24"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → example.failures",
+      "title": "Debug the promise: Reuse one Price object for two independent identical orders without resetting it.",
+      "keyPoints": [
+        "Reuse one Price object for two independent identical orders without resetting it.",
+        "The second displayed total becomes 190 instead of 95."
+      ],
+      "narration": "Reuse one Price object for two independent identical orders without resetting it. The second displayed total becomes 190 instead of 95. The visitor retains a running total across visits.\n\nThe executable checks a mixed order total, a fresh empty result, zero quantity, rejected negative cable length, exact price limit, and rejection above the limit without mutation. The code guards upper quantity bounds, but the primary tests do not enumerate every constructor bound.\n\nA new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "The second displayed total becomes 190 instead of 95."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The visitor retains a running total across visits."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The visitor retains a running total across visits. The second displayed total becomes 190 instead of 95."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch22-25"
+    },
+    {
+      "title": "Trace 1: Visitor: Bolt price",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Visitor: Bolt price. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Visitor: Bolt price. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe Bolts visit multiplies count by five cents.\n\nThe bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → dpx-c22-trace-1; companion/solutions/ch22/main.cpp",
+      "question": {
+        "prompt": "Visitor: Bolt price. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "20. The Bolts visit multiplies count by five cents."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Price p;\n  Bolts(4).accept(p);\n  return p.cents();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch22_trace_1.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Price p;\n  Bolts(4).accept(p);\n  return p.cents();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "20\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-26.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_trace_1.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-22-a",
+      "section": "Trace experiments",
+      "id": "dp-ch22-26"
+    },
+    {
+      "title": "Trace 2: Visitor: Cable price",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Visitor: Cable price. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Visitor: Cable price. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe Cable visit uses forty cents per metre.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → dpx-c22-trace-2; companion/solutions/ch22/main.cpp",
+      "question": {
+        "prompt": "Visitor: Cable price. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "120. The Cable visit uses forty cents per metre."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Price p;\n  Cable(3).accept(p);\n  return p.cents();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch22_trace_2.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Price p;\n  Cable(3).accept(p);\n  return p.cents();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "120\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-27.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_trace_2.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-22-a",
+      "section": "Trace experiments",
+      "id": "dp-ch22-27"
+    },
+    {
+      "title": "Trace 3: Visitor: Mixed accumulation",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Visitor: Mixed accumulation. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Visitor: Mixed accumulation. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nA single visitor accumulates both visits in order.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → dpx-c22-trace-3; companion/solutions/ch22/main.cpp",
+      "question": {
+        "prompt": "Visitor: Mixed accumulation. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "140. A single visitor accumulates both visits in order."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Price p;\n  Bolts(4).accept(p);\n  Cable(3).accept(p);\n  return p.cents();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch22_trace_3.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Price p;\n  Bolts(4).accept(p);\n  Cable(3).accept(p);\n  return p.cents();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "140\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-28.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_trace_3.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-22-a",
+      "section": "Trace experiments",
+      "id": "dp-ch22-28"
+    },
+    {
+      "title": "Trace 4: Visitor: Zero quantity",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Visitor: Zero quantity. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Visitor: Zero quantity. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nZero is a valid quantity that adds no cost.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → dpx-c22-trace-4; companion/solutions/ch22/main.cpp",
+      "question": {
+        "prompt": "Visitor: Zero quantity. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "0. Zero is a valid quantity that adds no cost."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Price p;\n  Cable(0).accept(p);\n  return p.cents();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch22_trace_4.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Price p;\n  Cable(0).accept(p);\n  return p.cents();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-29.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_trace_4.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-22-a",
+      "section": "Trace experiments",
+      "id": "dp-ch22-29"
+    },
+    {
+      "title": "Trace 5: Visitor: Bolt label",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Visitor: Bolt label. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Visitor: Bolt label. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe overload for Bolts emits the bolt-count label.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → dpx-c22-trace-5; companion/solutions/ch22/main.cpp",
+      "question": {
+        "prompt": "Visitor: Bolt label. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"bolts=4\". The overload for Bolts emits the bolt-count label."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Labels l;\n  Bolts(4).accept(l);\n  return l.lines.at(0);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch22_trace_5.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Labels l;\n  Bolts(4).accept(l);\n  return l.lines.at(0);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "bolts=4\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-30.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_trace_5.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-22-a",
+      "section": "Trace experiments",
+      "id": "dp-ch22-30"
+    },
+    {
+      "title": "Trace 6: Visitor: Cable label",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Visitor: Cable label. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Visitor: Cable label. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe overload for Cable names metres, not bolts.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → dpx-c22-trace-6; companion/solutions/ch22/main.cpp",
+      "question": {
+        "prompt": "Visitor: Cable label. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"cable-m=3\". The overload for Cable names metres, not bolts."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Labels l;\n  Cable(3).accept(l);\n  return l.lines.at(0);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch22_trace_6.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Labels l;\n  Cable(3).accept(l);\n  return l.lines.at(0);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "cable-m=3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-31.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_trace_6.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-22-a",
+      "section": "Trace experiments",
+      "id": "dp-ch22-31"
+    },
+    {
+      "title": "Trace 7: Visitor: Label order",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Visitor: Label order. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Visitor: Label order. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe visitor preserves the order in which elements accept it.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → dpx-c22-trace-7; companion/solutions/ch22/main.cpp",
+      "question": {
+        "prompt": "Visitor: Label order. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"cable-m=2|bolts=1\". The visitor preserves the order in which elements accept it."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Labels l;\n  Cable(2).accept(l);\n  Bolts(1).accept(l);\n  return l.lines.at(0)+\"|\"+l.lines.at(1);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch22_trace_7.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Labels l;\n  Cable(2).accept(l);\n  Bolts(1).accept(l);\n  return l.lines.at(0)+\"|\"+l.lines.at(1);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "cable-m=2|bolts=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-32.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_trace_7.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-22-a",
+      "section": "Trace experiments",
+      "id": "dp-ch22-32"
+    },
+    {
+      "title": "Trace 8: Visitor: Invalid cable length",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Visitor: Invalid cable length. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Visitor: Invalid cable length. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nElement validation remains in the element type, independent of each visitor.\n\n The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → dpx-c22-trace-8; companion/solutions/ch22/main.cpp",
+      "question": {
+        "prompt": "Visitor: Invalid cable length. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. Element validation remains in the element type, independent of each visitor."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return dpx_rejects<std::out_of_range>([]{\n    Cable c(101);\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch22_trace_8.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return dpx_rejects<std::out_of_range>([]{\n    Cable c(101);\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-33.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch22_trace_8.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-22-a",
+      "section": "Trace experiments",
+      "id": "dp-ch22-33"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → exercises.22.1",
+      "title": "Exercise 22.1: Guided modification",
+      "keyPoints": [
+        "Change the bolt rate to six cents and leave the cable rate unchanged. What should the mixed-order total become?"
+      ],
+      "narration": "Change the bolt rate to six cents and leave the cable rate unchanged. What should the mixed-order total become?\n\nPause here and make a concrete prediction or sketch a change. The hint is: The quantities remain three bolts and two metres.\n\nAfter the discussion, compare the reasoning. The total becomes 98 cents: three times six plus two times forty. Update the expected mixed-order check while retaining the independent total-limit test, which uses cable only.",
+      "hint": "The quantities remain three bolts and two metres.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The total becomes 98 cents: three times six plus two times forty. Update the expected mixed-order check while retaining the independent total-limit test, which uses cable only."
+      },
+      "topicIds": [
+        "C22.14"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-34"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → exercises.22.2",
+      "title": "Exercise 22.2: Trace unfamiliar code",
+      "keyPoints": [
+        "Visit Bolts(2), Cable(1), and Bolts(0) with one fresh Price. Then visit Cable(1) again using the same visitor. List the total after each call."
+      ],
+      "narration": "Visit Bolts(2), Cable(1), and Bolts(0) with one fresh Price. Then visit Cable(1) again using the same visitor. List the total after each call.\n\nPause here and make a concrete prediction or sketch a change. The hint is: The visitor accumulates rather than replacing its result.\n\nAfter the discussion, compare the reasoning. The totals are 10, 50, 50, and 90. Zero quantity contributes zero; using the same visitor for the final call continues the existing report.",
+      "hint": "The visitor accumulates rather than replacing its result.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The totals are 10, 50, 50, and 90. Zero quantity contributes zero; using the same visitor for the final call continues the existing report."
+      },
+      "topicIds": [
+        "C22.15"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-35"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → exercises.22.3",
+      "title": "Exercise 22.3: Diagnose a bug",
+      "keyPoints": [
+        "A developer adds void visit(const Part&) to Visitor and calls it directly from the mixed-list loop. Why does that fail to reproduce the element-specific operation automatically?"
+      ],
+      "narration": "A developer adds void visit(const Part&) to Visitor and calls it directly from the mixed-list loop. Why does that fail to reproduce the element-specific operation automatically?\n\nPause here and make a concrete prediction or sketch a change. The hint is: The static argument type still determines which overload is chosen.\n\nAfter the discussion, compare the reasoning. The Part overload is selected from the Part expression. Virtual dispatch can choose an override of that signature, but cannot switch to a different Bolts or Cable signature. Keep the accept step or use another explicit type-selection mechanism.",
+      "hint": "The static argument type still determines which overload is chosen.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The Part overload is selected from the Part expression. Virtual dispatch can choose an override of that signature, but cannot switch to a different Bolts or Cable signature. Keep the accept step or use another explicit type-selection mechanism."
+      },
+      "topicIds": [
+        "C22.16"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-36"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → exercises.22.4",
+      "title": "Exercise 22.4: Choose a design",
+      "keyPoints": [
+        "New reports arrive weekly, while the two element kinds have stayed fixed for years. Choose Visitor or adding every report as a new Part virtual member."
+      ],
+      "narration": "New reports arrive weekly, while the two element kinds have stayed fixed for years. Choose Visitor or adding every report as a new Part virtual member.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Choose which source files should change for each new report.\n\nAfter the discussion, compare the reasoning. Visitor is a reasonable fit: each report implements the known type cases without editing every element. It introduces a shared type list, so document that adding a new part kind affects all report visitors.",
+      "hint": "Choose which source files should change for each new report.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Visitor is a reasonable fit: each report implements the known type cases without editing every element. It introduces a shared type list, so document that adding a new part kind affects all report visitors."
+      },
+      "topicIds": [
+        "C22.17"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-37"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → exercises.22.5",
+      "title": "Exercise 22.5: Extend without regressions",
+      "keyPoints": [
+        "Add Labels producing bolts=3 and cable-m=2 in traversal order without editing any element type. What regression check proves pricing is unaffected?"
+      ],
+      "narration": "Add Labels producing bolts=3 and cable-m=2 in traversal order without editing any element type. What regression check proves pricing is unaffected?\n\nPause here and make a concrete prediction or sketch a change. The hint is: Reuse accept with a different Visitor implementation.\n\nAfter the discussion, compare the reasoning. Implement both visit overloads to append the unit-labeled strings. Check the ordered string vector and confirm the earlier Price still contains 95. The reference solution also checks an empty label report and a zero-bolt label.",
+      "hint": "Reuse accept with a different Visitor implementation.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Implement both visit overloads to append the unit-labeled strings. Check the ordered string vector and confirm the earlier Price still contains 95. The reference solution also checks an empty label report and a zero-bolt label."
+      },
+      "topicIds": [
+        "C22.18"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-38"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → exercises.22.6",
+      "title": "Exercise 22.6: Justify a decision",
+      "keyPoints": [
+        "Explain when std::variant and std::visit would be preferable to this hierarchy. Include a cost of the choice."
+      ],
+      "narration": "Explain when std::variant and std::visit would be preferable to this hierarchy. Include a cost of the choice.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Consider simple value data and a closed list of alternatives.\n\nAfter the discussion, compare the reasoning. A variant fits a small closed set of value records and can store them without separate heap objects. Its type list appears in the value type, so adding an alternative can affect many callers and visitors. A polymorphic hierarchy can be more flexible when elements have independent identity and richer lifetimes.",
+      "hint": "Consider simple value data and a closed list of alternatives.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "A variant fits a small closed set of value records and can store them without separate heap objects. Its type list appears in the value type, so adding an alternative can affect many callers and visitors. A polymorphic hierarchy can be more flexible when elements have independent identity and richer lifetimes."
+      },
+      "topicIds": [
+        "C22.19"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-39"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/exercises/ch22/main.cpp",
+      "title": "Extend the program without losing its tests",
+      "keyPoints": [
+        "Add a Labels visitor with an ordered vector of strings. Bolts emits bolts=<count>; Cable emits cable-m=<metres>. Do not change Part, Bolts, Cable, or Price. Keep all original checks and print the two labels after existing output."
+      ],
+      "narration": "Add a Labels visitor with an ordered vector of strings. Bolts emits bolts=<count>; Cable emits cable-m=<metres>. Do not change Part, Bolts, Cable, or Price. Keep all original checks and print the two labels after existing output.\n\nKeep the original checks as a baseline. The new behavior must also satisfy these checks: The sample parts produce exactly [bolts=3, cable-m=2]. A fresh Labels visitor has no lines. Bolts(0) produces bolts=0. The original Price result remains 95.\n\nThe starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/exercises/ch22/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\nint main() {\n    std::vector<std::unique_ptr<Part>> parts;\n    parts.push_back(std::make_unique<Bolts>(3));\n    parts.push_back(std::make_unique<Cable>(2));\n    Price price;\n    for (const auto& part : parts) { part->accept(price); }\n    check(price.cents() == 95);\n    std::cout << \"price cents: \" << price.cents() << '\\n';\n    Price empty;\n    check(empty.cents() == 0);\n    Bolts zero(0);\n    zero.accept(empty);\n    check(empty.cents() == 0);\n    bool invalid = false;\n    try { Cable bad(-1); }\n    catch (const std::out_of_range&) { invalid = true; }\n    check(invalid);\n    Cable reel(100);\n    Price capped;\n    for (int i = 0; i < 250; ++i) { reel.accept(capped); }\n    check(capped.cents() == 1000000);\n    bool overflow = false;\n    try { reel.accept(capped); }\n    catch (const std::overflow_error&) { overflow = true; }\n    check(overflow && capped.cents() == 1000000);\n    std::cout << \"price limit: preserved\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "price cents: 95\nprice limit: preserved\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-40.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "checks": [
+        {
+          "prompt": "The sample parts produce exactly [bolts=3, cable-m=2].",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "A fresh Labels visitor has no lines.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Bolts(0) produces bolts=0.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "The original Price result remains 95.",
+          "answer": "This is a required acceptance check for the extension."
+        }
+      ],
+      "question": {
+        "prompt": "What must the extension add?",
+        "answer": "Add a Labels visitor with an ordered vector of strings. Bolts emits bolts=<count>; Cable emits cable-m=<metres>. Do not change Part, Bolts, Cable, or Price. Keep all original checks and print the two labels after existing output."
+      },
+      "topicIds": [
+        "C22.20"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-40"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/solutions/ch22/main.cpp",
+      "title": "Extension solution and design review",
+      "keyPoints": [
+        "The sample parts produce exactly [bolts=3, cable-m=2].",
+        "A fresh Labels visitor has no lines.",
+        "Bolts(0) produces bolts=0.",
+        "The original Price result remains 95."
+      ],
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/solutions/ch22/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nclass Bolts;\nclass Cable;\nclass Visitor {\npublic:\n    virtual ~Visitor() = default;\n    virtual void visit(const Bolts& bolts) = 0;\n    virtual void visit(const Cable& cable) = 0;\n};\nclass Part {\npublic:\n    virtual ~Part() = default;\n    virtual void accept(Visitor& visitor) const = 0;\n};\nclass Bolts final : public Part {\n    int count_;\npublic:\n    explicit Bolts(int count) : count_(count) {\n        if (count < 0 || count > 100) {\n            throw std::out_of_range(\"bolt count\");\n        }\n    }\n    int count() const { return count_; }\n    void accept(Visitor& operation) const\n        override {\n        // Name this exact kind of part.\n        const Bolts& self = *this;\n        operation.visit(self);\n    } // bolt accept\n};\nclass Cable final : public Part {\n    int metres_;\npublic:\n    explicit Cable(int metres) : metres_(metres) {\n        if (metres < 0 || metres > 100) {\n            throw std::out_of_range(\"cable length\");\n        }\n    }\n    int metres() const { return metres_; }\n    void accept(Visitor& visitor) const\n        override {\n        visitor.visit(*this);\n    }\n};\nclass Price final : public Visitor {\n    int cents_ = 0;\n    void add(int cents) {\n        if (cents_ > 1000000 - cents) {\n            throw std::overflow_error(\"price limit\");\n        }\n        cents_ += cents;\n    }\npublic:\n    void visit(const Bolts& bolts) override {\n        // Price this count of bolts.\n        const int cost = bolts.count() * 5;\n        add(cost);\n    } // bolt price\n    void visit(const Cable& cable) override {\n        const int cost = cable.metres() * 40;\n        add(cost);\n    }\n    int cents() const { return cents_; }\n};\nclass Labels final : public Visitor {\npublic:\n    std::vector<std::string> lines;\n    void visit(const Bolts& bolts) override {\n        lines.push_back(\"bolts=\" + std::to_string(bolts.count()));\n    }\n    void visit(const Cable& cable) override {\n        lines.push_back(\"cable-m=\" + std::to_string(cable.metres()));\n    }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"visitor check failed\"); }\n}\nint main() {\n    std::vector<std::unique_ptr<Part>> parts;\n    parts.push_back(std::make_unique<Bolts>(3));\n    parts.push_back(std::make_unique<Cable>(2));\n    Price price;\n    for (const auto& part : parts) { part->accept(price); }\n    check(price.cents() == 95);\n    std::cout << \"price cents: \" << price.cents() << '\\n';\n    Price empty;\n    check(empty.cents() == 0);\n    Bolts zero(0);\n    zero.accept(empty);\n    check(empty.cents() == 0);\n    bool invalid = false;\n    try { Cable bad(-1); }\n    catch (const std::out_of_range&) { invalid = true; }\n    check(invalid);\n    Cable reel(100);\n    Price capped;\n    for (int i = 0; i < 250; ++i) { reel.accept(capped); }\n    check(capped.cents() == 1000000);\n    bool overflow = false;\n    try { reel.accept(capped); }\n    catch (const std::overflow_error&) { overflow = true; }\n    check(overflow && capped.cents() == 1000000);\n    std::cout << \"price limit: preserved\\n\";\n\n    Labels labels;\n    for (const auto& part : parts) { part->accept(labels); }\n    check(labels.lines == std::vector<std::string>{\"bolts=3\", \"cable-m=2\"});\n    check(price.cents() == 95);\n    Labels none;\n    check(none.lines.empty());\n    zero.accept(none);\n    check(none.lines == std::vector<std::string>{\"bolts=0\"});\n    for (const auto& line : labels.lines) { std::cout << line << '\\n'; }\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "price cents: 95\nprice limit: preserved\nbolts=3\ncable-m=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch22/dp-ch22-41.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "narration": "The reference solution implements two new visitor overloads and reuses the unchanged accept traversal. It keeps labels as strings owned by the visitor, so no references to parts survive the call. A stream-writing visitor would also work if output lifetime and failure handling were specified.\n\nA new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.",
+      "question": {
+        "prompt": "Why is this solution a reasonable extension, and could another design work?",
+        "answer": "The reference solution implements two new visitor overloads and reuses the unchanged accept traversal. It keeps labels as strings owned by the visitor, so no references to parts survive the call. A stream-writing visitor would also work if output lifetime and failure handling were specified."
+      },
+      "section": "Practice and extension",
+      "id": "dp-ch22-41"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → C22.22 scenario",
+      "title": "Application case 1: defend your choice",
+      "keyPoints": [
+        "Part types change rarely, but teams frequently add operations across them. Which design may fit?"
+      ],
+      "scenario": {
+        "prompt": "Part types change rarely, but teams frequently add operations across them. Which design may fit?",
+        "options": [
+          "Singleton",
+          "Visitor is always best when types change daily",
+          "Prototype",
+          "Visitor"
+        ],
+        "correctIndex": 3,
+        "explanation": "It keeps a new operation together across the known concrete element types.",
+        "rationales": [
+          "Shared instance access does not organize type-specific operations.",
+          "Each new type can require additions across visitor interfaces and implementations.",
+          "Copying objects solves a different problem.",
+          "It keeps a new operation together across the known concrete element types."
+        ],
+        "id": "C22.22-s1"
+      },
+      "narration": "Part types change rarely, but teams frequently add operations across them. Which design may fit?\n\nSingleton. Shared instance access does not organize type-specific operations.\n\nVisitor is always best when types change daily. Each new type can require additions across visitor interfaces and implementations.\n\nPrototype. Copying objects solves a different problem.\n\nVisitor. It keeps a new operation together across the known concrete element types.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Visitor. It keeps a new operation together across the known concrete element types."
+      },
+      "topicIds": [
+        "C22.22"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-42"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch22.json → C22.23 scenario",
+      "title": "Application case 2: defend your choice",
+      "keyPoints": [
+        "Only visit(const Bolts&) and visit(const Nuts&) exist. A caller passes a Part& directly to visit. What happens?"
+      ],
+      "scenario": {
+        "prompt": "Only visit(const Bolts&) and visit(const Nuts&) exist. A caller passes a Part& directly to visit. What happens?",
+        "options": [
+          "No matching overload in this interface.",
+          "The first declared overload always wins",
+          "The runtime automatically chooses Bolts",
+          "The object is cloned first"
+        ],
+        "correctIndex": 0,
+        "explanation": "Overload resolution uses the expression’s static type. Concrete accept supplies the precise type.",
+        "rationales": [
+          "Overload resolution uses the expression’s static type. Concrete accept supplies the precise type.",
+          "An inapplicable overload cannot win by declaration order.",
+          "Virtual dispatch does not redo overload resolution using arbitrary runtime argument types.",
+          "Visitor dispatch does not imply copying."
+        ],
+        "id": "C22.23-s1"
+      },
+      "narration": "Only visit(const Bolts&) and visit(const Nuts&) exist. A caller passes a Part& directly to visit. What happens?\n\nNo matching overload in this interface.. Overload resolution uses the expression’s static type. Concrete accept supplies the precise type.\n\nThe first declared overload always wins. An inapplicable overload cannot win by declaration order.\n\nThe runtime automatically chooses Bolts. Virtual dispatch does not redo overload resolution using arbitrary runtime argument types.\n\nThe object is cloned first. Visitor dispatch does not imply copying.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "No matching overload in this interface.. Overload resolution uses the expression’s static type. Concrete accept supplies the precise type."
+      },
+      "topicIds": [
+        "C22.23"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch22-43"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 22",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch22.json → summary",
+      "title": "Keep these rules when the program grows",
+      "keyPoints": [
+        "Visitor makes new operations easier across a stable type set.",
+        "accept provides a concrete-type step before visit.",
+        "Overload resolution remains a compile-time choice.",
+        "Visitors need their own state and error invariants.",
+        "New element types require changes to every visitor.",
+        "Variant is an alternative for a closed set of value types."
+      ],
+      "narration": "Visitor makes new operations easier across a stable type set. accept provides a concrete-type step before visit. Overload resolution remains a compile-time choice. Visitors need their own state and error invariants. New element types require changes to every visitor. Variant is an alternative for a closed set of value types.\n\nA new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.",
+      "question": {
+        "prompt": "Explain Visitor without reciting its class names.",
+        "answer": "Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total. Virtual price members are simpler if price is intrinsic and the operation set is stable. A variant and std::visit suit a closed set of simple value types. Visitor is useful when adding operations across stable element types is the main change."
+      },
+      "topicIds": [
+        "C22.21"
+      ],
+      "section": "Recall and transfer",
+      "id": "dp-ch22-44"
+    },
+    {
+      "title": "Choose which direction of growth should be easy",
+      "eyebrow": "VISITOR / DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "New operations are local visitor additions",
+        "New element kinds affect every visitor",
+        "Virtual members favor a stable operation set",
+        "variant suits a closed value-type set"
+      ],
+      "narration": "Think of a grid whose rows are part kinds and whose columns are operations. Visitor groups work by operation, making a new column straightforward: implement each known type's case in one visitor. A new row is broader because every visitor must decide what it means. Ordinary virtual members favor the other direction when new kinds appear often and operations stay stable. For simple value data with a closed type set, std::variant and std::visit can offer another arrangement without the same owning base hierarchy. They still make the alternatives explicit. The right choice depends on expected change, not on whether a diagram has more arrows or a pattern name sounds advanced.",
+      "actions": [
+        "Ask whether a new report or a new part kind is more common in the proposed product.",
+        "Have learners defend a variant alternative for small value records."
+      ],
+      "sourceRef": "manuscript/ch22.json → Choose which direction of change should be easy",
+      "question": {
+        "prompt": "Which change is deliberately more expensive with this classic Visitor interface?",
+        "answer": "Adding a new concrete element kind, because Visitor and every concrete visitor need a case for that kind."
+      },
+      "comparisons": [
+        {
+          "label": "Visitor",
+          "text": "Stable element kinds; many new operations across them."
+        },
+        {
+          "label": "Virtual element members",
+          "text": "Stable operations; many new element kinds."
+        },
+        {
+          "label": "std::variant + std::visit",
+          "text": "Explicit closed set of value alternatives, often without a virtual base or per-element allocation."
+        }
+      ],
+      "section": "Recall and transfer",
+      "id": "dp-ch22-45"
+    },
+    {
+      "title": "Distinguish routing bugs from report-state bugs",
+      "eyebrow": "VISITOR / DIAGNOSIS",
+      "kind": "concept",
+      "keyPoints": [
+        "Wrong overload: inspect static type and accept",
+        "Wrong repeated total: inspect visitor reuse",
+        "Wrong unit: inspect the concrete visit calculation"
+      ],
+      "narration": "Three failures can produce a bad report for very different reasons. If every part reaches a generic Part case, inspect whether the loop bypassed accept and called visit directly through a base expression. If the second independent order reports twice the expected price, inspect whether the caller reused a visitor that still contains the first total. If cable is charged at five cents per metre, inspect the Cable overload's unit-specific arithmetic. None of these diagnoses requires changing every class. Follow the path of type selection, data, and retained state separately. Focused tests should name which contract failed so a maintainer can find the responsible boundary quickly.",
+      "actions": [
+        "Classify three symptoms: generic label, doubled second total, wrong cable rate.",
+        "Ask for the smallest test that separates each failure."
+      ],
+      "sourceRef": "manuscript/ch22.json → The price calculation also needs ordinary correctness",
+      "question": {
+        "prompt": "A second independent sample order prints 190 instead of 95. What should you inspect first?",
+        "answer": "Check whether the same Price object was reused without a documented reset. Its state accumulates across visits; a fresh order should use a fresh report here."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch22-46"
+    },
+    {
+      "title": "Add Labels and explain the whole path",
+      "eyebrow": "VISITOR / TRANSFER AND RECALL",
+      "kind": "concept",
+      "keyPoints": [
+        "Labels supplies both concrete visits",
+        "Existing elements and traversal remain usable",
+        "Each report owns its own result",
+        "Explain the cost of adding Paint next"
+      ],
+      "narration": "The extension creates Labels with one visit for bolt counts and one for cable metres. It appends strings to its own list. The existing parts, accept methods, and traversal remain unchanged, and running Labels does not change an already computed Price result. Verify the mixed order, an empty fresh label report, and a zero-quantity bolt label. Then imagine adding Paint. That addition requires a new element, a Visitor overload, and a decision in Price, Labels, and every other concrete visitor. This deliberate cost is part of the design. Recall Visitor by explaining why a common traversal needs accept, which object owns each result, and which direction of change the interface makes easier.",
+      "actions": [
+        "Ask learners to narrate one Cable visit into Labels from the outer loop.",
+        "Finish by listing the impacted interfaces if Paint is added."
+      ],
+      "sourceRef": "manuscript/ch22.json → Choose which direction of change should be easy",
+      "question": {
+        "prompt": "Why can Labels be added without editing Bolts or Cable in this chapter?",
+        "answer": "Their accept methods already forward the precise element type through Visitor. Labels supplies the existing required overloads and keeps its own output state."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch22-47"
+    }
+  ]
+}

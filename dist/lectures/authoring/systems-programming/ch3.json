@@ -1,0 +1,222 @@
+{
+  "chapter": 3,
+  "title": "Bits, Bytes, and Binary Data: operations with explicit meaning",
+  "opening": [
+    {
+      "title": "Bits give possibilities; a format gives meaning",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Four bits provide 16 patterns",
+        "The same pattern can have different interpretations",
+        "The protocol decides which patterns are valid"
+      ],
+      "narration": "Four independent positions with two choices each give sixteen possible patterns. That arithmetic does not tell us whether a pattern means a count, a permission set, or a reserved state. For example, 1010 is ten under an unsigned interpretation, but a format might use it as two separate flags and a small mode field. A debugger can display the same storage in binary, hexadecimal, or decimal without changing it. Begin a bit-level problem by naming the interpretation and numbering the positions. Only then can we judge whether a mask or shift performs the required operation. The representation is concrete; its application meaning is a separate contract.",
+      "actions": [
+        "Write one four-bit pattern and propose two different legitimate interpretations."
+      ],
+      "sourceRef": "content/systems-programming/ch3.json → SP03.004 / 3.1 Bits",
+      "question": {
+        "prompt": "Does having 16 four-bit patterns imply that all 16 are valid modes?",
+        "answer": "No. A protocol can reserve patterns or restrict the semantic mode values."
+      }
+    },
+    {
+      "title": "A numeral is a notation, not a sequence of digit bytes",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "0x2D and decimal 45 denote the same value",
+        "One hex digit corresponds to four bits",
+        "The text 45 is a different representation"
+      ],
+      "narration": "Hexadecimal 2D contains two times sixteen plus thirteen, giving forty-five. Its binary form is 0010 1101, since each hexadecimal digit maps to four bit positions. Writing that numeric literal in source does not mean memory stores the character codes for 2 and D. A text representation is a different object with an encoding and a length. This distinction matters in parsers and binary files: converting a displayed number back to a value is not the same operation as copying an integer's bytes. Choose binary when positions matter, hex when grouped patterns matter, and decimal when a human count is the clearest view.",
+      "actions": [
+        "Convert 0x2D to binary and decimal, then contrast it with two text characters."
+      ],
+      "sourceRef": "content/systems-programming/ch3.json → SP03.008 / 3.3 Number Bases",
+      "question": {
+        "prompt": "Do the numeric literal 45 and the string literal \"45\" have the same representation contract?",
+        "answer": "No. One denotes an integer value; the other denotes character code units that a parser could interpret as a number."
+      }
+    },
+    {
+      "title": "Some required bits is not all required bits",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "code",
+      "keyPoints": [
+        "Bitwise AND keeps matching positions",
+        "Any tests for a nonzero intersection",
+        "All compares the intersection with the full mask"
+      ],
+      "narration": "The required mask has bits three and two set, while flags has only bit two. Bitwise AND keeps that common bit, so any is true. The intersection is not the entire required mask, so all is false. Logical AND asks a different question: are both integer operands nonzero? They are, so logical and also prints true, even though one required permission bit is missing. These three lines show how an authorization check can be wrong without a compiler error. Name the desired predicate before writing an expression. If an operation needs both capabilities, test all required bits rather than merely finding one overlap.",
+      "actions": [
+        "Predict all three booleans and explain why two true results still do not prove all bits exist."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch3.json → SP03.010 / 3.4 Bitwise Operations",
+      "question": {
+        "prompt": "Which expression should require both bits in required?",
+        "answer": "(flags & required) == required, with the mask chosen to represent exactly the required capabilities."
+      },
+      "code": {
+        "filename": "sys_ch03_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    const unsigned flags = 0b0100u;\n    const unsigned required = 0b1100u;\n    const bool any = (flags & required) != 0u;\n    const bool all = (flags & required) == required;\n    std::cout << std::boolalpha << \"any=\" << any << '\\n';\n    std::cout << \"all=\" << all << '\\n';\n    std::cout << \"logical and=\" << (flags && required) << '\\n';\n}\n",
+        "expectedStdout": "any=true\nall=false\nlogical and=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Replacement must remove old one-bits first",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "code",
+      "keyPoints": [
+        "OR can turn bits on but cannot turn them off",
+        "Clear exactly the destination mask",
+        "Preserve every unselected position"
+      ],
+      "narration": "The low two bits of old_word are both one, so the old field is three. We want the new field to be one. OR alone cannot clear the old second bit, leaving eleven as the complete decimal word. The corrected expression clears the low two positions, then inserts one, giving nine. The final comparison prints outside preserved=true because the high bit remains unchanged. This is not just a test of the requested new field. It checks the neighboring data too. A packed representation often holds several independent meanings in one word, so changing one field must not accidentally damage another field's state.",
+      "actions": [
+        "Trace old field 3 changing to 1, then inspect the untouched high bit."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch3.json → SP03.012 / Worked example — Updating one packed field",
+      "question": {
+        "prompt": "Why can OR-only produce the right result for some tests and still be wrong?",
+        "answer": "It works when no old one-bit needs clearing. Tests that replace a larger bit pattern with a smaller one expose the missing clear step."
+      },
+      "code": {
+        "filename": "sys_ch03_replace_field.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    const unsigned old_word = 0b1011u;\n    const unsigned mask = 0b0011u;\n    const unsigned new_field = 1u;\n    const unsigned wrong = old_word | new_field;\n    const unsigned correct = (old_word & ~mask) | new_field;\n    std::cout << \"OR only=\" << wrong << '\\n';\n    std::cout << \"replace=\" << correct << '\\n';\n    std::cout << std::boolalpha << \"outside preserved=\"\n              << ((correct & ~mask) == (old_word & ~mask)) << '\\n';\n}\n",
+        "expectedStdout": "OR only=11\nreplace=9\noutside preserved=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Width rules apply after integer promotion",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Small integer operands can promote",
+        "The shift count must fit the promoted width",
+        "Use an unsigned word type deliberately"
+      ],
+      "narration": "A variable described as a byte does not guarantee that every expression involving it stays byte-wide. Small integer operands can be promoted before a bitwise operation. In particular, complement may produce a wider result than the original object suggests. Shifts also have requirements: the count must be nonnegative and less than the width of the promoted left operand. Shifting by the full width is not a portable shortcut for zero. A reusable field helper should state its word type, allowed positions, and allowed widths, then handle special cases explicitly. These rules matter during source-level reasoning even if one machine instruction happens to mask its shift count.",
+      "actions": [
+        "Ask students to identify the special cases width 0 and full width before coding a mask."
+      ],
+      "sourceRef": "content/systems-programming/ch3.json → SP03.010 / 3.4 Bitwise Operations",
+      "question": {
+        "prompt": "May a helper create a full-width mask with (1u << width) - 1 when width equals unsigned’s width?",
+        "answer": "No. The shift count would be invalid. The full-width case needs an explicit valid construction."
+      }
+    },
+    {
+      "title": "Idempotent setting is different from toggling",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "OR with a mask sets selected bits",
+        "Repeating the same OR changes nothing further",
+        "XOR twice restores the previous pattern"
+      ],
+      "narration": "An operation is idempotent when repeating it has the same effect as doing it once. Setting a ready flag with OR has that property: once the bit is one, another identical OR leaves it one. XOR does something different. It toggles selected bits, so repeating the same toggle returns them to their previous values. This difference matters when a message might be retried. A repeated set-ready operation can preserve the intended state, while a repeated toggle-ready operation can undo it. Neither expression by itself supplies concurrency safety for a shared ordinary integer. The update policy and the synchronization policy are separate parts of the contract.",
+      "actions": [
+        "Trace two repeated OR operations and two repeated XOR operations on the same bit."
+      ],
+      "sourceRef": "content/systems-programming/ch3.json → SP03.010 / 3.4 Bitwise Operations",
+      "question": {
+        "prompt": "Which operation better expresses a retryable instruction to mark a bit ready?",
+        "answer": "OR-setting the bit is usually appropriate because repeating it preserves ready; XOR would toggle the bit back."
+      }
+    },
+    {
+      "title": "Byte access does not erase object boundaries",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "A byte address names a position",
+        "Typed pointer steps count elements",
+        "Representation inspection is not permission to access anywhere"
+      ],
+      "narration": "On the reference platform, increasing a byte address by one moves one eight-bit byte. Increasing an int pointer by one moves one int element, typically several bytes on that platform. The arithmetic units differ. More importantly, neither view grants access beyond the live object or range. A page can be mapped while a particular array index is still invalid. Character and byte access can inspect object representations under the language rules, but raw representation is not automatically a stable file format. Keep the address domain, extent, and interpretation beside the operation. A correct number used as the wrong kind of offset can still reach the wrong place.",
+      "actions": [
+        "Label one diagram in byte offsets and another in element indices."
+      ],
+      "sourceRef": "content/systems-programming/ch3.json → SP03.006 / 3.2 Bytes",
+      "question": {
+        "prompt": "If an int pointer advances by one, has it necessarily advanced one byte?",
+        "answer": "No. It advances by one int element within the permitted range; the byte distance depends on sizeof(int)."
+      }
+    },
+    {
+      "title": "Decide whether an oversized field is rejected or truncated",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Masking can silently discard high bits",
+        "A checked setter can reject a value that does not fit",
+        "The policy belongs in the interface"
+      ],
+      "narration": "A three-bit field can represent values from zero through seven. If a setter receives nine and masks it with seven, the inserted field becomes one. That may be a useful low-bit operation, but it is not a faithful assignment of the requested mode nine. A protocol encoder often should reject the request instead. State the policy before selecting the expression. A low-bit extraction helper and a checked semantic setter can legitimately behave differently because they promise different things. Tests should include seven, eight, and nine, not only ordinary values below the limit. That boundary makes silent information loss visible during maintenance.",
+      "actions": [
+        "Compare a truncating bit helper and a rejecting protocol setter on values 7, 8, and 9."
+      ],
+      "sourceRef": "content/systems-programming/ch3.json → SP03.014 / Worked example — Building and extracting a bit field",
+      "question": {
+        "prompt": "What does masking 9 with a three-bit mask produce, and why might that be unacceptable?",
+        "answer": "It produces 1. If the request was to assign mode 9, silently substituting mode 1 hides invalid input."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Verify the selected field and its neighbors",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Check the new extracted value",
+        "Check unchanged bits outside the mask",
+        "Check rejection leaves the word unchanged"
+      ],
+      "narration": "A good packed-field test has more than one assertion. Extract the field after a successful update and compare it with the requested value. Then remove the field positions from both old and new words and compare the rest. Those checks cover the intended change and the protected neighbors. For rejected positions, widths, or values, confirm that the original word remains unchanged if that is the setter's contract. A helper that returns failure after partially clearing bits creates a much harder recovery problem. Exhaustive testing is practical for small modeled words and can uncover mistakes that a few visually convenient hexadecimal examples miss.",
+      "actions": [
+        "Ask learners to propose one mutation that passes a field-value test but fails preservation."
+      ],
+      "sourceRef": "content/systems-programming/ch3.json → SP03.018 / Guided lab and review",
+      "question": {
+        "prompt": "Why test outside-mask preservation separately from the new field value?",
+        "answer": "A setter can insert the correct field while also corrupting unrelated bits. The second test checks the rest of the word."
+      }
+    },
+    {
+      "title": "Explain a bit operation by its purpose and boundaries",
+      "eyebrow": "03 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Name the field meaning and numbering",
+        "State the type width and value policy",
+        "Trace a changing bit and an unchanged bit"
+      ],
+      "narration": "Before memorizing a mask expression, practice explaining it in words. We clear these positions because the old field may contain ones that the new value does not need. We insert this checked value after shifting it to the declared starting position. We leave these other positions untouched because they belong to other fields. That explanation is easier to review than a clever expression with unexplained constants. Named masks, checked helper boundaries, and small tests let a format grow without scattering assumptions through many callers. The chapter's tools are simple operations; the engineering skill is connecting each operation to a precise meaning and preservation rule.",
+      "actions": [
+        "Have a learner explain the replacement demo without saying merely bit magic."
+      ],
+      "sourceRef": "content/systems-programming/ch3.json → SP03.020 / Chapter Synthesis",
+      "question": {
+        "prompt": "What three facts should accompany a constant mask in maintainable code?",
+        "answer": "Its selected positions or field meaning, the word type and width assumptions, and the accepted value or truncation policy."
+      }
+    }
+  ]
+}

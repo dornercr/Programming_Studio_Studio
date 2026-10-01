@@ -1,0 +1,755 @@
+Systems Programming and Machine Organization
+Chapter 11: Memory Errors
+Dr. Charles Dorner
+
+1. A crash is often the last event, not the first
+Problem and first experiment
+
+SAY
+A service crashes while following a pointer, but the pointer was damaged by an earlier write beyond an unrelated buffer. Debugging only the final instruction can therefore explain the symptom without finding the cause. We need a vocabulary that separates four questions. Is the index inside the object? Is that object still alive? Was the value initialized before it was read? Who is responsible for releasing it? A mapped page answers none of these questions completely. The operating system may permit access to that page while C++ still forbids access outside a particular array. Start your investigation with the first broken promise.
+
+DO
+Ask learners to classify an index error separately from an ended object lifetime.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.001
+
+------------------------------------------------------------
+
+2. One owner can move without duplicating a resource
+Problem and first experiment
+
+SAY
+This program uses a live-object count so we can observe ownership without printing addresses. Construction raises the count to one. Moving first into second transfers the unique owner, leaving first empty while the same Resource remains alive. That is why the middle output says first is false and second is true, with one live object rather than two. Leaving the scope destroys second and its Resource, so the final count is zero. This is a small example of resource acquisition is initialization, often called RAII: an object's lifetime carries its cleanup duty. It avoids inventing two independent deletion paths.
+
+DO
+Predict the live count on each line.
+Explain which scope ends the ownership.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch11.json → SP11.010
+
+------------------------------------------------------------
+
+3. A size check can overflow before it protects anything
+Problem and first experiment
+
+SAY
+A guard can be wrong even when it looks like a bounds check. The demonstration sets offset near the largest size_t value and length to five. Their unsigned sum wraps to two, so the naive comparison wrongly accepts an eight-byte region. The guarded version first rejects an offset beyond the extent, and only then subtracts to find remaining room. It prints naive true and guarded false. These are numeric checks only; the program deliberately forms no out-of-range pointer. This isolates the logic flaw safely. A real copy also needs valid live source and destination ranges and an explicit overlap policy.
+
+DO
+Predict whether the naive condition accepts.
+Point to the short-circuit operator that prevents unsafe subtraction.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch11.json → SP11.006
+
+------------------------------------------------------------
+
+4. Reserve the terminator before copying text
+Problem and first experiment
+
+SAY
+An array of eight chars has eight elements, numbered zero through seven. If it must hold a C string, one element is reserved for the terminating zero byte. An eight-character payload therefore does not fit even though eight sounds like the right capacity. The chapter's copy exercise checks the request before touching the destination, which gives a useful failure guarantee: rejected input leaves existing bytes unchanged. Do not confuse a counted byte range with a zero-terminated string. They have different contracts. When maintaining a parser, specify whether the size includes the terminator and use one convention consistently at every call boundary.
+
+DO
+Ask for payload capacity in buffers of size zero, one, and eight.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.026
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A three-element vector has valid indexes 0, 1, and 2. Show the consequence of asking for index 3 using a checked operation.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Copy a source string into an existing character array only if the characters and trailing null fit. Return false without writing anything when the capacity is too small.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Replacing at(3) with operator[](3) removes the bounds check; it does not make the access valid. The resulting undefined behavior has no guaranteed output.
+
+A related failure in the generalized operation is concrete: Accept source.size() <= capacity. An exactly full source then writes its null terminator one byte past the destination.
+
+The repair changes the operation at the point where the rule can be enforced: Require source.size() < capacity and test the exact-fit boundary including the terminator.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The guard avoids computing source.size()+1, which could overflow at the type boundary. The caller must supply a live writable range of capacity bytes when capacity is nonzero. A check on a number cannot prove an arbitrary pointer is valid. An owned string is simpler when the external interface does not require a caller-owned buffer.
+
+A plausible alternative: A range-based loop is less error-prone when every element should be visited.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.03
+
+------------------------------------------------------------
+
+8. Chapter 11 — Memory Errors
+Systems mechanisms and source lecture
+
+SAY
+Memory errors are violations of object boundaries, lifetime, initialization, or ownership. Their visible symptoms can occur far from their cause. A write beyond one buffer may corrupt a pointer that fails minutes later. The most effective debugging approach identifies the first invalid operation rather than explaining only the final crash.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.001, SP11.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+11.1 Buffer overflow 11.2 Out-of-bounds access 11.3 Memory leaks 11.4 Double free ...plus 10 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.003
+
+------------------------------------------------------------
+
+10. Buffer overflow
+Systems mechanisms and source lecture
+
+SAY
+A buffer overflow writes more data than a buffer can hold. The relevant bound is the actual destination capacity, not a claimed input length. A safe copy needs agreement among source availability, destination capacity, and requested count. String operations add another requirement: space for the terminator when the result must be a C string. A ten-character payload needs eleven bytes in that representation. Prefer length-aware interfaces and verify arithmetic before allocation. A bounded function can still be misused if the supplied bound describes the source instead of the destination.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.004, SP11.005
+
+------------------------------------------------------------
+
+11. Out-of-bounds access
+Systems mechanisms and source lecture
+
+SAY
+An out-of-bounds read or write accesses outside an object’s permitted range. Reads matter as much as writes: they can disclose data, fault, or influence control flow using unrelated bytes. A read that remains within a mapped page can still violate the language’s rules. Check indices before forming an invalid pointer. For a region described by offset and length, use the guarded subtraction pattern from Chapter 4. In multidimensional code, validate every dimension and stride relationship. A valid row index does not rescue an invalid column index that happens to land inside neighboring storage.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.006, SP11.007
+
+------------------------------------------------------------
+
+12. Memory leaks
+Systems mechanisms and source lecture
+
+SAY
+A leak occurs when storage remains allocated without a reachable ownership path that will release it when required. Losing a pointer is a common cause, but a reachable container that grows forever can also create a practical retention problem even when a leak detector sees it as reachable memory. Distinguish accidental leaks from intentional caches and from unbounded retention. Measure live object counts and ownership paths, not only process resident size. A cache needs a limit and eviction policy. An ownership cycle needs a way to break the cycle. “The operating system frees it at exit” does not justify unbounded growth in a long-running service.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.008, SP11.009
+
+------------------------------------------------------------
+
+13. Double free
+Systems mechanisms and source lecture
+
+SAY
+A double free releases the same allocation more than once. It often arises when two components both believe they own a raw pointer, or when a cleanup path runs after an earlier release without updating ownership state. The repair is a single ownership protocol, not merely adding scattered null checks. After ownership transfer, the previous owner must no longer release. In C++, move-only resource wrappers make this rule visible in the type system. In C, document transfer and reset the owning state in a disciplined way while remembering that unrelated aliases remain unchanged.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.010, SP11.011
+
+------------------------------------------------------------
+
+14. Invalid free
+Systems mechanisms and source lecture
+
+SAY
+An invalid free passes a pointer that is not a currently releasable allocation from the matching family. Interior pointers, stack addresses, and pointers from a different allocator are common examples. The allocator’s metadata lookup can be corrupted or confused by such inputs. A function returning a borrowed interior pointer should not expose an interface that suggests ownership. Name and document it as a view. Where several allocators exist, keep the release operation with the owner or use a deleter that records the matching mechanism. Allocation provenance is part of the resource contract.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.012, SP11.013
+
+------------------------------------------------------------
+
+15. Use-after-free
+Systems mechanisms and source lecture
+
+SAY
+Use-after-free accesses storage after its allocation has been released. The storage may retain old bytes, be reused for a different object, or become inaccessible. None of those physical outcomes restores the old access’s validity. Concurrent use-after-free is especially subtle. One thread can validate a pointer while another releases the target before the first dereferences it. Protect the lifetime across the entire access interval with ownership, locking, or a carefully designed reclamation scheme. Atomic pointer loads alone do not keep the pointed-to object alive.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.014, SP11.015
+
+------------------------------------------------------------
+
+16. Dangling pointers
+Systems mechanisms and source lecture
+
+SAY
+A dangling pointer or reference outlives the object it designates. It can result from returning a local address, destroying an owner, reallocating a vector, or resetting an arena. The pointer variable itself may remain perfectly intact. Track invalidation events in interface documentation and code review. A function that returns a view into a container should specify which mutations invalidate it. Avoid storing borrowed views in long-lived objects unless the owner’s lifetime relationship is explicit and enforceable. Lifetime bugs become easier to prevent when the design limits how far a borrow can travel.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.016, SP11.017
+
+------------------------------------------------------------
+
+17. Uninitialized memory
+Systems mechanisms and source lecture
+
+SAY
+Raw allocation does not initialize its payload, and many automatic scalar declarations do not establish a usable value. Reading an indeterminate scalar value is generally invalid in the language modes used here, with narrow special rules that are not a basis for ordinary application logic. Initialize before use, but do not confuse initialization with semantic validation. A zeroed length can be a valid default while a zeroed state tag may still be invalid for the protocol. Tools for uninitialized-value tracking complement address sanitizers because staying within allocated storage does not guarantee that the bytes have been meaningfully initialized.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.018, SP11.019
+
+------------------------------------------------------------
+
+18. Undefined behavior
+Systems mechanisms and source lecture
+
+SAY
+Undefined behavior means the language imposes no requirements on the program’s behavior for the offending execution. It is not a promise to wrap, crash, throw, or continue with a random value. Optimizations can rely on the assumption that valid programs do not perform the invalid operation. This is why an apparently harmless out-of-bounds access can change unrelated-looking code after optimization. The right response is to remove the invalid operation, not to demand that the compiler preserve one observed accident. Debug and release builds are different experiments; both must implement a program whose source-level behavior is defined.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.020, SP11.021
+
+------------------------------------------------------------
+
+19. Sanitizers
+Systems mechanisms and source lecture
+
+SAY
+AddressSanitizer instruments memory accesses and allocation boundaries to detect classes such as heap and stack out-of-bounds access and use-after-free. UndefinedBehaviorSanitizer targets selected language violations. ThreadSanitizer tracks data races. Their coverage and limitations differ, and some configurations cannot be combined. [ R5 , R6 ] A clean sanitizer run covers only executed paths and the checks enabled in that build. Some lifetime, intra-object, protocol, and logical errors remain outside a tool’s detection. Use sanitizers alongside warnings, tests, fuzzing of parsers, ownership design, and review. Instrumented performance is not production performance.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.022, SP11.023
+
+------------------------------------------------------------
+
+20. Replacing an unchecked copy contract
+Systems mechanisms and source lecture
+
+SAY
+The requirement is to copy exactly the available source bytes into a destination only when the destination is large enough. Failure must leave the destination unchanged. A bounded range interface makes both extents explicit. Companion listing: ch11/bounded_copy.cpp The three-byte source cannot fit in the two-byte destination. The function rejects the request before writing anything. The exact-size destination succeeds, and every byte is compared against the source. The interface explicitly requires nonoverlapping ranges; supporting overlap would call for a different copy contract, such as an appropriately bounded memmove operation. This example addresses one class of failure without claiming to validate arbitrary pointers. The spans must already describe live accessible objects. A size check cannot repair a dangling span. Safety comes from combining ownership, valid range construction, and local bounds checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.024, SP11.025
+
+------------------------------------------------------------
+
+21. Finding an off-by-one overflow
+Systems mechanisms and source lecture
+
+SAY
+A buffer char b[8] has valid indices 0 through 7. Writing b[8]='\0' is already out of bounds even if the program does not crash. The correct maximum payload for a C string requiring a terminator is seven characters. Capacity calculations must reserve the terminator explicitly.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.026, SP11.027
+
+------------------------------------------------------------
+
+22. Diagnosing use-after-free
+Systems mechanisms and source lecture
+
+SAY
+After free(p) , the numeric bits stored in p may remain unchanged, but the allocation lifetime has ended. Dereferencing p is invalid even if the allocator has not reused the region yet. Setting p=NULL can prevent some accidental reuse through that variable, but aliases may still exist. Ownership design, not pointer clearing alone, prevents the class of bug.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.028, SP11.029
+
+------------------------------------------------------------
+
+23. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 11. Run the companion examples under a supported address-and-undefined sanitizer build. Add tests for empty input, exact capacity, insufficient capacity, and a larger destination. Keep intentionally invalid experiments separate from the normal test suite and never infer correctness from the absence of a crash. Review 1. Why can a use-after-free remain inside mapped memory? Review 2. Why is a successful sanitizer run not a proof that an unexecuted error path is safe?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.030, SP11.031
+
+------------------------------------------------------------
+
+24. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is memory errors. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.032
+
+------------------------------------------------------------
+
+25. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Instruction Set Architecture.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.033
+
+------------------------------------------------------------
+
+26. Nulling one variable does not erase every alias
+Reason about the implementation
+
+SAY
+Suppose two pointer variables refer to one allocation. Releasing through the owner and then setting that owner variable to null does not change the other variable's stored bits. The second variable is now a dangling pointer: its object has died even if those bits still name mapped memory. We do not dereference such a pointer to learn what it happens to print, because the language makes no promise for that access. The design repair is to bound the borrowing interval or give readers an ownership mechanism that keeps the object alive. A null check alone cannot protect an interval during which another thread may release the object.
+
+DO
+Draw one owner and two borrowed aliases, then end the owner lifetime.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.028
+
+------------------------------------------------------------
+
+27. Pair allocation and release through one contract
+Reason about the implementation
+
+SAY
+A function may return a pointer to the middle of a larger buffer. That pointer can be a useful view while the buffer remains alive, but it is not a new allocation that the caller may free. Similarly, storage obtained from one allocation family must be released through the matching family. The numeric address alone does not carry this history, which is why raw-pointer interfaces need clear ownership documentation. A C++ owner can keep a custom deleter with the resource when a library supplies a special release function. Centralizing that pairing is safer than making every caller remember a cleanup rule from a comment elsewhere.
+
+DO
+Compare a whole-buffer owner with a borrowed pointer to its third byte.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.012
+
+------------------------------------------------------------
+
+28. Initialized does not mean meaningful
+Reason about the implementation
+
+SAY
+Initializing a length to zero avoids reading an indeterminate scalar, but a zero state tag may still be invalid for an application protocol. These are separate obligations: the language needs a value that may be read, and the program needs a value with an accepted meaning. Consider a packet with a valid length field but an unknown operation code. No out-of-bounds access is required for the packet to be rejected. This distinction also explains tool coverage. A memory access can stay inside allocated storage while reading bytes that were never established for the intended use. Choose tests and tools based on the violated contract, not just the presence of a crash.
+
+DO
+Classify zero length and unknown state code as separate validation decisions.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.018
+
+------------------------------------------------------------
+
+29. Leaks and unbounded retention need different evidence
+Reason about the implementation
+
+SAY
+A leak detector may report an allocation as reachable because a global vector still points to it. That does not prove the service can run indefinitely: the vector may retain every request ever seen. Conversely, a deliberate bounded cache can retain memory without being a bug. Investigate whether the program has a release path and whether its retention policy has a justified limit. The live counter in our first demonstration proves a small scope cleans up, but it says nothing about a cache that never leaves scope. For a long-running service, test repeated operations and measure live ownership, not only one successful request or the memory reclaimed at process exit.
+
+DO
+Propose a limit and eviction test for a request-history cache.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.008
+
+------------------------------------------------------------
+
+30. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A three-element vector has valid indexes 0, 1, and 2. Show the consequence of asking for index 3 using a checked operation.
+
+State the range. 0 <= index < 3. The count is not itself a valid element index.
+
+Check index 3. at throws std::out_of_range. No element value is produced by the failed expression.
+
+Handle the failure. the catch prints out of range. The handler makes the failure visible without performing an invalid access.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch11/main.cpp
+
+------------------------------------------------------------
+
+31. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+State the range. 0 <= index < 3. The count is not itself a valid element index.
+
+Check index 3. at throws std::out_of_range. No element value is produced by the failed expression.
+
+Handle the failure. the catch prints out of range. The handler makes the failure visible without performing an invalid access.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch11/main.cpp
+
+------------------------------------------------------------
+
+32. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The guard avoids computing source.size()+1, which could overflow at the type boundary. The caller must supply a live writable range of capacity bytes when capacity is nonzero. A check on a number cannot prove an arbitrary pointer is valid. An owned string is simpler when the external interface does not require a caller-owned buffer.
+
+Require source.size() < capacity and test the exact-fit boundary including the terminator.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch11/main.cpp:1-14
+
+------------------------------------------------------------
+
+33. Turn an off-by-one read into a checked failure
+Code, diagrams, and debugging
+
+SAY
+Turn an off-by-one read into a checked failure. try marks operations whose exceptions will be handled by the following catch.
+
+A three-element vector has valid indexes 0, 1, and 2. Show the consequence of asking for index 3 using a checked operation.
+
+The count is not itself a valid element index. No element value is produced by the failed expression. The handler makes the failure visible without performing an invalid access.
+
+try marks operations whose exceptions will be handled by the following catch.
+
+at(3) requests the fourth element of a three-element vector. at checks bounds and throws before returning a value, so this line prints no number.
+
+catch binds an exception of type out_of_range by const reference. It handles the bounds failure without copying or changing the exception.
+
+The handler prints out of range. This is a defined failure path, unlike an unchecked invalid subscript.
+
+The handler ends and execution continues after the try/catch statement.
+
+An invalid indexed read does not produce a value. The vector remains unchanged after its checked access throws.
+
+Replacing at(3) with operator[](3) removes the bounds check; it does not make the access valid. The resulting undefined behavior has no guaranteed output. In the extended lab: Accept source.size() <= capacity. An exactly full source then writes its null terminator one byte past the destination.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch11/main.cpp:8-12
+
+------------------------------------------------------------
+
+34. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Accept source.size() <= capacity. An exactly full source then writes its null terminator one byte past the destination.
+
+Require source.size() < capacity and test the exact-fit boundary including the terminator.
+
+The reference solution makes the contract executable with assertions. The guard avoids computing source.size()+1, which could overflow at the type boundary. The caller must supply a live writable range of capacity bytes when capacity is nonzero. A check on a number cannot prove an arbitrary pointer is valid. An owned string is simpler when the external interface does not require a caller-owned buffer.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.06
+
+------------------------------------------------------------
+
+35. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch11/starter.cpp. Implement the first acceptance case for check a copy before touching the destination. State the function inputs and result before adding code. First case: cat needs capacity four including its trailing null.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.07
+
+------------------------------------------------------------
+
+36. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch11/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.08
+
+------------------------------------------------------------
+
+37. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Accept source.size() <= capacity. An exactly full source then writes its null terminator one byte past the destination. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.09
+
+------------------------------------------------------------
+
+38. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Is catching every bounds exception enough to make a parser correct? Compare the selected design with this plausible alternative: A range-based loop is less error-prone when every element should be visited.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.10
+
+------------------------------------------------------------
+
+39. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch11/starter.cpp. Copy a source string into an existing character array only if the characters and trailing null fit. Return false without writing anything when the capacity is too small. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch11/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.11
+
+------------------------------------------------------------
+
+40. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Check a copy before touching the destination belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.12
+
+------------------------------------------------------------
+
+41. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Copy a source string into an existing character array only if the characters and trailing null fit. Return false without writing anything when the capacity is too small.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch11/starter.cpp
+
+------------------------------------------------------------
+
+42. Review the extension solution
+Practice and extension
+
+SAY
+The guard avoids computing source.size()+1, which could overflow at the type boundary. The caller must supply a live writable range of capacity bytes when capacity is nonzero. A check on a number cannot prove an arbitrary pointer is valid. An owned string is simpler when the external interface does not require a caller-owned buffer. Repair principle: Require source.size() < capacity and test the exact-fit boundary including the terminator.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Require source.size() < capacity and test the exact-fit boundary including the terminator.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch11/solution.cpp
+
+------------------------------------------------------------
+
+43. Application case: Memory Errors
+Practice and extension
+
+SAY
+A pointer is read after its allocation was freed, but the old value still appears.
+
+Is that valid?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.CASE
+
+------------------------------------------------------------
+
+44. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The guard avoids computing source.size()+1, which could overflow at the type boundary. The caller must supply a live writable range of capacity bytes when capacity is nonzero. A check on a number cannot prove an arbitrary pointer is valid. An owned string is simpler when the external interface does not require a caller-owned buffer.
+
+Choose a simpler approach when its narrower contract is enough. A range-based loop is less error-prone when every element should be visited.
+
+When this system changes, retain a check that exposes the known failure: Accept source.size() <= capacity. An exactly full source then writes its null terminator one byte past the destination. Require source.size() < capacity and test the exact-fit boundary including the terminator.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch11.json → SYS11.14
+
+------------------------------------------------------------
+
+45. Treat sanitizer results as evidence about executed paths
+Recall and transfer
+
+SAY
+Sanitizers add checks to an instrumented build. Address checks can detect many boundary and lifetime failures; undefined-behavior checks and race checks cover other classes. They do not all provide the same guarantees, and some configurations are separate builds. A clean test run tells us that enabled checks did not find a defect on the executed paths. It does not cover an untested error branch or prove a logical bound was correct. Keep warnings, targeted tests, and ownership review alongside these tools. Also keep instrumented timing separate from production timing, because added checks change the work the program performs.
+
+DO
+Have learners identify one path a normal success test misses.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.022
+
+------------------------------------------------------------
+
+46. Build a diagnosis from four questions
+Recall and transfer
+
+SAY
+Take the original copy failure and explain it without the vague phrase bad memory. Name the destination object, its capacity, the requested payload and terminator, and the guarantee that failure leaves it unchanged. Then explain the ownership of that destination for the entire call. These details distinguish a capacity defect from a dangling pointer passed with a perfectly accurate size. During maintenance, preserve both kinds of test: boundary inputs for arithmetic and scope changes for lifetime. A repair that only changes one index may hide the current symptom while leaving an unclear ownership interface ready to fail in a different path.
+
+DO
+Ask for a one-minute diagnosis using bounds, lifetime, ownership, and first invalid operation.
+
+SOURCE
+content/systems-programming/ch11.json → SP11.032

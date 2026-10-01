@@ -1,0 +1,795 @@
+Systems Programming and Machine Organization
+Chapter 60: From Source Code to Running Program
+Dr. Charles Dorner
+
+1. Follow one result through several different contracts
+Problem and first experiment
+
+SAY
+The byte-summary utility connects much of the course in one path. Source types define valid bytes and arithmetic. The compiler and assembler create machine code and relocation information. The linker resolves the pieces, and the loader establishes a process image before main begins. Running instructions then consume valid input supplied by read and eventually format output for write. A failure at any one boundary can stop the whole job even when the checksum formula is correct. Our aim is to trace the responsibilities precisely, rather than treating compilation, loading, execution, and hardware I/O as one indistinct action.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.028: Worked example — Build and trace a complete byte-summary utility
+
+------------------------------------------------------------
+
+2. Source state gives the optimizer a behavior to preserve
+Problem and first experiment
+
+SAY
+The program defines one global integer and one function that multiplies an argument by its current value. The first call with three returns twenty-one. Main changes the global to nine, so the second call returns twenty-seven. These are the required observable results for this single-threaded program. An optimizing compiler may inline the function or calculate known values ahead of time; the source does not promise that each call becomes a machine call or each expression reloads memory. The example makes the distinction concrete: source semantics constrain behavior, while assembly reveals one permitted implementation chosen for a build.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.030: Worked example — Following one global variable
+
+------------------------------------------------------------
+
+3. A counted byte range is different from a C string
+Problem and first experiment
+
+SAY
+The four-byte array contains A, a null byte, B, and a final null terminator. strlen sees the first null and reports one byte of C-string text. The counted string_view deliberately covers the first three bytes, including the embedded null, and its unsigned-byte traversal produces a sum of one hundred thirty-one. The static assertion makes the ASCII character-value assumption explicit. This is a computation and representation demo, not file I/O. When read returns three bytes, a binary processor must use that count; applying a text terminator rule can silently discard valid input after a zero byte.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+4. The build stages fail for different reasons
+Problem and first experiment
+
+SAY
+Saving source creates text, not an executable. Preprocessing can fail because a header is missing. Compilation can reject an incompatible type or invalid language construct. The assembler encodes target instructions and produces a relocatable object with symbols and relocation records. Linking then resolves references against definitions in other objects and libraries. A missing checksum_update definition belongs at the link boundary, not inside the byte loop. Keep artifacts in a known build directory and inspect the stage that failed. Running an older executable after a failed build can otherwise produce convincing output from code you did not just compile.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.010: 60.4 Object Code → Linker
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A complete program adds two parsed constant strings and formats the result. Distinguish source text, compiled operations, live objects, and output bytes.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Summarize a string of up to one million bytes by its byte count and unsigned-byte sum. Treat embedded zero bytes as data and reject oversized input.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Seeing the correct output alone does not tell you which functions were inlined, which pages faulted, or how many system calls occurred.
+
+A related failure in the generalized operation is concrete: Use strlen on the binary input. It stops at the first zero byte and reports zero rather than two.
+
+The repair changes the operation at the point where the rule can be enforced: Carry an explicit byte count and iterate the whole valid range. Keep text terminators separate from binary framing.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+A string stores a count as well as characters, so an embedded null does not end this range-based traversal. Converting each element to unsigned char makes the byte value nonnegative. The length cap bounds the sum well below uint64_t’s maximum. The lab isolates a computation that can later be used behind a file, pipe, or network input boundary.
+
+A plausible alternative: Use the least intrusive measurement that answers the actual question; heavy tracing can change timing.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.03
+
+------------------------------------------------------------
+
+8. Chapter 60 — From Source Code to Running Program
+Systems mechanisms and source lecture
+
+SAY
+The previous chapters examined individual layers. This chapter follows one small program through the complete path: source text becomes instructions, the executable becomes mappings, instructions access translated memory, and I/O requests cross into the kernel. Each layer contributes a different kind of correctness and a different class of failure. The example computes a byte count and an unsigned 64-bit byte sum from standard input. The sum is intentionally simple and wraps modulo 2^64 ; the count rejects overflow rather than wrapping. Neither result is a cryptographic integrity guarantee. The simple operation makes the surrounding system behavior easy to inspect.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.001, SP60.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+60.1 Source Code → Compiler 60.2 Compiler → Assembly 60.3 Assembly → Object Code 60.4 Object Code → Linker ...plus 12 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.003
+
+------------------------------------------------------------
+
+10. Source Code → Compiler
+Systems mechanisms and source lecture
+
+SAY
+Source code describes behavior under a language standard. Declarations establish types and interfaces; definitions provide objects and function bodies. The preprocessor handles includes and macros before the compiler’s language analysis. The compiler must reason about the program’s allowed behavior, including integer rules, object lifetime, aliasing, and observable effects. A pointer-and-length interface carries preconditions even when its machine representation is only two integer-like values. Invalid source-level behavior is not repaired by the fact that the target CPU can execute some corresponding instruction sequence. [ R1 , R8 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.004, SP60.005
+
+------------------------------------------------------------
+
+11. Compiler → Assembly
+Systems mechanisms and source lecture
+
+SAY
+The compiler lowers the program into target instructions and chooses registers, branches, addressing modes, and transformations. The source loop need not survive as one literal assembly loop; optimization may unroll or vectorize it while preserving required behavior. The unsigned byte sum permits reassociation under modular arithmetic in ways that a strict floating-point sum might not. Numeric semantics therefore influence available machine implementations. Compare generated assembly only after identifying which transformations the source contract permits. [ R2 , R3 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.006, SP60.007
+
+------------------------------------------------------------
+
+12. Assembly → Object Code
+Systems mechanisms and source lecture
+
+SAY
+The assembler encodes instructions and data into a relocatable object file. Symbols identify definitions and references, while relocation records describe locations that need adjustment when final addresses are determined. An object file is not yet necessarily a runnable executable. A call to checksum_update can refer to a symbol whose final location is unresolved until linking. Debug information and symbol tables help tools explain the relationship between source and machine code without being the code’s runtime semantics themselves.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.008, SP60.009
+
+------------------------------------------------------------
+
+13. Object Code → Linker
+Systems mechanisms and source lecture
+
+SAY
+The linker combines object files and resolves symbols against other objects and libraries. It lays out the resulting program according to the executable format and link options. Missing definitions, incompatible interfaces, and duplicate definitions appear at this boundary. The C declaration and definition must agree. A successful link does not prove that a mismatched manually declared ABI is correct, and linking a library does not prove that its runtime dependencies will be available. Build correctness includes the intended headers, object versions, options, and target architecture. [ R1 , R37 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.010, SP60.011
+
+------------------------------------------------------------
+
+14. Executable → Loader
+Systems mechanisms and source lecture
+
+SAY
+Execution asks the operating system to replace a process image with the executable. The kernel validates and interprets the executable format and establishes the initial execution environment. Dynamically linked programs also involve a runtime linker or loader according to the platform’s format and configuration. main is not normally the very first instruction executed. Startup code establishes language-runtime state before calling it. Understanding this explains why a program can fail before reaching the first source line of main , for example when a required dynamic library cannot be loaded. [ R16 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.012, SP60.013
+
+------------------------------------------------------------
+
+15. Loader → Virtual Address Space
+Systems mechanisms and source lecture
+
+SAY
+The executable’s loadable segments become virtual mappings with appropriate permissions and backing. Code, initialized data, zero-filled storage, stack, and libraries occupy regions of the process’s address space. The loader need not eagerly copy every executable byte into physical memory before execution begins. File-backed demand paging and shared mappings allow work to occur as pages are used. The address-space layout is therefore a mapping plan, not simply a complete physical-memory photograph. [ R10 , R14 ]
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.014, SP60.015
+
+------------------------------------------------------------
+
+16. Instructions → CPU
+Systems mechanisms and source lecture
+
+SAY
+The processor fetches and executes instructions according to the ISA. Its microarchitecture can decode, schedule, speculate, and overlap operations while preserving the architectural behavior required for correct execution. The instruction pointer and registers describe the architectural stream, while internal execution details determine performance. A branch, cache miss, or dependency can change how quickly the next useful result becomes available without changing the program’s specified output. [ R3 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.016, SP60.017
+
+------------------------------------------------------------
+
+17. CPU → Registers and Caches
+Systems mechanisms and source lecture
+
+SAY
+The byte-sum loop uses registers for pointers, counters, and partial results where the compiler chooses. Loads obtain input bytes through the cache hierarchy. Several adjacent bytes can share a fetched line, giving spatial locality. Calling the update function may require arguments in the ABI’s designated registers and preservation of callee-saved state. Inlining can remove that call boundary but not the source-level requirement to read only valid input bytes. Machine optimization and memory safety remain separate obligations.
+
+In plain English: A cache is like keeping the things you use most often on your desk instead of walking to a storage room every time.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.018, SP60.019
+
+------------------------------------------------------------
+
+18. Cache → Main Memory
+Systems mechanisms and source lecture
+
+SAY
+A cache miss obtains data from another level. Main memory backs the buffer’s resident pages, while translation hardware supplies the virtual-to-physical relationship. TLB misses, data-cache misses, and page faults remain distinct events even within this one loop. The loop’s sequential traversal can use cache lines efficiently, but the total throughput also depends on how input reaches the buffer. If the producer or storage source is slow, arithmetic optimization may have little effect on end-to-end completion time.
+
+In plain English: A cache is like keeping the things you use most often on your desk instead of walking to a storage room every time.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.020, SP60.021
+
+------------------------------------------------------------
+
+19. Program → System Call
+Systems mechanisms and source lecture
+
+SAY
+The program calls read to obtain input and write to emit its result. Library wrappers marshal arguments into the operating-system ABI and translate return conventions into the documented C interface. Every positive read result supplies an exact valid extent for the next checksum update. The program must not process the entire 4096-byte buffer when only 100 bytes were returned. This is where an I/O return value becomes a memory-safety boundary. [ R11 , R12 , R46 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.022, SP60.023
+
+------------------------------------------------------------
+
+20. System Call → Kernel
+Systems mechanisms and source lecture
+
+SAY
+The kernel resolves the descriptor, checks the request, and performs or waits for the relevant operation. Standard input may be a regular file, pipe, terminal, or another endpoint, so the same user code can trigger different kernel paths. A blocking read may let another task run, while a read satisfied from available data may return without switching processes. Kernel entry, blocking, and context switching are separate events. Error and short-progress results return responsibility to the program’s control flow.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.024, SP60.025
+
+------------------------------------------------------------
+
+21. Kernel → Hardware
+Systems mechanisms and source lecture
+
+SAY
+When necessary, kernel subsystems and drivers coordinate with storage or network hardware. Interrupts, DMA, device queues, and memory-management policy can participate below the user-visible read interface. A cached read need not reach a device at all. Conversely, a device operation can complete before the waiting application is scheduled again. The end-to-end result is produced by several cooperating layers whose internal timings differ. Measure at the boundary relevant to the application’s requirement rather than attributing every delay to the CPU instruction loop.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.026, SP60.027
+
+------------------------------------------------------------
+
+22. Build and trace a complete byte-summary utility
+Systems mechanisms and source lecture
+
+SAY
+The public interface states that data designates at least length valid bytes whenever length is nonzero. The function borrows the bytes and retains no pointer. Companion listing: ch60/checksum.h Companion listing: ch60/checksum.c Companion listing: ch60/main.c From the chapter’s source directory, the following commands expose separate stages. They write only local build products; use a copy or dedicated build directory for experimentation. The final output is bytes=4 sum=208 . The shell starts a producer and connects it to the utility through a pipe. The utility’s read returns valid bytes, the checksum function processes that exact extent, and a complete-transfer write emits the formatted result. A failure at any stage has a different meaning. Preprocessing can fail to find a header. Compilation can reject a type error. Linking can miss a definition. Loading can fail to locate a runtime dependency. Reading can fail on an invalid descriptor. The checksum itself can remain logically correct while the overall program fails to receive or deliver data. An integrated diagnosis identifies the failed boundary before changing unrelated code.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.028, SP60.029
+
+------------------------------------------------------------
+
+23. Following one global variable
+Systems mechanisms and source lecture
+
+SAY
+A source file defines int g=7; . The compiler emits code that refers to g and object-file data containing its initial value. The assembler encodes instructions and relocation records. The linker assigns g a location in the executable image. The loader maps the appropriate segment, and machine instructions later access the mapped bytes through virtual-memory translation and caches.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.030, SP60.031
+
+------------------------------------------------------------
+
+24. Following one write system call
+Systems mechanisms and source lecture
+
+SAY
+Source code calls write(fd,p,n) . A library wrapper arranges arguments according to the ABI and executes the system-call entry instruction. The CPU transfers to kernel mode, where the kernel validates the descriptor and user buffer, updates kernel/device state, and returns a byte count or error. User-mode code resumes with the result. This single operation crosses language, ABI, ISA, kernel, and hardware boundaries.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.032, SP60.033
+
+------------------------------------------------------------
+
+25. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 60. Build the two source files separately, omit checksum.o once to observe the controlled link failure, then restore it. Compare the sequential utility’s output for empty, text, binary, and multi-buffer input. Inspect loadable segments without assuming their virtual addresses are fixed across runs. Review 1. Why is main not necessarily the first executed code? Review 2. Which value determines how many buffer bytes the checksum may read after one system call?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.034, SP60.035
+
+------------------------------------------------------------
+
+26. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is from source code to running program. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.036
+
+------------------------------------------------------------
+
+27. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Putting the System Together.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.037
+
+------------------------------------------------------------
+
+28. Declarations and ABI agreements must match across pieces
+Reason about the implementation
+
+SAY
+The source byte-summary example separates a header, a checksum implementation, and a driver. The header lets each translation unit agree on parameter types and return type before linking. A manually invented declaration can still be incompatible with the actual definition, even if the linker finds the same symbol name under the platform's conventions. The application binary interface, or ABI, includes how arguments and results travel at the machine boundary. Use the intended headers and compatible build settings rather than guessing a signature. A successful link establishes resolution, not every semantic or calling-convention promise.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.010: 60.4 Object Code → Linker
+
+------------------------------------------------------------
+
+29. The loader prepares mappings before main runs
+Reason about the implementation
+
+SAY
+Starting the executable asks the operating system to establish the program image. Loadable segments become virtual mappings for code, initialized data, zero-filled storage, and other regions. Dynamically linked programs also involve runtime loading according to the platform. main is normally reached only after startup code has established language-runtime state. A missing required library can therefore stop the program before its first line. The mapped address space is not a photograph of physical memory: file-backed demand paging can supply pages as they are used. This separates loader obligations from later page faults, cache behavior, and source-level object rules.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.012: 60.5 Executable → Loader
+
+------------------------------------------------------------
+
+30. One load crosses distinct translation and storage mechanisms
+Reason about the implementation
+
+SAY
+The checksum loop reads through a pointer, but the processor and memory system perform several different jobs below that expression. Address translation finds the relevant mapping, often using cached translations in the TLB. Data caches supply nearby bytes when present. A data-cache miss may fetch from another cache or memory without a page fault. A page fault involves the operating system because the access needs mapping or residency handling, or is invalid. Sequential traversal can exploit spatial locality because adjacent bytes share cache lines. Keep these events separate when explaining why a loop waits; they suggest different evidence and remedies.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.020: 60.9 Cache → Main Memory
+
+------------------------------------------------------------
+
+31. A read result becomes the next memory-safety boundary
+Reason about the implementation
+
+SAY
+The source utility uses a buffer that can hold four thousand ninety-six bytes, but read may return any positive count up to the requested size. If it returns one hundred, only those one hundred bytes are the newly supplied input for the next checksum update. Processing the full capacity would include unrelated or stale bytes. A zero result has EOF meaning for this stream workflow, while an error requires its own handling. This is a crucial cross-layer connection: an operating-system return value becomes a language-level valid range. Passing that exact count keeps the computation independent of whether input came from a file or pipe.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.022: 60.10 Program → System Call
+
+------------------------------------------------------------
+
+32. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A complete program adds two parsed constant strings and formats the result. Distinguish source text, compiled operations, live objects, and output bytes.
+
+Build the program. declarations checked; definitions linked. Compilation and linking produce an executable; they do not make these runtime string objects persistent objects in the running process.
+
+Execute parsing and addition. 12 + 30 = 42. These particular strings are valid; external input would need error and range handling.
+
+Format and output. bytes 4, 2, newline. C++ stream output passes through library and OS layers; exact machine instructions and buffering depend on the build and platform.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch60/main.cpp
+
+------------------------------------------------------------
+
+33. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Build the program. declarations checked; definitions linked. Compilation and linking produce an executable; they do not make these runtime string objects persistent objects in the running process.
+
+Execute parsing and addition. 12 + 30 = 42. These particular strings are valid; external input would need error and range handling.
+
+Format and output. bytes 4, 2, newline. C++ stream output passes through library and OS layers; exact machine instructions and buffering depend on the build and platform.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch60/main.cpp
+
+------------------------------------------------------------
+
+34. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+A string stores a count as well as characters, so an embedded null does not end this range-based traversal. Converting each element to unsigned char makes the byte value nonnegative. The length cap bounds the sum well below uint64_t’s maximum. The lab isolates a computation that can later be used behind a file, pipe, or network input boundary.
+
+Carry an explicit byte count and iterate the whole valid range. Keep text terminators separate from binary framing.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch60/main.cpp:1-12
+
+------------------------------------------------------------
+
+35. Follow one value through build and execution
+Code, diagrams, and debugging
+
+SAY
+Follow one value through build and execution. stoi parses each fixed text value to an int; their sum is 42. General external input needs explicit parse failures and range checks.
+
+A complete program adds two parsed constant strings and formats the result. Distinguish source text, compiled operations, live objects, and output bytes.
+
+Compilation and linking produce an executable; they do not make these runtime string objects persistent objects in the running process. These particular strings are valid; external input would need error and range handling. C++ stream output passes through library and OS layers; exact machine instructions and buffering depend on the build and platform.
+
+stoi parses each fixed text value to an int; their sum is 42. General external input needs explicit parse failures and range checks.
+
+to_string creates owned result text and the concatenation appends a newline. This string remains alive through the output operation.
+
+Insertion sends the text through the output stream. The compiler and linker prepare this program; these operations are the source-level execution behavior.
+
+The fixed input strings parse to representable integers, and the sum fits in int. Owned output text remains alive through the stream operation.
+
+Seeing the correct output alone does not tell you which functions were inlined, which pages faulted, or how many system calls occurred. In the extended lab: Use strlen on the binary input. It stops at the first zero byte and reports zero rather than two.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch60/main.cpp:8-10
+
+------------------------------------------------------------
+
+36. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Use strlen on the binary input. It stops at the first zero byte and reports zero rather than two.
+
+Carry an explicit byte count and iterate the whole valid range. Keep text terminators separate from binary framing.
+
+The reference solution makes the contract executable with assertions. A string stores a count as well as characters, so an embedded null does not end this range-based traversal. Converting each element to unsigned char makes the byte value nonnegative. The length cap bounds the sum well below uint64_t’s maximum. The lab isolates a computation that can later be used behind a file, pipe, or network input boundary.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.06
+
+------------------------------------------------------------
+
+37. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch60/starter.cpp. Implement the first acceptance case for build a byte-summary component with a clear contract. State the function inputs and result before adding code. First case: cat has three bytes and sum 312.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.07
+
+------------------------------------------------------------
+
+38. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch60/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.08
+
+------------------------------------------------------------
+
+39. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Use strlen on the binary input. It stops at the first zero byte and reports zero rather than two. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.09
+
+------------------------------------------------------------
+
+40. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Which evidence would answer a question about generated instructions, and which about I/O calls? Compare the selected design with this plausible alternative: Use the least intrusive measurement that answers the actual question; heavy tracing can change timing.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.10
+
+------------------------------------------------------------
+
+41. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch60/starter.cpp. Summarize a string of up to one million bytes by its byte count and unsigned-byte sum. Treat embedded zero bytes as data and reject oversized input. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch60/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.11
+
+------------------------------------------------------------
+
+42. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Build a byte-summary component with a clear contract belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.12
+
+------------------------------------------------------------
+
+43. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Summarize a string of up to one million bytes by its byte count and unsigned-byte sum. Treat embedded zero bytes as data and reject oversized input.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch60/starter.cpp
+
+------------------------------------------------------------
+
+44. Review the extension solution
+Practice and extension
+
+SAY
+A string stores a count as well as characters, so an embedded null does not end this range-based traversal. Converting each element to unsigned char makes the byte value nonnegative. The length cap bounds the sum well below uint64_t’s maximum. The lab isolates a computation that can later be used behind a file, pipe, or network input boundary. Repair principle: Carry an explicit byte count and iterate the whole valid range. Keep text terminators separate from binary framing.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Carry an explicit byte count and iterate the whole valid range. Keep text terminators separate from binary framing.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch60/solution.cpp
+
+------------------------------------------------------------
+
+45. Application case: From Source Code to Running Program
+Practice and extension
+
+SAY
+Compilation succeeds, but the linker reports an unresolved function.
+
+Which stage should you inspect?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.CASE
+
+------------------------------------------------------------
+
+46. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+A string stores a count as well as characters, so an embedded null does not end this range-based traversal. Converting each element to unsigned char makes the byte value nonnegative. The length cap bounds the sum well below uint64_t’s maximum. The lab isolates a computation that can later be used behind a file, pipe, or network input boundary.
+
+Choose a simpler approach when its narrower contract is enough. Use the least intrusive measurement that answers the actual question; heavy tracing can change timing.
+
+When this system changes, retain a check that exposes the known failure: Use strlen on the binary input. It stops at the first zero byte and reports zero rather than two. Carry an explicit byte count and iterate the whole valid range. Keep text terminators separate from binary framing.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch60.json → SYS60.14
+
+------------------------------------------------------------
+
+47. Kernel entry, blocking, and context switching are separate
+Recall and transfer
+
+SAY
+A write wrapper arranges arguments according to the operating-system interface and enters the kernel. That entry is not automatically a switch to another process. The kernel may complete the request immediately, or block while waiting and let another task run. Similarly, a read may be satisfied from available cached data without asking a physical device to transfer anything new. Drivers, DMA, interrupts, and device queues can participate when needed, but their activity is not visible as one fixed sequence for every call. Diagnose the chosen input endpoint and return behavior before attributing all time to a CPU loop or disk.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.024: 60.11 System Call → Kernel
+
+------------------------------------------------------------
+
+48. Diagnose the earliest failed boundary in the end-to-end path
+Recall and transfer
+
+SAY
+If the program prints the wrong total, first ask whether the built executable is current, whether read supplied the intended bytes, and whether the checksum saw the exact extent. If nothing prints, the error may instead be loading, an invalid descriptor, formatting, or incomplete output delivery. A correct arithmetic function cannot repair a broken surrounding pipeline. Record build commands, input bytes, exit status, standard error, and actual output so each boundary is reviewable. The next capstone adds concurrency to this path while retaining the sequential reference, because integrating more mechanisms increases the number of promises that must agree.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch60.json → SP60.034: Guided lab and review

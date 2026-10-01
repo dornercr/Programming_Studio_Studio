@@ -1,0 +1,742 @@
+Systems Programming and Machine Organization
+Chapter 50: Deadlock: dependency graphs and coordinated acquisition
+Dr. Charles Dorner
+
+1. No progress has more than one cause
+Problem and first experiment
+
+SAY
+Two threads can both be idle forever because each holds a lock the other needs. That is a deadlock under the ordinary lock model. A different thread may starve while others keep acquiring a resource, or participants may repeatedly retry without completing useful work, called livelock. Distinguish these cases before adding timeouts. A timeout can expose a long wait but does not restore a half-updated invariant or safely remove a lock from its owner. The first debugging question is who is waiting for which action and whether that action can occur. Draw those dependencies, including joins, pipe capacity, and callbacks as well as mutexes.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.001
+
+------------------------------------------------------------
+
+2. Describe the assumptions behind a wait-for cycle
+Problem and first experiment
+
+SAY
+A wait-for graph connects a blocked participant to whoever must act before it can continue. For ordinary locks with one owner, A waiting for B's lock creates a clear edge from A to B. A closed cycle with no release path can show deadlock. But a graph for multiple-instance resources or timed alternative operations needs more careful interpretation. An edge is not enough unless we know what can remove it. State whether resources can be preempted, whether a participant can abandon its request, and whether an external event can let it finish. Those assumptions turn an attractive diagram into an actual progress argument.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.014
+
+------------------------------------------------------------
+
+3. Detect a modeled three-participant cycle safely
+Problem and first experiment
+
+SAY
+This complete program models three waiting participants with a Boolean adjacency matrix. It computes reachability: whether following one or more waiting edges can lead from one participant to another. In the cycle graph, A needs B, B needs C, and C needs A, so a participant can reach itself. The chain graph ends without that return path. The program prints cycle=true chain=false. This is a graph model, not a detector attached to running mutexes, and it never creates a real hang. Its conclusion represents deadlock only when the stated resource assumptions make every edge a required, unbreakable wait.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch50.json → SP50.014
+
+------------------------------------------------------------
+
+4. Acquire the whole distinct lock set together
+Problem and first experiment
+
+SAY
+Two workers rotate the same three values in opposite directions one hundred times each. Every rotation acquires all three distinct mutexes through scoped_lock before changing the array. Left and right rotations are inverse operations, so after both joined workers finish, the output is values=7,8,9 total=24 regardless of their interleaving. No intermediate rotation is visible to the other worker while the locks are held. This demonstrates coordinated multi-lock acquisition, not a reason to use three locks for every array. Since all shown operations need the whole state, one mutex would be simpler here. Multiple locks become relevant when other legitimate operations use independent regions.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch50.json → SP50.016
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Two transfers need accounts 3 and 8. Sort the lock identities so opposite transfer directions request locks in the same order.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Transfer between accounts with two mutexes using scoped_lock. Treat transfer to the same account as a no-op, reject insufficient funds, and preserve the total.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Ordering only some call sites is insufficient. Other locks, callbacks, or blocking operations can introduce different cycles.
+
+A related failure in the generalized operation is concrete: Lock the source mutex first and destination second in both transfer directions. Each thread can hold the lock the other needs.
+
+The repair changes the operation at the point where the rule can be enforced: Use a consistent global ordering or an appropriate multi-mutex acquisition operation. Separately handle repeated references to the same resource.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+scoped_lock acquires the two distinct mutexes using a deadlock-avoidance strategy and releases both at scope exit. Handling the same-account case first avoids passing the same non-recursive mutex twice. The small fixed total bounds arithmetic in this fixture. Other locks, callbacks, or I/O added inside the critical section would introduce new waiting relationships that still need review.
+
+A plausible alternative: std::scoped_lock can acquire multiple distinct mutexes with deadlock avoidance; a single mutex is simpler if contention is acceptable.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.03
+
+------------------------------------------------------------
+
+8. Chapter 50 — Deadlock
+Systems mechanisms and source lecture
+
+SAY
+Deadlock is a state in which participants cannot progress because each waits for resources or actions that the others cannot provide without first progressing themselves. It differs from slow execution, starvation, and livelock. A system can be busy while making no useful progress, or idle while permanently blocked. Preventing deadlock requires a resource-acquisition policy and lifecycle design. Adding timeouts can reveal or limit a wait, but it does not automatically restore a consistent state or release every dependent resource.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.001, SP50.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+50.1 Deadlock conditions 50.2 Mutual exclusion 50.3 Hold and wait 50.4 No preemption ...plus 9 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.003
+
+------------------------------------------------------------
+
+10. Deadlock conditions
+Systems mechanisms and source lecture
+
+SAY
+The classical resource model identifies four conditions associated with deadlock: mutual exclusion, hold and wait, no preemption, and circular wait. Together they describe how a closed dependency cycle can become permanent under that model. The conditions are an analysis tool, not a claim that every concurrent failure is a lock cycle. Waiting for a notification that will never be sent, joining a thread while preventing its shutdown, or blocking a pipeline before starting its consumer can create related progress failures that deserve explicit dependency analysis.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.004, SP50.005
+
+------------------------------------------------------------
+
+11. Mutual exclusion
+Systems mechanisms and source lecture
+
+SAY
+Mutual exclusion means some resource cannot be used by all participants simultaneously. A mutex is the obvious example, but a single-capacity communication slot or exclusive external transaction can also play a role. Removing unnecessary exclusivity can eliminate a dependency. Immutable shared data and independent per-thread state often need no exclusive lock. Where exclusivity is required for correctness, the design must address the other conditions instead of simply removing protection.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.006, SP50.007
+
+------------------------------------------------------------
+
+12. Hold and wait
+Systems mechanisms and source lecture
+
+SAY
+Hold and wait occurs when a participant retains one resource while requesting another. A thread holding lock A while waiting for lock B creates an edge from its current ownership to its next dependency. Acquiring all required locks through a coordinated operation or releasing held resources before a retry can break this condition in suitable designs. Releasing and retrying requires care: state may change, so validation must be repeated and partial updates must not escape.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.008, SP50.009
+
+------------------------------------------------------------
+
+13. No preemption
+Systems mechanisms and source lecture
+
+SAY
+No preemption means the resource cannot simply be taken away from its owner safely. An ordinary mutex cannot be forcibly unlocked by an unrelated thread without violating its contract. The owner may be halfway through an invariant-changing operation. This is why “kill the stuck thread” is not a general recovery strategy. The thread may leave shared state inconsistent and locks permanently unavailable. Process isolation and transactional recovery can provide stronger failure boundaries when forced termination is a requirement.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.010, SP50.011
+
+------------------------------------------------------------
+
+14. Circular wait
+Systems mechanisms and source lecture
+
+SAY
+Circular wait exists when participants form a dependency cycle. Thread A holds lock X and waits for Y, while thread B holds Y and waits for X. Neither can reach the unlock that the other requires. A global lock order prevents this pattern when every participant follows it. The order must cover all relevant locks, including library callbacks and less obvious resources, or the apparent proof can omit an edge.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.012, SP50.013
+
+------------------------------------------------------------
+
+15. Wait-for graphs
+Systems mechanisms and source lecture
+
+SAY
+A wait-for graph draws an edge from a waiting participant to the participant whose action or resource release it needs. A cycle indicates a potential or actual deadlock under the graph’s resource assumptions. For locks with one owner, the graph is straightforward. Multiple-instance resources, timeouts, and alternative progress paths require more careful interpretation. Record what each edge means and whether an external event can break it before declaring a permanent deadlock.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.014, SP50.015
+
+------------------------------------------------------------
+
+16. Lock ordering
+Systems mechanisms and source lecture
+
+SAY
+Lock ordering assigns a consistent order and requires acquisition in that order. Two-account transfers can order accounts by a stable application identifier, or use a facility such as std::scoped_lock that applies a deadlock-avoiding multi-lock algorithm. Do not use built-in relational comparison of unrelated object pointers as a portable general ordering rule. Use stable identifiers or the appropriate library total-order facility when pointer ordering is genuinely needed. Also handle the same-object case before attempting to lock one nonrecursive mutex twice.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.016, SP50.017
+
+------------------------------------------------------------
+
+17. Deadlock prevention
+Systems mechanisms and source lecture
+
+SAY
+Prevention structurally breaks at least one condition. Examples include avoiding nested locks, using a global order, making state immutable, or acquiring a required set with a coordinated locking algorithm. Prevention can reduce concurrency or require redesign, but it gives a strong argument before deployment. A simple lock hierarchy documented and enforced in code is often more reliable than a collection of ad hoc timeouts added after hangs appear.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.018, SP50.019
+
+------------------------------------------------------------
+
+18. Deadlock avoidance
+Systems mechanisms and source lecture
+
+SAY
+Avoidance examines current allocations and future needs to reject requests that could enter an unsafe state. Classical banker’s-algorithm reasoning requires known resource limits and maximum claims, which many general software workloads do not provide accurately. An unsafe state is not necessarily already deadlocked; it lacks a guaranteed completion sequence under the stated maximum-need assumptions. Distinguish admission control based on known budgets from prevention through a fixed lock order.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.020, SP50.021
+
+------------------------------------------------------------
+
+19. Opposite-direction transfers without opposite lock order
+Systems mechanisms and source lecture
+
+SAY
+Two workers transfer one unit in opposite directions 200 times. The transfer operation locks both account mutexes with std::scoped_lock , checks available funds, and updates both balances while protected. The same-account case returns before locking. Companion listing: ch50/transfers.cpp The expected output is 1000 1000 . Initial funds are sufficient even when all 200 transfers in one direction happen first, so no operation should be rejected. The final check verifies the intended balanced workload, while the conserved-total argument bounds arithmetic throughout execution. Now consider an avoidance model with three identical resources. A holds one and may need two more; B holds one and may need two more; one remains available. Neither maximum claim can currently be satisfied to completion, so the state is unsafe under that claim model. It is not necessarily already deadlocked if neither has yet made a blocking request, but an avoidance policy would reject entering such a state when its guarantees require a safe completion sequence.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.022, SP50.023
+
+------------------------------------------------------------
+
+20. Detecting a circular wait
+Systems mechanisms and source lecture
+
+SAY
+Thread A holds lock X and waits for Y, while thread B holds Y and waits for X. The wait-for graph contains A -> B and B -> A, a cycle. If neither lock can be preempted, the two threads cannot progress. Enforcing a global order such as always acquire X before Y removes this two-lock cycle.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.024, SP50.025
+
+------------------------------------------------------------
+
+21. Avoiding nested locks with transfer ordering
+Systems mechanisms and source lecture
+
+SAY
+For transfers between accounts, order lock acquisition by stable account ID. A transfer from account 7 to 3 still locks 3 first, then 7. Every thread therefore uses the same global ordering regardless of transfer direction, preventing circular wait among those locks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.026, SP50.027
+
+------------------------------------------------------------
+
+22. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 50. Draw the wait-for cycle for a naive implementation that locks source then destination independently. Then explain how the same-account guard and coordinated two-lock acquisition address different hazards. Review 1. How does deadlock differ from starvation? Review 2. Why is an unsafe allocation state not automatically a currently deadlocked state?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.028, SP50.029
+
+------------------------------------------------------------
+
+23. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is deadlock. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.030
+
+------------------------------------------------------------
+
+24. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Network Programming.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.031
+
+------------------------------------------------------------
+
+25. Break a condition without breaking the invariant
+Reason about the implementation
+
+SAY
+The classical lock-resource analysis combines mutual exclusion, hold-and-wait, no safe preemption, and circular wait. Preventing deadlock means structurally breaking a necessary condition in the relevant model. Removing a mutex from shared mutable data might eliminate a wait while introducing a data race, so that is not a valid repair. A better option may use immutable data, avoid nested acquisition, impose one global order, or acquire the required set through a coordinated operation. Choose a change that preserves the protected invariant as well as progress. The list of conditions is useful because it points to design choices, not because memorizing four phrases diagnoses every hang automatically.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.004
+
+------------------------------------------------------------
+
+26. A global order separates business direction from locking
+Reason about the implementation
+
+SAY
+A transfer from account eight to account three can still acquire three before eight. Business direction determines which balance decreases; lock order determines how resources are acquired. Keeping these concerns separate removes the two-lock circular wait when every participant follows the same total order. Use stable application identities or an appropriate library ordering facility rather than assuming built-in ordering of unrelated object pointers provides a portable rule. Also include less obvious locks reached through helper functions and callbacks. One inconsistent path can invalidate the global argument even if the main transfer function looks correct. Document the order where new operations are likely to be added.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.016
+
+------------------------------------------------------------
+
+27. The same-resource case is a separate contract
+Reason about the implementation
+
+SAY
+A function accepting source and destination references may receive the same account twice. Distinct parameter names do not imply distinct objects. Trying to acquire the same nonrecursive mutex twice violates the intended acquisition contract and can hang or otherwise fail the interface requirements. The chapter's transfer handles the same-account operation before multi-lock acquisition, treating it as a no-op under its stated rules. Our rotation example creates three genuinely distinct mutex objects, so that precondition is explicit. Review aliasing whenever a resource set is assembled dynamically. Coordinated multi-lock tools solve contention among distinct locks; they do not erase the need to validate which resources the arguments represent.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.016
+
+------------------------------------------------------------
+
+28. Joining while locked creates a different cycle
+Reason about the implementation
+
+SAY
+A deadlock can involve a join even if no thread tries to take two mutexes. Suppose the parent owns the queue mutex and joins a worker. The worker needs that mutex to observe closure and return. The parent waits for the worker, and the worker waits for the parent to unlock. Draw both kinds of edge instead of searching only for opposite lock order. The repair is to establish closure while protected, release the lock, notify as required, and then join. A similar dependency appears when a shell waits for a pipe producer before starting its consumer. Progress analysis must include every blocking operation the participants rely on.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.004
+
+------------------------------------------------------------
+
+29. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Two transfers need accounts 3 and 8. Sort the lock identities so opposite transfer directions request locks in the same order.
+
+Forward transfer. request 3 then 8. A globally consistent order prevents one participant from taking the opposite order.
+
+Reverse transfer. still request 3 then 8. Business direction is separated from lock acquisition order.
+
+Rule out this cycle. no participant holds 8 while waiting for 3 under this rule. The rule removes circular waiting among locks covered by the same total order.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch50/main.cpp
+
+------------------------------------------------------------
+
+30. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Forward transfer. request 3 then 8. A globally consistent order prevents one participant from taking the opposite order.
+
+Reverse transfer. still request 3 then 8. Business direction is separated from lock acquisition order.
+
+Rule out this cycle. no participant holds 8 while waiting for 3 under this rule. The rule removes circular waiting among locks covered by the same total order.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch50/main.cpp
+
+------------------------------------------------------------
+
+31. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+scoped_lock acquires the two distinct mutexes using a deadlock-avoidance strategy and releases both at scope exit. Handling the same-account case first avoids passing the same non-recursive mutex twice. The small fixed total bounds arithmetic in this fixture. Other locks, callbacks, or I/O added inside the critical section would introduce new waiting relationships that still need review.
+
+Use a consistent global ordering or an appropriate multi-mutex acquisition operation. Separately handle repeated references to the same resource.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch50/main.cpp:1-15
+
+------------------------------------------------------------
+
+32. Use a shared lock order
+Code, diagrams, and debugging
+
+SAY
+Use a shared lock order. Swap the two IDs if necessary so every request orders them from smaller to larger. Both transfer directions then agree on an acquisition order.
+
+Two transfers need accounts 3 and 8. Sort the lock identities so opposite transfer directions request locks in the same order.
+
+A globally consistent order prevents one participant from taking the opposite order. Business direction is separated from lock acquisition order. The rule removes circular waiting among locks covered by the same total order.
+
+Swap the two IDs if necessary so every request orders them from smaller to larger. Both transfer directions then agree on an acquisition order.
+
+Return the ordered pair by value. This function establishes an ordering model; it does not acquire locks. The lab uses scoped_lock on actual mutexes and handles the same-account case.
+
+Both participants choose the same ordering for a given pair of distinct resources. The actual locking lab handles a same-resource request without locking one mutex twice.
+
+Ordering only some call sites is insufficient. Other locks, callbacks, or blocking operations can introduce different cycles. In the extended lab: Lock the source mutex first and destination second in both transfer directions. Each thread can hold the lock the other needs.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch50/main.cpp:7-8
+
+------------------------------------------------------------
+
+33. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Lock the source mutex first and destination second in both transfer directions. Each thread can hold the lock the other needs.
+
+Use a consistent global ordering or an appropriate multi-mutex acquisition operation. Separately handle repeated references to the same resource.
+
+The reference solution makes the contract executable with assertions. scoped_lock acquires the two distinct mutexes using a deadlock-avoidance strategy and releases both at scope exit. Handling the same-account case first avoids passing the same non-recursive mutex twice. The small fixed total bounds arithmetic in this fixture. Other locks, callbacks, or I/O added inside the critical section would introduce new waiting relationships that still need review.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.06
+
+------------------------------------------------------------
+
+34. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch50/starter.cpp. Implement the first acceptance case for avoid opposite lock-order deadlock. State the function inputs and result before adding code. First case: Two workers transfer 100 units in opposite directions without opposite manual lock order.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.07
+
+------------------------------------------------------------
+
+35. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch50/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.08
+
+------------------------------------------------------------
+
+36. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Lock the source mutex first and destination second in both transfer directions. Each thread can hold the lock the other needs. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.09
+
+------------------------------------------------------------
+
+37. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+What if the transfer is from an account to itself? Compare the selected design with this plausible alternative: std::scoped_lock can acquire multiple distinct mutexes with deadlock avoidance; a single mutex is simpler if contention is acceptable.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.10
+
+------------------------------------------------------------
+
+38. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch50/starter.cpp. Transfer between accounts with two mutexes using scoped_lock. Treat transfer to the same account as a no-op, reject insufficient funds, and preserve the total. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch50/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.11
+
+------------------------------------------------------------
+
+39. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Avoid opposite lock-order deadlock belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.12
+
+------------------------------------------------------------
+
+40. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Transfer between accounts with two mutexes using scoped_lock. Treat transfer to the same account as a no-op, reject insufficient funds, and preserve the total.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch50/starter.cpp
+
+------------------------------------------------------------
+
+41. Review the extension solution
+Practice and extension
+
+SAY
+scoped_lock acquires the two distinct mutexes using a deadlock-avoidance strategy and releases both at scope exit. Handling the same-account case first avoids passing the same non-recursive mutex twice. The small fixed total bounds arithmetic in this fixture. Other locks, callbacks, or I/O added inside the critical section would introduce new waiting relationships that still need review. Repair principle: Use a consistent global ordering or an appropriate multi-mutex acquisition operation. Separately handle repeated references to the same resource.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Use a consistent global ordering or an appropriate multi-mutex acquisition operation. Separately handle repeated references to the same resource.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch50/solution.cpp
+
+------------------------------------------------------------
+
+42. Application case: Deadlock
+Practice and extension
+
+SAY
+Two threads acquire locks A and B in opposite orders.
+
+What risk appears?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.CASE
+
+------------------------------------------------------------
+
+43. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+scoped_lock acquires the two distinct mutexes using a deadlock-avoidance strategy and releases both at scope exit. Handling the same-account case first avoids passing the same non-recursive mutex twice. The small fixed total bounds arithmetic in this fixture. Other locks, callbacks, or I/O added inside the critical section would introduce new waiting relationships that still need review.
+
+Choose a simpler approach when its narrower contract is enough. std::scoped_lock can acquire multiple distinct mutexes with deadlock avoidance; a single mutex is simpler if contention is acceptable.
+
+When this system changes, retain a check that exposes the known failure: Lock the source mutex first and destination second in both transfer directions. Each thread can hold the lock the other needs. Use a consistent global ordering or an appropriate multi-mutex acquisition operation. Separately handle repeated references to the same resource.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch50.json → SYS50.14
+
+------------------------------------------------------------
+
+44. Unsafe allocation is not necessarily current deadlock
+Recall and transfer
+
+SAY
+Imagine three identical resources. Two participants each hold one and each may still need two more. Only one resource remains free, so neither maximum claim can be fully satisfied first. Under that maximum-need model, the state is unsafe: there is no guaranteed completion sequence. It is not necessarily already deadlocked, because neither participant may have issued a blocking request yet, or actual needs may be smaller than the maximum. Avoidance policies reject such risky admissions when their guarantees require a safe sequence. That differs from prevention through a fixed lock order. The analysis is useful only when capacities and maximum claims are meaningful and known.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.020
+
+------------------------------------------------------------
+
+45. Make a progress argument part of code review
+Recall and transfer
+
+SAY
+Before approving a blocking operation, list what its caller still owns and who can satisfy the wait. If the required participant needs one of those retained resources, inspect the dependency cycle. Include locks, queue slots, join ownership, terminal relationships, and external callbacks. Timeouts may bound waiting, but recovery must still release resources safely and preserve or explicitly abandon partial work. Killing a thread that owns a mutex is not a general recovery plan. Prefer a clear hierarchy or simpler ownership boundary when possible. Tests should verify completion under demanding schedules, while the documented acquisition and shutdown policy explains why the design has a path to progress.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch50.json → SP50.028

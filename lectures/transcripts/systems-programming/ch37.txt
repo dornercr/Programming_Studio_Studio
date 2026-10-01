@@ -1,0 +1,708 @@
+Systems Programming and Machine Organization
+Chapter 37: Process Creation — private values and inherited references
+Dr. Charles Dorner
+
+1. One call produces two continuations on success
+Problem and first experiment
+
+SAY
+fork creates a child process, and a successful call is followed by execution in both processes. They continue after the call; the child does not restart main. The return value tells each branch its role. The parent receives the child's positive process ID, the child receives zero, and failure gives the caller minus one with no new child. Treat all three cases explicitly. A branch written for every nonzero value can accidentally treat failure as a created child. The program also needs a lifecycle plan: who waits, who closes inherited endpoints, and where the child ends if it is not meant to continue the parent's normal workflow.
+
+DO
+Trace the three return cases without assuming an execution order.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.004 · 37.1 fork
+
+------------------------------------------------------------
+
+2. Change the child’s private array; inspect the parent afterward
+Problem and first experiment
+
+SAY
+This real fork demonstration starts with an array containing two and four. The child changes its first element to nine and checks that its own array sums to thirteen. It reports that small test result through its exit status, then ends with _exit. After waiting for the correct child, the parent prints its unchanged values two and four and reports that the child check passed. Stable printing comes from one process after synchronization, not from assuming the parent ran first. The demo verifies private-memory behavior. It does not inspect physical page copies or prove which process the scheduler selected immediately after fork.
+
+DO
+Predict both output lines before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch37.json → SP37.012 · 37.5 Address-space duplication
+
+------------------------------------------------------------
+
+3. Private memory does not imply private everything
+Problem and first experiment
+
+SAY
+The array experiment can create a misleading generalization: all child changes are private. Kernel-managed resources follow their own sharing rules. If a file was opened before fork, the inherited descriptor in the child can refer to the same open file description as the parent's descriptor. That object holds the current offset. A child read can therefore change where the parent's next read begins. Closing the child's entry releases its reference without closing the parent's separate entry. Keep two diagrams in mind: private address-space values and references to shared kernel objects. Confusing them causes both missing data and leaked communication endpoints.
+
+DO
+Name the state owner for the offset rather than the descriptor variable.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.014 · 37.6 File-descriptor inheritance
+
+------------------------------------------------------------
+
+4. Observe inherited offset sharing with actual reads
+Problem and first experiment
+
+SAY
+The temporary file contains ABC and is positioned at zero before fork. The child reads A and reports success through its exit status. The parent waits, then reads through its inherited descriptor and receives B. The shared current offset becomes two. Waiting makes that ordering deliberate; without it, either process could consume the first byte. The program flushes the setup output before forking and performs no child-side iostream printing. It checks and closes each resource. The output demonstrates real inherited open-description sharing, while the previous program demonstrated private array values. Both results are compatible because they concern different state and ownership rules.
+
+DO
+Predict B in the parent and explain the ordering operation.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch37.json → SP37.014 · 37.6 File-descriptor inheritance
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Model the important fork distinction: ordinary private values are copied, while inherited descriptor references can share one open-file offset.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Model two inherited handles referring to one open-file description. Closing the child’s handle must not close the parent’s handle or reset their shared offset.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Neither everything is copied independently nor everything is shared is an accurate fork model.
+
+A related failure in the generalized operation is concrete: Give the child a fresh OpenFile copy and assume its offset is shared just because its initial value matches.
+
+The repair changes the operation at the point where the rule can be enforced: Represent shared open-file state with one backing object. Keep independent opens distinct from duplicated or inherited references.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The handle is not the open-file description. Each process can close its own inherited descriptor while the kernel object remains referenced by another descriptor. The description holds the shared offset in this model. These smart pointers exist in one C++ process and illustrate the relationship; they are not the implementation of fork.
+
+A plausible alternative: A spawn API can be simpler than manually managing fork/exec in programs that only need to start another executable.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.03
+
+------------------------------------------------------------
+
+8. Chapter 37 — Process Creation
+Systems mechanisms and source lecture
+
+SAY
+Process creation separates an execution environment into independently scheduled participants. On POSIX systems, fork creates a child whose initial state resembles the parent’s at the call boundary, but the two processes receive different return values and can immediately follow different paths. The resemblance must be interpreted carefully. Private memory has independent modification semantics, while inherited descriptors can reference the same underlying open objects. Treating everything as either “fully copied” or “fully shared” produces errors. [ R15 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.001, SP37.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+37.1 fork 37.2 Parent process 37.3 Child process 37.4 Return values ...plus 7 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.003
+
+------------------------------------------------------------
+
+10. fork
+Systems mechanisms and source lecture
+
+SAY
+fork returns once in the parent and once in the child after successful creation. In the parent it returns the child’s process ID; in the child it returns zero. On failure, the parent receives -1 and no child is created. The child begins after the call, not at the beginning of main . Every branch must therefore be explicit about which process owns which cleanup and continuation responsibilities. A child intended to execute a new program should not accidentally fall through into the parent’s main loop when execution fails.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.004, SP37.005
+
+------------------------------------------------------------
+
+11. Parent process
+Systems mechanisms and source lecture
+
+SAY
+The parent retains its identity and receives a handle-like process ID for the child. It must decide whether to wait immediately, continue concurrently, or supervise several children. It also remains responsible for closing inherited communication endpoints it does not use. A parent cannot assume that it executes first after the fork. Scheduling can run the child before the parent reaches its next statement. Any ordering requirement must be established through waiting or communication, not inferred from source order in the parent’s branch.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.006, SP37.007
+
+------------------------------------------------------------
+
+12. Child process
+Systems mechanisms and source lecture
+
+SAY
+The child has its own process identity and private execution state. It can modify ordinary private variables without changing the parent’s copies. It may execute a new program, perform bounded work, or participate in a pipeline. After a fork from a multithreaded process, only the calling thread appears in the child, while copied library and mutex state can reflect locks held by threads that no longer exist there. Until a successful exec, the child must obey the applicable async-signal-safe restrictions. The examples here create children from single-threaded programs. [ R15 , R20 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.008, SP37.009
+
+------------------------------------------------------------
+
+13. Return values
+Systems mechanisms and source lecture
+
+SAY
+The three-way return distinction is fundamental: Do not collapse failure and parent behavior into one generic nonzero branch. A failed fork gives no child to wait for. Preserve the error information before cleanup operations that could change errno .
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.010, SP37.011
+
+------------------------------------------------------------
+
+14. Address-space duplication
+Systems mechanisms and source lecture
+
+SAY
+The child receives an address space with corresponding mappings according to the interface’s rules. Ordinary private memory initially contains the same values, but later modifications are logically independent. Shared mappings remain shared according to their mapping semantics. User-space I/O buffers are also memory. If buffered output exists before a fork and both processes later perform normal stream flushing, the same buffered bytes can be emitted twice. Flush deliberately before forking when appropriate, or ensure that an exec-bound child’s failure path uses _exit rather than normal buffered cleanup.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.012, SP37.013
+
+------------------------------------------------------------
+
+15. File-descriptor inheritance
+Systems mechanisms and source lecture
+
+SAY
+The child’s inherited descriptors refer to the same open file descriptions as the corresponding parent descriptors. They can share current offsets and file status flags. Closing the child’s descriptor releases its reference without closing the parent’s separate descriptor-table entry. This sharing is useful for pipelines and redirection but can also cause surprises. A child’s read can advance the offset subsequently observed by the parent. An accidentally retained pipe write end can prevent another process from seeing end of file.
+
+In plain English: The program asks the operating system to move bytes to or from a resource, much like using a numbered ticket to ask a clerk for the right item.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.014, SP37.015
+
+------------------------------------------------------------
+
+16. Copy-on-write
+Systems mechanisms and source lecture
+
+SAY
+Copy-on-write can avoid physically copying all private pages immediately. Parent and child initially share backing while hardware permissions trigger separation when a private write requires it. The interface promises the observable private-memory behavior, not an eager byte-for-byte copy at the instant of creation. The amount of memory actually duplicated depends on later writes, mappings, allocator activity, and kernel policy. Forking a large process is therefore not automatically equivalent to immediately allocating another complete physical copy, but it is also not free.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.016, SP37.017
+
+------------------------------------------------------------
+
+17. Private values after fork
+Systems mechanisms and source lecture
+
+SAY
+This program starts with value 7. The child changes its private value to 12 and reports correctness through its exit status. The parent waits and verifies that its own value remains 7. Companion listing: ch37/private_values.c The output is deterministic because only the parent prints and it waits for the child’s check. This does not prove which process ran first or which physical pages were copied. It verifies the private-value contract visible to the program.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.018, SP37.019
+
+------------------------------------------------------------
+
+18. Interpreting fork returns
+Systems mechanisms and source lecture
+
+SAY
+After a successful fork , the parent receives the child’s positive PID while the child receives zero. Both continue from the instruction after the call. Code commonly branches on the return value to assign parent and child responsibilities. A negative return in the parent-side call indicates failure and no child was created.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.020, SP37.021
+
+------------------------------------------------------------
+
+19. Inherited descriptor example
+Systems mechanisms and source lecture
+
+SAY
+If a process opens a file and then forks, parent and child inherit descriptors referring to the same open file description. Writes can therefore interact through a shared offset unless the program coordinates them or opens separate descriptions. The address spaces are logically separate, but kernel objects can remain shared.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.022, SP37.023
+
+------------------------------------------------------------
+
+20. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 37. Add a second private variable and make different updates in the parent and child. Keep output in the parent and use exit status or a pipe to report the child’s checks. Explain why printing raw addresses would not demonstrate physical-page independence. Review 1. What exists after a failed fork? Review 2. Why can pre-fork buffered output appear twice?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.024, SP37.025
+
+------------------------------------------------------------
+
+21. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is process creation. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.026
+
+------------------------------------------------------------
+
+22. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Program Execution.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.027
+
+------------------------------------------------------------
+
+23. Scheduling order must be established, not imagined
+Reason about the implementation
+
+SAY
+Writing the parent branch first on the page does not cause the parent to run first. After fork, either process may be scheduled before the other's next statement. If both print, their observed order may vary even though each branch follows its own local sequence. A requirement such as read after the child finishes must be encoded with waiting or a communication protocol. Tests should avoid declaring one accidental print order a guarantee. In our demos, child work is reported through status and the parent prints afterward. That preserves deterministic evidence without concealing the fact that concurrent execution order before the wait is unspecified.
+
+DO
+Ask what operation makes the printed test result deterministic.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.006 · 37.2 Parent process
+
+------------------------------------------------------------
+
+24. Copy-on-write is an implementation mechanism for private behavior
+Reason about the implementation
+
+SAY
+Copy-on-write can let parent and child initially refer to shared physical backing for private pages. When a private write occurs, the system can create the separation needed to preserve independent values. This avoids eagerly copying every byte merely because fork returned. It does not make process creation free, and later allocator activity or writes may still cause substantial work. The array demo proves neither the number of copied pages nor their timing. It proves the behavior the program depends on. Keep implementation explanations and observable guarantees distinct when estimating memory use, especially when forking a large process whose later writes may be far broader than the small explicit assignment.
+
+DO
+Separate logical duplication from physical allocation in the explanation.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.016 · 37.7 Copy-on-write
+
+------------------------------------------------------------
+
+25. Copied output buffers can print the same bytes twice
+Reason about the implementation
+
+SAY
+If a library output buffer contains unflushed text before fork, both processes inherit a copy of that buffer state. If both later perform normal flushing, the same text can appear twice. The extra output did not come from the file descriptor magically copying already-written bytes; it came from two user-space copies of bytes not yet sent. Flush deliberately before creation when that is appropriate. An exec-bound child generally uses _exit on failure so it does not run the parent's buffered cleanup. That choice needs deliberate lifecycle design, because _exit also bypasses ordinary user-space cleanup that a different kind of child might actually need.
+
+DO
+Ask whether the bytes were already in the kernel before creation.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.012 · 37.5 Address-space duplication
+
+------------------------------------------------------------
+
+26. A multithreaded parent creates a stricter child boundary
+Reason about the implementation
+
+SAY
+The demos fork from a single-threaded program. A multithreaded parent has a harder problem: only the calling thread is present in the child, while copied mutex and library state can reflect locks held by other threads before the fork. Those missing threads cannot later release their locks in the child. This is why the child must obey the applicable async-signal-safe restrictions until exec. A convenient allocator or formatting call may not be appropriate in that narrow interval. Do not generalize the single-threaded examples into an unrestricted child setup routine for a large threaded application. Choose launch facilities and setup operations that match that environment.
+
+DO
+State the single-threaded assumption beside the runnable demos.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.008 · 37.3 Child process
+
+------------------------------------------------------------
+
+27. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Model the important fork distinction: ordinary private values are copied, while inherited descriptor references can share one open-file offset.
+
+Copy private state. parent_value 7; child_value 7. Private memory changes are logically independent after fork.
+
+Change the child value. parent 7; child 9. The assignment does not update the parent’s private value.
+
+Advance a shared offset. parent observes offset 2. Inherited descriptors may refer to the same kernel open-file description, including its offset.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch37/main.cpp
+
+------------------------------------------------------------
+
+28. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Copy private state. parent_value 7; child_value 7. Private memory changes are logically independent after fork.
+
+Change the child value. parent 7; child 9. The assignment does not update the parent’s private value.
+
+Advance a shared offset. parent observes offset 2. Inherited descriptors may refer to the same kernel open-file description, including its offset.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch37/main.cpp
+
+------------------------------------------------------------
+
+29. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The handle is not the open-file description. Each process can close its own inherited descriptor while the kernel object remains referenced by another descriptor. The description holds the shared offset in this model. These smart pointers exist in one C++ process and illustrate the relationship; they are not the implementation of fork.
+
+Represent shared open-file state with one backing object. Keep independent opens distinct from duplicated or inherited references.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch37/main.cpp:1-14
+
+------------------------------------------------------------
+
+30. Copied process state and shared file state coexist
+Code, diagrams, and debugging
+
+SAY
+Copied process state and shared file state coexist. A shared_ptr owns one dynamically allocated offset, initially zero.
+
+Model the important fork distinction: ordinary private values are copied, while inherited descriptor references can share one open-file offset.
+
+Private memory changes are logically independent after fork. The assignment does not update the parent’s private value. Inherited descriptors may refer to the same kernel open-file description, including its offset.
+
+A shared_ptr owns one dynamically allocated offset, initially zero.
+
+Copying this handle shares the same integer and adds an owner; it does not copy the offset value.
+
+The copied ordinary child_value changes independently, leaving parent_value equal to 7.
+
+Dereferencing child_offset changes the shared integer to 2, visible through parent_offset too. This separates copied process values from shared open-file state.
+
+The ordinary copied value is private to its copy. Both shared offset handles reach the same live integer.
+
+Neither everything is copied independently nor everything is shared is an accurate fork model. In the extended lab: Give the child a fresh OpenFile copy and assume its offset is shared just because its initial value matches.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch37/main.cpp:8-11
+
+------------------------------------------------------------
+
+31. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Give the child a fresh OpenFile copy and assume its offset is shared just because its initial value matches.
+
+Represent shared open-file state with one backing object. Keep independent opens distinct from duplicated or inherited references.
+
+The reference solution makes the contract executable with assertions. The handle is not the open-file description. Each process can close its own inherited descriptor while the kernel object remains referenced by another descriptor. The description holds the shared offset in this model. These smart pointers exist in one C++ process and illustrate the relationship; they are not the implementation of fork.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.06
+
+------------------------------------------------------------
+
+32. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch37/starter.cpp. Implement the first acceptance case for separate a descriptor handle from its open-file state. State the function inputs and result before adding code. First case: A child read advances the parent-visible offset.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.07
+
+------------------------------------------------------------
+
+33. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch37/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.08
+
+------------------------------------------------------------
+
+34. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Give the child a fresh OpenFile copy and assume its offset is shared just because its initial value matches. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.09
+
+------------------------------------------------------------
+
+35. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why can buffered text be printed twice if buffered output exists before fork? Compare the selected design with this plausible alternative: A spawn API can be simpler than manually managing fork/exec in programs that only need to start another executable.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.10
+
+------------------------------------------------------------
+
+36. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch37/starter.cpp. Model two inherited handles referring to one open-file description. Closing the child’s handle must not close the parent’s handle or reset their shared offset. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch37/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.11
+
+------------------------------------------------------------
+
+37. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Separate a descriptor handle from its open-file state belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.12
+
+------------------------------------------------------------
+
+38. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Model two inherited handles referring to one open-file description. Closing the child’s handle must not close the parent’s handle or reset their shared offset.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch37/starter.cpp
+
+------------------------------------------------------------
+
+39. Review the extension solution
+Practice and extension
+
+SAY
+The handle is not the open-file description. Each process can close its own inherited descriptor while the kernel object remains referenced by another descriptor. The description holds the shared offset in this model. These smart pointers exist in one C++ process and illustrate the relationship; they are not the implementation of fork. Repair principle: Represent shared open-file state with one backing object. Keep independent opens distinct from duplicated or inherited references.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Represent shared open-file state with one backing object. Keep independent opens distinct from duplicated or inherited references.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch37/solution.cpp
+
+------------------------------------------------------------
+
+40. Application case: Process Creation
+Practice and extension
+
+SAY
+After fork, the child modifies an ordinary private variable.
+
+Must the parent observe that new value?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.CASE
+
+------------------------------------------------------------
+
+41. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The handle is not the open-file description. Each process can close its own inherited descriptor while the kernel object remains referenced by another descriptor. The description holds the shared offset in this model. These smart pointers exist in one C++ process and illustrate the relationship; they are not the implementation of fork.
+
+Choose a simpler approach when its narrower contract is enough. A spawn API can be simpler than manually managing fork/exec in programs that only need to start another executable.
+
+When this system changes, retain a check that exposes the known failure: Give the child a fresh OpenFile copy and assume its offset is shared just because its initial value matches. Represent shared open-file state with one backing object. Keep independent opens distinct from duplicated or inherited references.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch37.json → SYS37.14
+
+------------------------------------------------------------
+
+42. Creation includes cleanup and reaping obligations
+Recall and transfer
+
+SAY
+A correct launch path is more than a successful fork. On failure, no child exists, so the caller must clean up prepared resources without waiting for an invented process. On success, each process must close inherited communication ends it does not need. The parent must then follow a clear policy for collecting child status. A forgotten pipe writer can block another process's EOF long after the useful writer exits, and an unreaped child leaves termination bookkeeping behind. Review every branch with an ownership table: resource, parent use, child use, and release point. That table is often more revealing than the successful output alone.
+
+DO
+Walk setup failure, child completion, and parent completion separately.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.006 · 37.2 Parent process
+
+------------------------------------------------------------
+
+43. Recall two continuations and two kinds of state
+Recall and transfer
+
+SAY
+The chapter can be recalled through two contrasts. One fork call creates two successful continuations with different return values, while failure creates only the original continuation. Ordinary private memory can diverge, while inherited references may still reach shared kernel-managed state. The first demo's parent array remains two and four; the second demo's parent reads B after the child consumed A. These are not conflicting observations. They identify different state owners. When extending a launcher, document scheduling requirements, close unused handles, and plan status collection. The next chapter replaces a process's program image, which is a different operation from creating the process in the first place.
+
+DO
+Have learners explain both demos with their state owners.
+
+SOURCE
+content/systems-programming/ch37.json → SP37.004 · 37.1 fork

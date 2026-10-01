@@ -1,0 +1,224 @@
+{
+  "chapter": 12,
+  "title": "Instruction Set Architecture",
+  "opening": [
+    {
+      "title": "An instruction is a state-change contract",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "An instruction names an operation and operands.",
+        "Architectural state includes values and the next instruction.",
+        "Machine behavior is not one source line per clock tick."
+      ],
+      "narration": "To understand machine code, start with what each instruction promises to change. A load changes a destination value, arithmetic changes a result and often flags, and a branch changes where execution continues. Together these updates describe architectural state, meaning the state that the instruction set exposes to software. The physical processor may use several smaller internal steps or overlap independent work. That does not make the instruction contract disappear. Our models make state changes explicit with small C++ values, but they are not x86 emulators and do not measure a real processor's cycle count.",
+      "actions": [
+        "Ask learners to name one data-state change and one control-state change."
+      ],
+      "sourceRef": "content/systems-programming/ch12.json → SP12.004",
+      "question": {
+        "prompt": "Why is an assembly listing not a cycle-by-cycle execution trace?",
+        "answer": "A processor may decode, overlap, rename, and speculate internally while preserving the required architectural effects."
+      }
+    },
+    {
+      "title": "Trace a load, multiply, and store",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "code",
+      "keyPoints": [
+        "Each completed operation advances the model index.",
+        "The accumulator holds a value, not an address.",
+        "The store changes modeled memory after arithmetic."
+      ],
+      "narration": "This small machine model has one accumulator, one memory cell, and an instruction index. Loading three leaves index one and accumulator three. Multiplying by four leaves index two and accumulator twelve. Storing that value changes the memory cell to twelve and advances the index to three. The printed trace reports these exact boundaries. Ordinary C++ statements implement the model; they are not an instruction encoding or a timing simulation. The unsigned values keep this tiny example within a clearly valid range. We use the model to separate data state from control state before inspecting the much richer x86 instruction set.",
+      "actions": [
+        "Predict all three trace lines before running."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch12.json → SP12.016",
+      "question": {
+        "prompt": "After the multiply but before the store, what has changed?",
+        "answer": "The accumulator and instruction index have changed; the modeled memory cell still has its old value."
+      },
+      "code": {
+        "filename": "sys_ch12_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    unsigned accumulator = 0;\n    unsigned memory = 0;\n    unsigned pc = 0;\n    accumulator = 3; ++pc; // Modeled LOAD immediate.\n    std::cout << \"pc=\" << pc << \" acc=\" << accumulator << '\\n';\n    accumulator *= 4; ++pc; // Modeled MULTIPLY immediate.\n    std::cout << \"pc=\" << pc << \" acc=\" << accumulator << '\\n';\n    memory = accumulator; ++pc; // Modeled STORE.\n    std::cout << \"pc=\" << pc << \" memory=\" << memory << '\\n';\n}\n",
+        "expectedStdout": "pc=1 acc=3\npc=2 acc=12\npc=3 memory=12\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "An abstract state trace; not x86 execution or CPU timing."
+      }
+    },
+    {
+      "title": "Control flow needs a work budget",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "code",
+      "keyPoints": [
+        "Valid targets can still form a nonterminating cycle.",
+        "Count executed steps, not source instructions.",
+        "Stop the interpreter without relying on the program to halt."
+      ],
+      "narration": "A program can stay inside its instruction array and still run forever. Our second model has two instructions, each jumping to the other. Both target indices are valid. Starting at zero, five steps visit the alternating targets and finish at one, so the output reports steps five and pc one. The halt flag remains false because no instruction requested termination. A separate execution budget stops the model. This is a controlled demonstration of a missing progress guarantee, not an intentionally hanging program. An interpreter for untrusted input needs both valid-address checks and a resource bound; either alone leaves a different failure mode open.",
+      "actions": [
+        "Trace the target sequence 1, 0, 1, 0, 1."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch12.json → SP12.022",
+      "question": {
+        "prompt": "Why is bounds checking insufficient to guarantee termination?",
+        "answer": "A cycle can repeatedly visit only valid instruction locations without ever reaching a halt."
+      },
+      "code": {
+        "filename": "sys_ch12_step_budget.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <cstddef>\n#include <iostream>\nint main() {\n    const std::array<std::size_t, 2> jump_to{1, 0};\n    std::size_t pc = 0, steps = 0;\n    constexpr std::size_t budget = 5;\n    while (steps < budget && pc < jump_to.size()) {\n        pc = jump_to[pc];\n        ++steps;\n    }\n    std::cout << \"steps=\" << steps << \" pc=\" << pc\n              << \" halted=false\\n\";\n}\n",
+        "expectedStdout": "steps=5 pc=1 halted=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Bounded abstract jump model; no machine instructions are executed by the model."
+      }
+    },
+    {
+      "title": "The program counter is not a loop counter in every ISA",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Our model counts instruction slots.",
+        "x86-64 RIP tracks byte addresses.",
+        "Relative references often use the next instruction address."
+      ],
+      "narration": "The tiny model increments its program counter by one because each vector slot is one modeled instruction. Real x86-64 instructions have variable-length byte encodings, so sequential instruction addresses do not generally differ by one. If an instruction begins at hexadecimal one thousand and occupies seven bytes, the next address is one thousand seven. A RIP-relative displacement is based on that next address, not automatically the address printed at the start of the disassembly line. Keep the model's units visible. Confusing instruction indices with byte addresses creates a plausible-looking trace that reaches the wrong target.",
+      "actions": [
+        "Compare three one-slot model instructions with hypothetical two-, five-, and three-byte encodings."
+      ],
+      "sourceRef": "content/systems-programming/ch12.json → SP12.010",
+      "question": {
+        "prompt": "Why cannot a real x86 trace advance RIP by one for every instruction?",
+        "answer": "Instructions have variable byte lengths, so the next instruction address depends on the current encoding length."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Registers are named architectural storage",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Source variables need not each have a register.",
+        "Register names need not identify fixed physical cells.",
+        "Renaming preserves visible value dependencies."
+      ],
+      "narration": "A register gives an instruction a named place to obtain or store a value. A C++ variable is a source-language object, so there is no promise that every variable receives its own register. The compiler may remove a variable, reuse a register after a value dies, or spill a value to memory. Inside a modern processor, register renaming can assign successive values of one architectural register to different physical storage. Software still observes the architectural dependency rules. Begin with those rules when reading an instruction sequence; physical renaming becomes useful later when explaining why independent work can overlap without changing the final answer.",
+      "actions": [
+        "Track two successive values assigned to the same named model register."
+      ],
+      "sourceRef": "content/systems-programming/ch12.json → SP12.006",
+      "question": {
+        "prompt": "Does architectural register RAX require one fixed physical storage cell for every use?",
+        "answer": "No. The implementation can rename physical storage while preserving the required architectural value behavior."
+      }
+    },
+    {
+      "title": "A load has more work behind it than an addition",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Address calculation selects a location.",
+        "Translation and permission checks govern access.",
+        "Caches and dependencies affect completion cost."
+      ],
+      "narration": "Two instructions may each produce one integer result while requiring very different work. Adding two ready register values uses already-available data. Loading an integer from memory first needs an effective address and a permitted translation, and may wait for data from a cache or a lower memory level. A fault can send control to the operating system. None of this means that every load is slow; many hit in a nearby cache. It means the mnemonic count alone is a poor cost model. When investigating performance, follow data dependencies and memory traffic before assigning one equal time unit to every line of assembly.",
+      "actions": [
+        "Contrast a ready register add with a load whose address depends on a previous load."
+      ],
+      "sourceRef": "content/systems-programming/ch12.json → SP12.008",
+      "question": {
+        "prompt": "Why can two loads with the same instruction spelling have different latency?",
+        "answer": "Their data can be in different cache or memory states, and address translation or dependencies can differ."
+      }
+    },
+    {
+      "title": "Saving a thread is broader than making a function call",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Processor state includes flags and other register classes.",
+        "A calling convention preserves a selected subset.",
+        "A context switch must support later resumption."
+      ],
+      "narration": "A function call and a context switch both involve continuation, but their obligations differ. A normal function interface lets certain registers be overwritten and requires others to be preserved. The caller knows that agreement. A paused thread must later resume with the state needed to continue its own computation, which can include flags, vector state, stack state, and operating-system execution context. Do not use the six integer argument registers as a complete list of processor state. This distinction matters when debugging low-level code: a routine that respects the function ABI may still be wholly inadequate as a thread-switch mechanism.",
+      "actions": [
+        "List one state component beyond ordinary integer arguments."
+      ],
+      "sourceRef": "content/systems-programming/ch12.json → SP12.012",
+      "question": {
+        "prompt": "Why is the function-call save set smaller than a full execution context?",
+        "answer": "The caller and callee cooperate through an ABI that explicitly allows some state to be overwritten."
+      }
+    },
+    {
+      "title": "One ISA can have many implementations",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "The ISA defines visible behavior.",
+        "Microarchitecture determines how hardware carries it out.",
+        "Performance claims belong to a measured machine and workload."
+      ],
+      "narration": "Imagine two processors running the same binary and producing the same answers. One has more execution units and a larger cache; the other uses less power and takes longer on this workload. Both can satisfy the same instruction set architecture, or ISA. Their internal designs are their microarchitectures. An instruction substitution that helps one processor may hurt another because costs and bottlenecks differ. Our state traces establish what a calculation means, not how quickly a particular chip performs it. In maintenance work, separate the correctness argument from the measurement report so a hardware upgrade does not silently invalidate a supposed universal optimization rule.",
+      "actions": [
+        "Ask what machine information belongs beside a benchmark result."
+      ],
+      "sourceRef": "content/systems-programming/ch12.json → SP12.014",
+      "question": {
+        "prompt": "Does a faster implementation imply a different ISA?",
+        "answer": "No. Different microarchitectures can implement the same architectural contract at different speeds."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Instruction completion is an observable boundary",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Internal execution may be out of order.",
+        "Architectural results must obey the machine contract.",
+        "A simple trace is useful without describing every pipeline stage."
+      ],
+      "narration": "Our model updates accumulator and index together after each operation, which makes reasoning easy. A real processor may start later independent work before earlier work has finished. It still must preserve the permitted architectural results, including the defined memory model and precise exception rules where applicable. This is why a software trace can reason about instruction effects without pretending to describe every internal queue. Avoid two extremes: assuming literal one-at-a-time hardware, or assuming out-of-order execution allows arbitrary answers. The architecture defines the permitted observations; the implementation chooses an efficient route within that contract.",
+      "actions": [
+        "Separate an internal scheduling guess from a required register result."
+      ],
+      "sourceRef": "content/systems-programming/ch12.json → SP12.020",
+      "question": {
+        "prompt": "What does out-of-order execution not permit?",
+        "answer": "It does not permit violating the architectural result and ordering guarantees that apply to the program."
+      }
+    },
+    {
+      "title": "Extend the model by stating what it omits",
+      "eyebrow": "SYSTEMS / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Add a branch condition and valid target rule.",
+        "Retain a step limit.",
+        "Choose an explicit arithmetic range before accepting arbitrary input."
+      ],
+      "narration": "If you extend the model to sum one through five, first define the state needed for the counter, accumulator, branch, and halt. State which target values are legal and retain a step budget even when your intended program terminates. Then define arithmetic behavior. The chapter's simple interpreter is adequate for small chosen operands, but arbitrary signed additions can exceed the C++ int range. A robust extension must check that range or choose a documented modular type. This is how a teaching model grows responsibly: each new promise receives a rule and a test, and omitted timing or hardware details remain clearly labeled.",
+      "actions": [
+        "Ask for one valid program, one invalid target, and one budget-exhaustion test."
+      ],
+      "sourceRef": "content/systems-programming/ch12.json → SP12.022",
+      "question": {
+        "prompt": "What new safety issue appears when the model accepts arbitrary signed arithmetic operands?",
+        "answer": "A valid instruction sequence can still cause signed overflow unless arithmetic bounds are checked or a suitable defined domain is chosen."
+      }
+    }
+  ]
+}

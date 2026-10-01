@@ -1,0 +1,223 @@
+{
+  "chapter": 17,
+  "title": "Procedures and Calling Conventions",
+  "opening": [
+    {
+      "title": "A call is an agreement between separately built pieces",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "concept",
+      "keyPoints": [
+        "Arguments and results need agreed locations and widths.",
+        "Some state may change; other state must survive.",
+        "The ABI is broader than the source function name."
+      ],
+      "narration": "Imagine compiling a caller and a library at different times with no shared view of their implementations. They still need to agree on how arguments arrive, where a result appears, which registers may be overwritten, and how the stack is positioned. That agreement is the application binary interface, or ABI. A C++ function declaration expresses part of the agreement, while the target platform supplies machine-level details. A routine can compute the right number yet still violate the ABI by corrupting a preserved register. Learning calling conventions means tracing both the intended result and the caller state that must remain usable afterward.",
+      "actions": [
+        "Ask what the caller must know without reading the callee implementation."
+      ],
+      "sourceRef": "content/systems-programming/ch17.json → SP17.008",
+      "question": {
+        "prompt": "Why is matching only the function name insufficient for binary interoperability?",
+        "answer": "Argument types, result representation, register rules, stack state, and other ABI details must also agree."
+      }
+    },
+    {
+      "title": "Recursive calls have distinct logical local state",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "code",
+      "keyPoints": [
+        "Each call receives its own n value.",
+        "Calls descend to a stopping case.",
+        "Returned values combine while calls unwind."
+      ],
+      "narration": "The trace enters calls with three, two, one, and zero. Zero returns directly. The waiting call for one then returns one; the waiting call for two returns three; and the waiting call for three returns six. Main prints the final six after the recursive work completes. Every invocation has its own n, even though the source contains one parameter name. This demonstration explains logical call state without promising one exact stack frame per source call in every optimized build. The small constant depth is deliberate. A correct base case does not make unbounded input depth safe for a real process stack.",
+      "actions": [
+        "Predict the full entry-and-return order before running."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch17.json → SP17.024",
+      "question": {
+        "prompt": "Why does the n equals two call still remember two after the n equals one call finishes?",
+        "answer": "Each active invocation has separate logical parameter and local state."
+      },
+      "code": {
+        "filename": "sys_ch17_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nunsigned total(unsigned n) {\n    std::cout << \"enter \" << n << '\\n';\n    if (n == 0) return 0;\n    const unsigned below = total(n - 1);\n    const unsigned result = n + below;\n    std::cout << \"return \" << result << '\\n';\n    return result;\n}\nint main() {\n    const auto result = total(3); // Bounded demonstration depth.\n    std::cout << \"total=\" << result << '\\n';\n}\n",
+        "expectedStdout": "enter 3\nenter 2\nenter 1\nenter 0\nreturn 1\nreturn 3\nreturn 6\ntotal=6\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "A correct return value can hide a preservation bug",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "code",
+      "keyPoints": [
+        "The model callee may overwrite temporary state.",
+        "It must restore preserved state.",
+        "Both callees return six; only one preserves eleven."
+      ],
+      "narration": "This program models a tiny register bank as an ordinary struct. Both helpers return six, but bad_callee overwrites preserved with ninety-nine and never restores it. The first output therefore reveals a caller-state failure even though the result looks correct. Good_callee saves the incoming preserved value, performs its temporary work, and restores it before returning. Its output shows six and eleven. No actual hardware register is inspected or corrupted here. The model isolates an ABI obligation safely: a test that checks only the return value cannot catch every calling-convention defect, especially one that affects work performed after the call.",
+      "actions": [
+        "Compare returned data with preserved caller state in both outputs."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch17.json → SP17.034",
+      "question": {
+        "prompt": "Why is result equals six an incomplete test of the modeled callee?",
+        "answer": "The caller also depends on the preserved field retaining its incoming value."
+      },
+      "code": {
+        "filename": "sys_ch17_preservation_model.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nstruct Registers { int temporary; int preserved; };\nint bad_callee(Registers& r) {\n    r.temporary = 6; r.preserved = 99;\n    return r.temporary;\n}\nint good_callee(Registers& r) {\n    const int saved = r.preserved;\n    r.temporary = 6; r.preserved = 99;\n    r.preserved = saved;\n    return r.temporary;\n}\nint main() {\n    Registers bad{0, 11}, good{0, 11};\n    const int a = bad_callee(bad), b = good_callee(good);\n    std::cout << \"bad result=\" << a << \" preserved=\" << bad.preserved << '\\n';\n    std::cout << \"good result=\" << b << \" preserved=\" << good.preserved << '\\n';\n}\n",
+        "expectedStdout": "bad result=6 preserved=99\ngood result=6 preserved=11\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "A C++ state model of ABI preservation, not manipulation of actual machine registers."
+      }
+    },
+    {
+      "title": "CALL supplies a return address, not a complete frame",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "concept",
+      "keyPoints": [
+        "A near call records where execution resumes.",
+        "Prologue code establishes any additional frame state.",
+        "RET assumes the expected stack position is restored."
+      ],
+      "narration": "A near call in the reference machine transfers control and places an eight-byte return address on the stack. It does not automatically save every register or allocate every source local. The callee's prologue performs any additional work required by its implementation and ABI. A normal return then obtains the saved continuation from the expected stack location. If cleanup leaves the stack pointer at a local variable instead, return can interpret unrelated bits as a destination. This explains why frame setup and teardown must be reviewed with every control-flow path, including early failures. Correct arithmetic inside the body does not repair an incorrect return state.",
+      "actions": [
+        "Separate the hardware return-address action from software prologue responsibilities."
+      ],
+      "sourceRef": "content/systems-programming/ch17.json → SP17.004",
+      "question": {
+        "prompt": "What does CALL not automatically do for an ordinary function?",
+        "answer": "It does not construct a complete source-level frame or save all registers."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Alignment is a byte-level equation",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "concept",
+      "keyPoints": [
+        "Before an ordinary scalar call, RSP is sixteen-byte aligned.",
+        "The return address changes entry alignment by eight bytes.",
+        "Pushes and local storage must be included together."
+      ],
+      "narration": "At a normal call boundary in this chapter's System V setting, the stack pointer is aligned to sixteen bytes. Call pushes eight bytes, so the callee enters with RSP eight modulo sixteen. One additional eight-byte push makes it aligned again for a nested ordinary call. A second push changes it back, so local allocation may need another adjustment. Count bytes through the actual sequence; a local storage requirement alone is not enough to derive the frame size. Particular vector arguments can add requirements beyond this simplified scalar case. When in doubt, compare against a compiler-generated function with the same signature and target options.",
+      "actions": [
+        "Track RSP modulo sixteen across call, one push, and a nested call."
+      ],
+      "sourceRef": "content/systems-programming/ch17.json → SP17.016",
+      "question": {
+        "prompt": "Why can saving one register also solve a nested-call alignment requirement?",
+        "answer": "Its eight-byte push changes entry RSP from eight modulo sixteen to zero modulo sixteen."
+      }
+    },
+    {
+      "title": "Preserve a value because it remains live",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "concept",
+      "keyPoints": [
+        "A value is live when later work still needs it.",
+        "Caller-saved state can be saved, moved, or recomputed.",
+        "Inlining can remove the call boundary entirely."
+      ],
+      "narration": "Suppose a wrapper computes mix of x and five, then adds the original x. The original x remains live across the call because the later addition needs it. If its register is caller-saved, the wrapper must move it to preserved storage, spill it, or arrange a safe recomputation. The chapter's assembly uses a preserved register and restores that register's own incoming value before returning. A compiler might inline mix and eliminate the boundary instead. Both strategies can be correct. Read the actual lifetime of the value rather than mechanically saving every argument or relying on today's helper not to overwrite a register.",
+      "actions": [
+        "Mark the last use of x and the call between its definition and that use."
+      ],
+      "sourceRef": "content/systems-programming/ch17.json → SP17.018",
+      "question": {
+        "prompt": "What makes the original x live across mix?",
+        "answer": "The wrapper still needs x for the addition performed after mix returns."
+      }
+    },
+    {
+      "title": "A pointer argument does not extend a local object’s life",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "concept",
+      "keyPoints": [
+        "The ABI can transport an address correctly.",
+        "A borrowed local array still dies at scope exit.",
+        "Retaining a pointer needs a separate lifetime contract."
+      ],
+      "narration": "A function can pass the address of its local array in exactly the correct argument register and still create a lifetime bug if the callee stores that address for later use. The transport obeys the ABI, but the local array ends when its owning scope ends. A future callback would then use a dangling pointer. This distinction is essential when integrating C libraries or asynchronous APIs. State whether an argument is borrowed only during the call or retained afterward. If retention is required, move ownership into an object with a suitable lifetime or copy the needed data. Correct register placement does not answer that ownership question.",
+      "actions": [
+        "Contrast a synchronous print call with a callback that stores its buffer pointer."
+      ],
+      "sourceRef": "content/systems-programming/ch17.json → SP17.022",
+      "question": {
+        "prompt": "Can ABI-correct pointer passing make a retained local array valid after return?",
+        "answer": "No. The object’s lifetime remains a separate language and ownership obligation."
+      }
+    },
+    {
+      "title": "Prologues and epilogues must support every exit",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "concept",
+      "keyPoints": [
+        "Restore preserved state on success and error paths.",
+        "Release the correct amount of stack space.",
+        "Unwind metadata describes recovery; it is not executed cleanup."
+      ],
+      "narration": "A function's error return owes its caller the same preserved registers and stack position as its successful return. Review an epilogue by listing the frame resources and saved state acquired on that path, then checking their restoration. Handwritten assembly may also need call-frame information so debuggers and exception machinery can recover caller state. Those directives describe layout changes; they are not instructions that perform the restoration themselves. A function can return normally in a test yet fail when a debugger unwinds through it or an exception crosses its frame. Decide which forms of interoperability the routine promises, and validate them explicitly.",
+      "actions": [
+        "Compare the normal return path with an exception-unwind interpretation."
+      ],
+      "sourceRef": "content/systems-programming/ch17.json → SP17.028",
+      "question": {
+        "prompt": "Does correct unwind metadata replace restoring a saved register before an ordinary RET?",
+        "answer": "No. Metadata describes how recovery works; executed code still must satisfy the normal-return contract."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "The six-register rule is a starting case",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "concept",
+      "keyPoints": [
+        "Ordinary integer and pointer arguments follow a common sequence.",
+        "Floating-point, aggregates, and variadic calls add rules.",
+        "The declaration must match the actual binary interface."
+      ],
+      "narration": "For ordinary scalar examples, the first six integer or pointer arguments use RDI, RSI, RDX, RCX, R8, and R9. This helps you start reading the chapter's routines, but it is not a complete algorithm for every signature. Floating-point values use other register classes, aggregate returns can use hidden storage, and variadic interfaces have extra conventions. A C++ object call can include an implicit object argument. When writing a bridge to assembly, keep a correct declaration beside the implementation and inspect a compiler-generated reference for unfamiliar types. Guessing from the visible argument count can produce a routine that runs but reads the wrong inputs.",
+      "actions": [
+        "Ask learners to identify when the simplified scalar table is sufficient."
+      ],
+      "sourceRef": "content/systems-programming/ch17.json → SP17.008",
+      "question": {
+        "prompt": "Why might the first visible source argument not occupy the first scalar argument register?",
+        "answer": "The ABI may introduce a hidden argument, such as result storage or an object pointer."
+      }
+    },
+    {
+      "title": "Verify a boundary, not just one answer",
+      "eyebrow": "SYSTEMS / CHAPTER 17",
+      "kind": "concept",
+      "keyPoints": [
+        "Check declared widths and signedness.",
+        "Check preserved registers and stack obligations.",
+        "Bound recursive depth independently of optimization hopes."
+      ],
+      "narration": "A good calling-convention review combines source and machine evidence. First verify the declaration's parameter and result types. Then follow arguments, return values, preserved state, and stack adjustments along every path. Finally check the lifetime of any addresses passed or retained. For recursion, a base case proves how intended inputs terminate but does not prove a safe stack bound for every accepted input depth. Do not assume tail-call optimization will rescue an unbounded algorithm unless the implementation contract actually guarantees it. The lesson transfers directly to plugins and foreign-function interfaces: a working sample call is only one piece of the boundary contract.",
+      "actions": [
+        "Ask for one functional test and one boundary-invariant check."
+      ],
+      "sourceRef": "content/systems-programming/ch17.json → SP17.036",
+      "question": {
+        "prompt": "What can pass a result-only test while still breaking future callers?",
+        "answer": "A routine that returns the expected value but corrupts preserved registers, stack state, or retained-pointer lifetime."
+      }
+    }
+  ]
+}

@@ -1,0 +1,954 @@
+Systems Programming and Machine Organization
+Chapter 61: Putting the System Together
+Dr. Charles Dorner
+
+1. The whole system must preserve one end-to-end contract
+Problem and first experiment
+
+SAY
+The capstone combines byte representation, input extents, memory ownership, queue synchronization, worker lifetimes, and output verification. The sequential utility remains our reference. A concurrent result must match it even if the operating system runs all workers on one core in an interleaved order. The design does not promise speed merely because it uses threads. It promises that accepted bytes are counted once, partial results are combined correctly, and failures do not print a misleading successful total. We will follow ownership and publication boundaries before discussing throughput, because a faster pipeline with duplicated slots or dangling storage is not the same program.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.026: 61.12 Correctness + Performance + Security + Robustness
+
+------------------------------------------------------------
+
+2. Partition seven items without dropping the remainder
+Problem and first experiment
+
+SAY
+The earlier fixed six-item example splits evenly; this new fixture uses seven items and three workers. Integer boundary calculations give ranges zero through two, two through four, and four through seven, with the right endpoint excluded. Their lengths are two, two, and three, so no remainder is lost. Each jthread captures its worker index by value and writes only its own result slot. The vector of thread owners is destroyed before main reads those results, and jthread joins on destruction. The printed total is twenty-eight, equal to the sequential reference. No speed claim or scheduling-dependent output is made.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.10: Exercise 4: Choose a design
+
+------------------------------------------------------------
+
+3. Slot identity must have exactly one current owner
+Problem and first experiment
+
+SAY
+This small state model gives two buffer slots a current owner. Slot zero moves from free to producer, then ready, then worker, then free again. Both slots are now free, so the first output is free slots equals two. A second attempted worker-to-free return fails because the slot is no longer worker-owned; duplicate rejected is one. The program does not implement queue synchronization. It isolates the invariant that the real queue transfers must preserve. Returning one slot twice could let two later users overwrite the same storage, while losing a slot could reduce capacity until progress stops.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.016: 61.7 Threads → Shared Memory
+
+------------------------------------------------------------
+
+4. Choose arithmetic that permits the intended combination
+Problem and first experiment
+
+SAY
+The source pipeline treats input as uninterpreted bytes and adds their unsigned values into a sixty-four-bit sum. Unsigned modular addition can be regrouped, so worker partial sums can combine in any completion order under that arithmetic contract. A signed overflow or a strict floating-point reduction would need a different argument. The byte count is separately checked rather than assumed safe because the sum uses unsigned arithmetic. This simple checksum makes an integration lesson easier to verify, but does not authenticate input or resist deliberate collisions. Replacing it with an order-sensitive hash requires defining a correct parallel combination rule before reusing the worker structure.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.004: 61.1 Data Representation → Machine Instructions
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Sum six readings with two workers. Keep the input alive, give each worker a disjoint output slot, join, and compare with a sequential reference.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Integrate a capacity-two work queue, two workers, byte validation, owned payloads, ordered results, and shutdown. Accept payloads of at most four bytes; rejected items must receive a result without contributing to totals.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+This fixed six-element teaching program does not handle arbitrary sizes, worker-start failure recovery, or cancellation. Those are explicit extension tasks, not implied guarantees.
+
+A related failure in the generalized operation is concrete: Let workers push_back into the shared results vector without a lock, or let main return before collecting workers. The first can race on container internals; the second can leave dangling references.
+
+The repair changes the operation at the point where the rule can be enforced: Allocate the result slots before starting workers, assign each slot to one input, and keep all shared objects alive through worker completion. Preserve close-and-collect cleanup if any operation fails.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Work items own their strings, so queue operations do not leave borrowed input pointers behind. Main assigns each index once; workers therefore write distinct result elements without resizing the vector. Queue predicates and close are protected by one mutex. Every normal and exceptional path closes the queue and collects workers before local shared state dies. Main prints after collection, so scheduling does not reorder the report. Queue capacity bounds queued jobs; it does not bound the already-loaded input vector’s total memory. A streaming input layer would need its own size and backpressure contract.
+
+A plausible alternative: Start with a sequential reference and a clear input contract. Parallelize only after measurements show enough work to justify the coordination.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.03
+
+------------------------------------------------------------
+
+8. Chapter 61 — Putting the System Together
+Systems mechanisms and source lecture
+
+SAY
+A systems program is correct only when its layers agree. The parser’s length must match the memory operation’s extent. The ownership model must match thread lifetime. The compiler’s numeric assumptions must match the algorithm. The kernel-facing error handling must match the interface. Performance changes must preserve those relationships rather than optimize one layer by violating another. This final chapter develops a bounded concurrent version of the byte-summary utility. It reuses the integer queue from Chapter 49 as an ownership-transfer channel for a fixed set of buffer slots. The program is a batch-processing capstone, not a production service or an asynchronous cancellation framework.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.001, SP61.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+61.1 Data Representation → Machine Instructions 61.2 Machine Instructions → Processor Execution 61.3 Processor Execution → Memory Hierarchy 61.4 Virtual Memory → Process Isolation ...plus 12 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.003
+
+------------------------------------------------------------
+
+10. Data Representation → Machine Instructions
+Systems mechanisms and source lecture
+
+SAY
+The input is an uninterpreted sequence of bytes. Each byte contributes a value from 0 through 255 to an unsigned 64-bit sum. The count is separately checked against overflow. These representation choices make the required operations explicit and avoid accidental sign extension of char values. Unsigned modular addition is associative, so partial sums can be combined in any worker-completion order. A floating-point reduction or an order-sensitive hash would require a different argument. Choosing a simple additive checksum is what makes the parallel combination straightforward; it is not evidence of cryptographic strength.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.004, SP61.005
+
+------------------------------------------------------------
+
+11. Machine Instructions → Processor Execution
+Systems mechanisms and source lecture
+
+SAY
+Each worker repeatedly loads valid bytes and updates a private accumulator. The compiler can choose scalar or vector instructions consistent with the source semantics. Independent workers can execute on different cores when scheduling and hardware permit. The program does not assume simultaneous execution. It remains correct if one core interleaves every worker. Parallel hardware affects possible performance, while the ownership and synchronization rules establish correctness across all permitted schedules.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.006, SP61.007
+
+------------------------------------------------------------
+
+12. Processor Execution → Memory Hierarchy
+Systems mechanisms and source lecture
+
+SAY
+Fixed-size sequential buffers provide spatial locality. Reusing eight slots bounds the payload working set to 32 KiB of byte storage, excluding metadata, stacks, queues, and other runtime state. This is a concrete budget, not a claim that the entire program fits in one cache. Worker-private results reduce shared updates. Adjacent result objects can still share a cache line, so a performance extension might investigate padding or batching result publication. Such changes should follow measurement and preserve the same ownership rules.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.008, SP61.009
+
+------------------------------------------------------------
+
+13. Virtual Memory → Process Isolation
+Systems mechanisms and source lecture
+
+SAY
+All threads run inside one process and share its virtual address space. Page permissions protect the process from unrelated private mappings, but they do not prevent one worker from accidentally indexing another slot incorrectly. The queue carries validated slot indexes, and the program creates those indexes internally from a fixed bounded range. No untrusted input becomes a pointer or slot identifier. This shows how process isolation and object-level validation work together rather than substitute for one another.
+
+In plain English: The program uses a map of memory addresses. The operating system translates that map to where the data is actually stored.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.010, SP61.011
+
+------------------------------------------------------------
+
+14. Processes → Files and I/O
+Systems mechanisms and source lecture
+
+SAY
+The producer reads from standard input using the descriptor interface. It checks the returned extent and publishes only the bytes actually obtained. Input can come from a file or finite pipeline without changing the processing logic. The example uses blocking input. Queue closure cannot forcibly interrupt a producer already blocked in an external read. A production application needing responsive asynchronous cancellation would integrate readiness waiting and a cancellation event or use another explicitly cancellable I/O design. This limitation is part of the capstone’s stated scope.
+
+In plain English: The program asks the operating system to move bytes to or from a resource, much like using a numbered ticket to ask a clerk for the right item.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.012, SP61.013
+
+------------------------------------------------------------
+
+15. Processes → Interprocess Communication
+Systems mechanisms and source lecture
+
+SAY
+A shell pipeline can feed data into the capstone through a pipe, creating communication between processes. Inside the capstone, queues coordinate threads through shared memory. These are different mechanisms with different ownership and failure boundaries. The external producer must eventually close its pipe write references for the capstone to observe EOF. An accidentally retained writer can make a correct internal worker system wait indefinitely for input completion. End-to-end diagnosis must include the upstream process graph.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.014, SP61.015
+
+------------------------------------------------------------
+
+16. Threads → Shared Memory
+Systems mechanisms and source lecture
+
+SAY
+The fixed slot array is shared, but access ownership changes over time. A slot is either free, owned by the producer, queued as ready, or owned by one worker. It must never occupy two of those states simultaneously. The producer does not overwrite a slot until a worker returns its index to the free queue. The worker does not read a slot before obtaining its index from the ready queue. This protocol eliminates simultaneous producer writes and worker reads of the same slot.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.016, SP61.017
+
+------------------------------------------------------------
+
+17. Shared Memory → Synchronization
+Systems mechanisms and source lecture
+
+SAY
+Queue push and pop operations use mutexes and condition variables. The producer’s byte writes occur before publication into the ready queue; the worker’s successful dequeue establishes the visibility needed before reading those bytes. The reverse handoff through the free queue ensures that the producer reuses a slot only after the previous worker has finished with it. No extra atomic flag is needed per slot because the queue handoff supplies the ordering and exclusive ownership relationship.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.018, SP61.019
+
+------------------------------------------------------------
+
+18. Synchronization → Correct Concurrent Programs
+Systems mechanisms and source lecture
+
+SAY
+Correct synchronization includes completion and failure. Normal EOF closes the ready queue, allowing workers to drain and finish. Failure records an exception and closes both queues so queue waiters can stop. Every created thread is joined before the slots and queue objects are destroyed. The failure flag is only a stop hint; protected exception storage and joins govern access to the actual failure object. A relaxed atomic is sufficient for that hint because it does not publish the slot data or exception contents. Those use separate synchronization relationships.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.020, SP61.021
+
+------------------------------------------------------------
+
+19. Architecture → Performance
+Systems mechanisms and source lecture
+
+SAY
+The architecture separates one input producer from several compute workers. It can overlap input handling and checksum work, but the checksum is so lightweight that queue and thread overhead may exceed any benefit. A correct concurrent design is not automatically a faster design. Compare against Chapter 60 on representative files and finite streams. Measure end-to-end time, CPU time, and scaling. Varying slot size, slot count, and worker count changes locality, buffering, and synchronization costs; change one parameter at a time and retain the sequential reference result.
+
+In plain English: First make the program correct, then measure where time is really being spent before trying to make it faster.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.022, SP61.023
+
+------------------------------------------------------------
+
+20. Operating System → Resource Management
+Systems mechanisms and source lecture
+
+SAY
+The operating system supplies threads, virtual memory, descriptors, scheduling, and I/O. The application adds its own budgets: four workers, eight buffers, and bounded queue capacity. These limits make resource demand explicit rather than allowing input size to determine allocation growth. Operating-system allocation or thread-creation failure can still occur. The setup path tracks already-created threads and closes queues before joining them on failure. Resource limits reduce risk but do not eliminate the need to handle unavailable resources.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.024, SP61.025
+
+------------------------------------------------------------
+
+21. Correctness + Performance + Security + Robustness
+Systems mechanisms and source lecture
+
+SAY
+The capstone combines four requirements. Correctness preserves byte counts, modular sums, and exactly-once ownership transfer. Performance is measured against a sequential baseline. Security keeps untrusted bytes separate from lengths, indexes, and authority. Robustness handles partial reads, setup failures, and cleanup within the stated batch-processing scope. These requirements constrain one another. Removing bounds checks can make a microbenchmark faster while violating the input contract. Unbounded buffering can increase short-term throughput while exhausting memory. A sound systems design treats the requirements as one specification rather than four optional features added in sequence.
+
+In plain English: First make the program correct, then measure where time is really being spent before trying to make it faster.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.026, SP61.027
+
+------------------------------------------------------------
+
+22. A bounded concurrent byte-summary pipeline
+Systems mechanisms and source lecture
+
+SAY
+The capstone imports the Chapter 49 queue rather than duplicating its synchronization implementation. Eight slot indexes circulate through a free queue and a ready queue. Each worker owns one private result element, combined only after joining. Companion listing: ch61/pipeline.cpp For ABC\n , the result is bytes=4 sum=208 workers=4 . For 100,000 generated bytes where byte i is i mod 256 , the result is bytes=100000 sum=12742320 workers=4 . The worker assignments can differ between runs while these totals remain fixed. The ownership invariant also explains why returning a slot to the free queue cannot block forever during normal completion. There are exactly eight slot identities. A worker holding one identity implies that at most seven others can already be in the free queue. The return therefore has room, assuming no identity was duplicated or lost. This is a progress proof derived from the resource model, not a timing assumption. On failure, no successful summary is printed. Some work may already have been processed, but the operation reports failure instead of presenting a partial aggregate as complete. The program does not implement a resumable checkpoint, input authentication, cryptographic hashing, or cancellation of a currently blocked external read. Those would be separate extensions with new contracts and tests.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.028, SP61.029
+
+------------------------------------------------------------
+
+23. End-to-end array sum
+Systems mechanisms and source lecture
+
+SAY
+A C++ loop sums an integer array. Integer representation defines each element’s bits; compiler translation produces load/add/control instructions; virtual memory translates addresses; caches exploit sequential locality; the scheduler gives the thread CPU time; and the OS originally supplied the process’s mappings. Correct bounds and integer rules establish validity, while cache behavior and compilation determine performance.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.030, SP61.031
+
+------------------------------------------------------------
+
+24. End-to-end concurrent server request
+Systems mechanisms and source lecture
+
+SAY
+A TCP packet ultimately contributes bytes to a socket buffer; the kernel wakes or marks readiness for the server; an event loop or worker reads framed application data; shared state is protected by synchronization; memory accesses pass through virtual memory and caches; and output returns through system calls and networking. Correctness depends on framing, ownership, synchronization, error handling, and resource limits simultaneously.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.032, SP61.033
+
+------------------------------------------------------------
+
+25. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 61. Compare sequential and concurrent results on empty input, one byte, exactly 4096 bytes, 4097 bytes, 100,000 bytes, and a larger finite binary fixture. Test a closed standard-input descriptor as an error path. Then measure both implementations without claiming that parallelism must win. Extend the design in stages: make worker count a bounded validated argument; add per-worker item counts; add a whole-job cancellation policy using nonblocking input and an explicit wakeup source; and replace the additive checksum only after defining an order-correct parallel combination rule for the new algorithm. Review 1. Which queue handoff publishes filled buffer bytes, and which handoff permits reuse? Review 2. Why is the failure flag allowed to use relaxed ordering here while the Chapter 46 publication flag needed release/acquire? Review 3. What additional proof would an order-sensitive hash require?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.034, SP61.035
+
+------------------------------------------------------------
+
+26. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is putting the system together. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.036
+
+------------------------------------------------------------
+
+27. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Integrated course review.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.037
+
+------------------------------------------------------------
+
+28. Distinct output slots avoid a shared append operation
+Reason about the implementation
+
+SAY
+The workshop pipeline allocates the results vector before starting workers and assigns each work index once. Different workers can then write distinct result elements without competing to change container size. Having every worker call push_back on the same unprotected vector would instead race on shared container state and could invalidate storage. Main waits for completion before reading and printing, so report order follows input indexes rather than scheduling. The input strings are owned by work items, avoiding borrowed pointers into disappearing temporary data. These guarantees depend on the no-duplicate-index rule and the absence of concurrent resizing, not merely on choosing a vector type.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+29. Name the payload budget without claiming it covers everything
+Reason about the implementation
+
+SAY
+The source streaming pipeline reuses eight four-kibibyte slots, giving thirty-two kibibytes of byte payload storage. That arithmetic excludes thread stacks, queue metadata, result objects, descriptors, and runtime overhead. It is not a claim that the entire process fits in one cache. The smaller workshop lab has a different boundary: its capacity-two queue bounds queued jobs, but the caller has already loaded the input vector of strings. Keeping these two implementations distinct prevents a false memory claim. To support large streaming input, the application must budget the producer's input ownership as well as the queue.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.008: 61.3 Processor Execution → Memory Hierarchy
+
+------------------------------------------------------------
+
+30. The ready queue publishes filled bytes to a worker
+Reason about the implementation
+
+SAY
+The producer owns a free slot while filling its bytes and recording the valid count. It then publishes the slot index through the ready queue. The queue's mutex and condition-variable protocol establishes the ordering that lets a worker safely read the filled data after a successful dequeue. The slot index is not just a number; it represents transfer of exclusive access. No extra per-slot atomic ready flag is needed in this design because the queue handoff supplies the synchronization. Removing that queue protection while keeping ordinary byte storage would require a new publication proof rather than only a faster container.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.018: 61.8 Shared Memory → Synchronization
+
+------------------------------------------------------------
+
+31. The free queue publishes permission to reuse storage
+Reason about the implementation
+
+SAY
+The reverse handoff matters as much as publication of filled data. A worker must finish reading the slot before returning its index to the free queue. Only after the producer obtains that index again may it overwrite the storage. In the eight-slot design, a worker holding one valid identity means at most seven other identities can already be in the free queue. Returning its identity therefore has room during normal completion, provided no slot was duplicated or lost. That is a resource-count argument for progress, not a guess that the producer will probably run soon.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.028: Worked example — A bounded concurrent byte-summary pipeline
+
+------------------------------------------------------------
+
+32. EOF closes production after publishing all valid bytes
+Reason about the implementation
+
+SAY
+A short read is not EOF. If the buffer can hold four thousand ninety-six bytes and read returns one hundred, the producer must publish those one hundred bytes with the slot's valid count. A later zero return ends input. Normal completion then closes the ready queue so workers can drain already-enqueued slots and stop once no work remains. The upstream pipe matters too: an accidentally retained write descriptor can prevent EOF even when no more bytes are intended. Diagnose the process graph and the internal queue separately before blaming a worker that is correctly waiting for the producer's completion signal.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.014: 61.6 Processes → Interprocess Communication
+
+------------------------------------------------------------
+
+33. Shutdown must wake waiters before collecting workers
+Reason about the implementation
+
+SAY
+If a producer fails while workers wait on an empty ready queue, simply returning would leave blocked threads borrowing local queues and slots. The failure path records the error, closes the relevant queues, and joins every successfully created thread before destroying shared storage. Partial thread-creation failure needs the same care: earlier threads already exist even if a later creation throws. Scope ownership helps collect them, but a join cannot finish a worker that is waiting for an event nobody will send. Wakeup policy, error propagation, and lifetime order form one shutdown design.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.020: 61.9 Synchronization → Correct Concurrent Programs
+
+------------------------------------------------------------
+
+34. A stop hint does not publish unrelated shared data
+Reason about the implementation
+
+SAY
+The source uses different synchronization mechanisms for different facts. Its atomic failure flag is a stop hint, so relaxed ordering can be sufficient for that hint under the stated design. The actual exception object has protected storage, and thread joins govern completion before the caller accesses final state. Slot bytes become visible through queue handoffs, not through the relaxed flag. Mixing those roles is a common error: an atomic Boolean does not automatically publish every ordinary object nearby. When reviewing memory ordering, identify the exact data each synchronization edge protects instead of assuming that the presence of any atomic makes the whole program safe.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.020: 61.9 Synchronization → Correct Concurrent Programs
+
+------------------------------------------------------------
+
+35. Closing a queue cannot interrupt every external wait
+Reason about the implementation
+
+SAY
+The source deliberately accepts finite blocking input. If the producer is already blocked in read waiting for an external peer, closing an internal queue cannot force that read to return. This is an important limit, not a contradiction in the queue's shutdown logic. A production job requiring prompt cancellation needs a suitable nonblocking readiness design with a cancellation event, or another interface with a defined cancellation contract. Do not rely on closing a descriptor from an unrelated thread as a universal answer. Add cancellation only after naming which waits it must interrupt and how resources remain owned until those waits end.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.012: 61.5 Processes → Files and I/O
+
+------------------------------------------------------------
+
+36. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Sum six readings with two workers. Keep the input alive, give each worker a disjoint output slot, join, and compare with a sequential reference.
+
+Partition the input. worker 0 gets [0,3); worker 1 gets [3,6). Every element belongs to exactly one range; neither range passes the end.
+
+Keep ownership outside the workers. main owns readings and partial until after joins. Captured references borrow live objects. Each worker writes a distinct result element.
+
+Join and check. 12 + 30 = 42; reference 42. The reference checks this fixture’s result. More tests must cover empty, uneven, large, and boundary-valued inputs before generalizing the implementation.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch61/main.cpp
+
+------------------------------------------------------------
+
+37. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Partition the input. worker 0 gets [0,3); worker 1 gets [3,6). Every element belongs to exactly one range; neither range passes the end.
+
+Keep ownership outside the workers. main owns readings and partial until after joins. Captured references borrow live objects. Each worker writes a distinct result element.
+
+Join and check. 12 + 30 = 42; reference 42. The reference checks this fixture’s result. More tests must cover empty, uneven, large, and boundary-valued inputs before generalizing the implementation.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch61/main.cpp
+
+------------------------------------------------------------
+
+38. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Work items own their strings, so queue operations do not leave borrowed input pointers behind. Main assigns each index once; workers therefore write distinct result elements without resizing the vector. Queue predicates and close are protected by one mutex. Every normal and exceptional path closes the queue and collects workers before local shared state dies. Main prints after collection, so scheduling does not reorder the report. Queue capacity bounds queued jobs; it does not bound the already-loaded input vector’s total memory. A streaming input layer would need its own size and backpressure contract.
+
+Allocate the result slots before starting workers, assign each slot to one input, and keep all shared objects alive through worker completion. Preserve close-and-collect cleanup if any operation fails.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch61/main.cpp:1-24
+
+------------------------------------------------------------
+
+39. Capstone: work ownership and result storage
+Code, diagrams, and debugging
+
+SAY
+The filled diamond marks owned queued work. Dashed arrows mark use or data dependency, not inheritance or an execution schedule. Workers borrow the queue and result vector until their futures are collected. Completed results keep input order because each job receives one unique index. Source: systems_labs/ch61/solution.cpp.
+
+Work items own their strings, so queue operations do not leave borrowed input pointers behind. Main assigns each index once; workers therefore write distinct result elements without resizing the vector. Queue predicates and close are protected by one mutex. Every normal and exceptional path closes the queue and collects workers before local shared state dies. Main prints after collection, so scheduling does not reorder the report. Queue capacity bounds queued jobs; it does not bound the already-loaded input vector’s total memory. A streaming input layer would need its own size and backpressure contract.
+
+Allocate the result slots before starting workers, assign each slot to one input, and keep all shared objects alive through worker completion. Preserve close-and-collect cleanup if any operation fails.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch61/main.cpp:1-24
+
+------------------------------------------------------------
+
+40. Integrate ownership, work partitioning, and verification
+Code, diagrams, and debugging
+
+SAY
+Integrate ownership, work partitioning, and verification. The lambda borrows readings and partial. Each worker receives its own worker index by value.
+
+Sum six readings with two workers. Keep the input alive, give each worker a disjoint output slot, join, and compare with a sequential reference.
+
+Every element belongs to exactly one range; neither range passes the end. Captured references borrow live objects. Each worker writes a distinct result element. The reference checks this fixture’s result. More tests must cover empty, uneven, large, and boundary-valued inputs before generalizing the implementation.
+
+The lambda borrows readings and partial. Each worker receives its own worker index by value.
+
+Multiplying the index by three selects the beginning of that worker’s disjoint three-element range.
+
+The selected partial slot belongs to this worker. accumulate starts reading at the corresponding range beginning.
+
+The continuation supplies the one-past range end and integer initial sum zero. Each worker reads exactly three live elements.
+
+The callable definition ends. Both arrays must remain alive until the later joins finish; the capstone lab adds bounded work admission and shutdown.
+
+Each worker reads a disjoint valid range and owns one partial result slot. Input and result storage remain alive until both workers finish; output is checked against a sequential reference.
+
+This fixed six-element teaching program does not handle arbitrary sizes, worker-start failure recovery, or cancellation. Those are explicit extension tasks, not implied guarantees. In the extended lab: Let workers push_back into the shared results vector without a lock, or let main return before collecting workers. The first can race on container internals; the second can leave dangling references.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch61/main.cpp:12-16
+
+------------------------------------------------------------
+
+41. Publish owned work into the bounded queue
+Code, diagrams, and debugging
+
+SAY
+push enforces admission and transfers ownership.
+
+Inside WorkQueue::push in the capstone reference solution.
+
+A count-only check outside the lock would let multiple producers overfill the bound. Moving owned strings prevents queued dangling views.
+
+The producer sleeps until closure or space. wait releases and reacquires the same mutex, and tests this predicate after each wakeup.
+
+Closure rejects new work before changing the container.
+
+Move the owned Work, including its string, into the queue. The capacity check and insertion occur under the same lock.
+
+Wake one consumer to check for available work.
+
+Report acceptance only after insertion completes. The caller’s shutdown path handles exceptions from allocation.
+
+Queued size never exceeds capacity; closure never accepts new work.
+
+A reference to a temporary input string could outlive the source. A separate check and insertion would race.
+
+DO
+Explain each source line against the state it changes.
+
+SOURCE
+systems_labs/ch61/solution.cpp:30-34
+
+------------------------------------------------------------
+
+42. Collect workers before shared objects die
+Code, diagrams, and debugging
+
+SAY
+This is the completion and failure boundary of the pipeline.
+
+At the end of pipeline, after submission and before returning its result vector.
+
+Workers borrow local queue and result state. reserve(2) is performed before launch so storing a new future cannot fail by growing the vector after a worker has begun waiting.
+
+On the normal path, get waits for each worker and propagates its exception. The queue was closed immediately above this line.
+
+catch handles any exception from launching, submitting work, or collecting a worker.
+
+Close the queue on failure so workers blocked in pop or push can make progress toward exit.
+
+A future already consumed by get is invalid. Only remaining valid futures need collection.
+
+Collect each remaining worker. Cleanup exceptions are suppressed so the original failure remains the one reported.
+
+The cleanup loop ends only after each still-valid future was handled.
+
+Rethrow the original exception after shared-state users have finished.
+
+Every started worker finishes before queue and results are destroyed. Results are read only after all workers complete.
+
+Destroying borrowed state too early causes dangling references; forgetting close on a failure can leave a future waiting forever.
+
+DO
+Explain each source line against the state it changes.
+
+SOURCE
+systems_labs/ch61/solution.cpp:71-77
+
+------------------------------------------------------------
+
+43. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Let workers push_back into the shared results vector without a lock, or let main return before collecting workers. The first can race on container internals; the second can leave dangling references.
+
+Allocate the result slots before starting workers, assign each slot to one input, and keep all shared objects alive through worker completion. Preserve close-and-collect cleanup if any operation fails.
+
+The reference solution makes the contract executable with assertions. Work items own their strings, so queue operations do not leave borrowed input pointers behind. Main assigns each index once; workers therefore write distinct result elements without resizing the vector. Queue predicates and close are protected by one mutex. Every normal and exceptional path closes the queue and collects workers before local shared state dies. Main prints after collection, so scheduling does not reorder the report. Queue capacity bounds queued jobs; it does not bound the already-loaded input vector’s total memory. A streaming input layer would need its own size and backpressure contract.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.06
+
+------------------------------------------------------------
+
+44. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch61/starter.cpp. Implement the first acceptance case for capstone: bounded concurrent byte processing. State the function inputs and result before adding code. First case: cat, A, empty, tools produce three accepted results and one rejection.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.07
+
+------------------------------------------------------------
+
+45. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch61/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.08
+
+------------------------------------------------------------
+
+46. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Let workers push_back into the shared results vector without a lock, or let main return before collecting workers. The first can race on container internals; the second can leave dangling references. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.09
+
+------------------------------------------------------------
+
+47. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Which change is needed first to support seven inputs with two workers? Compare the selected design with this plausible alternative: Start with a sequential reference and a clear input contract. Parallelize only after measurements show enough work to justify the coordination.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.10
+
+------------------------------------------------------------
+
+48. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch61/starter.cpp. Integrate a capacity-two work queue, two workers, byte validation, owned payloads, ordered results, and shutdown. Accept payloads of at most four bytes; rejected items must receive a result without contributing to totals. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch61/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.11
+
+------------------------------------------------------------
+
+49. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Capstone: bounded concurrent byte processing belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.12
+
+------------------------------------------------------------
+
+50. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Integrate a capacity-two work queue, two workers, byte validation, owned payloads, ordered results, and shutdown. Accept payloads of at most four bytes; rejected items must receive a result without contributing to totals.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch61/starter.cpp
+
+------------------------------------------------------------
+
+51. Review the extension solution
+Practice and extension
+
+SAY
+Work items own their strings, so queue operations do not leave borrowed input pointers behind. Main assigns each index once; workers therefore write distinct result elements without resizing the vector. Queue predicates and close are protected by one mutex. Every normal and exceptional path closes the queue and collects workers before local shared state dies. Main prints after collection, so scheduling does not reorder the report. Queue capacity bounds queued jobs; it does not bound the already-loaded input vector’s total memory. A streaming input layer would need its own size and backpressure contract. Repair principle: Allocate the result slots before starting workers, assign each slot to one input, and keep all shared objects alive through worker completion. Preserve close-and-collect cleanup if any operation fails.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Allocate the result slots before starting workers, assign each slot to one input, and keep all shared objects alive through worker completion. Preserve close-and-collect cleanup if any operation fails.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch61/solution.cpp
+
+------------------------------------------------------------
+
+52. Application case: Putting the System Together
+Practice and extension
+
+SAY
+A systems program produces correct output but leaks descriptors after failures.
+
+Has the whole-system contract been met?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.CASE
+
+------------------------------------------------------------
+
+53. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Work items own their strings, so queue operations do not leave borrowed input pointers behind. Main assigns each index once; workers therefore write distinct result elements without resizing the vector. Queue predicates and close are protected by one mutex. Every normal and exceptional path closes the queue and collects workers before local shared state dies. Main prints after collection, so scheduling does not reorder the report. Queue capacity bounds queued jobs; it does not bound the already-loaded input vector’s total memory. A streaming input layer would need its own size and backpressure contract.
+
+Choose a simpler approach when its narrower contract is enough. Start with a sequential reference and a clear input contract. Parallelize only after measurements show enough work to justify the coordination.
+
+When this system changes, retain a check that exposes the known failure: Let workers push_back into the shared results vector without a lock, or let main return before collecting workers. The first can race on container internals; the second can leave dangling references. Allocate the result slots before starting workers, assign each slot to one input, and keep all shared objects alive through worker completion. Preserve close-and-collect cleanup if any operation fails.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch61.json → SYS61.14
+
+------------------------------------------------------------
+
+54. Compare the concurrent pipeline with the real sequential baseline
+Recall and transfer
+
+SAY
+The checksum does very little work per byte, so synchronization and scheduling overhead may exceed the benefit of several workers. Compare with the sequential utility on empty, tiny, boundary-sized, and larger finite binary fixtures. Keep output equality as a required condition, then measure the relevant timing boundary and CPU cost. Change slot size, slot count, or worker count one at a time when practical. A correct four-worker run is not automatically faster than one worker, and an impressive throughput number does not excuse excess memory or worse tail behavior in a different service context.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.022: 61.10 Architecture → Performance
+
+------------------------------------------------------------
+
+55. A capstone extension must preserve the chain of guarantees
+Recall and transfer
+
+SAY
+Finish by proposing one extension and defending its boundaries. A configurable worker count needs bounds and setup-failure cleanup. Larger inputs need a streaming ownership and memory budget. A stronger checksum needs an order-correct combination rule. A network input needs framing, deadlines, and cancellation beyond the internal queue. Keep the sequential reference and test empty input, exact slot boundaries, one byte beyond a boundary, binary nulls, and input errors. The final argument should connect valid bytes, representation, ownership, synchronization, completion, and observable output. Systems reasoning succeeds when these promises hold together, not when each subsystem merely looks plausible in isolation.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch61.json → SP61.034: Guided lab and review

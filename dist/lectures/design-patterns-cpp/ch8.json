@@ -1,0 +1,1692 @@
+{
+  "schemaVersion": 1,
+  "courseId": "design-patterns-cpp",
+  "courseTitle": "Design Patterns in C++",
+  "chapter": 8,
+  "title": "Composite",
+  "author": "Dr. Charles Dorner",
+  "sourceTopics": [
+    {
+      "id": "C08.01",
+      "title": "Pattern overview"
+    },
+    {
+      "id": "C08.02",
+      "title": "A flat list works until a task contains tasks"
+    },
+    {
+      "id": "C08.03",
+      "title": "One operation for a part and a whole"
+    },
+    {
+      "id": "C08.04",
+      "title": "Build ownership from the leaves upward"
+    },
+    {
+      "id": "C08.05",
+      "title": "Follow the return values, not just the arrows"
+    },
+    {
+      "id": "C08.06",
+      "title": "Cost, depth, and the limits of uniform operations"
+    },
+    {
+      "id": "C08.07",
+      "title": "Roles in the implementation"
+    },
+    {
+      "id": "C08.08",
+      "title": "Worked example: contracts and alternatives"
+    },
+    {
+      "id": "C08.09",
+      "title": "Execution trace"
+    },
+    {
+      "id": "C08.10",
+      "title": "Failure cases and repairs"
+    },
+    {
+      "id": "C08.11",
+      "title": "Code focus: Accept a completed owned subtree"
+    },
+    {
+      "id": "C08.12",
+      "title": "Code focus: Return a checked subtotal"
+    },
+    {
+      "id": "C08.13",
+      "title": "Exercise 08.1: Guided modification"
+    },
+    {
+      "id": "C08.14",
+      "title": "Exercise 08.2: Trace unfamiliar code"
+    },
+    {
+      "id": "C08.15",
+      "title": "Exercise 08.3: Diagnose a bug"
+    },
+    {
+      "id": "C08.16",
+      "title": "Exercise 08.4: Choose a design"
+    },
+    {
+      "id": "C08.17",
+      "title": "Exercise 08.5: Extend without regressions"
+    },
+    {
+      "id": "C08.18",
+      "title": "Exercise 08.6: Justify a decision"
+    },
+    {
+      "id": "C08.19",
+      "title": "Implementation lab"
+    },
+    {
+      "id": "C08.20",
+      "title": "Chapter summary"
+    },
+    {
+      "id": "C08.21",
+      "title": "Application case 1"
+    },
+    {
+      "id": "C08.22",
+      "title": "Application case 2"
+    }
+  ],
+  "slides": [
+    {
+      "title": "A project can contain smaller projects",
+      "eyebrow": "COMPOSITE / THE PROBLEM",
+      "kind": "cover",
+      "keyPoints": [
+        "A Step has one duration.",
+        "A Group can contain steps and groups.",
+        "Ask the same minutes question of a part or whole."
+      ],
+      "narration": "A work planner starts with three steps: ten minutes, twenty minutes, and five minutes. Adding them is easy. The next requirement says that the first two steps belong to a smaller group, and that this group belongs to the larger project alongside the five-minute step. Later there may be more levels. The total should still be thirty-five. Before choosing a pattern, notice the repeating question: how much time is beneath this item? That question makes sense for both one step and an entire project. The chapter allows zero minutes and empty groups, and rejects totals above ten thousand. Those edge rules are part of the design.",
+      "actions": [
+        "Sketch the project with one inner group and three leaves.",
+        "Ask which question is meaningful at every node."
+      ],
+      "sourceRef": "manuscript/ch08.json → A flat list works until a task contains tasks",
+      "question": {
+        "prompt": "What common operation is meaningful for both a step and a group?",
+        "answer": "Return the total duration beneath that object; a step returns its own duration and a group combines child durations."
+      },
+      "section": "Problem and first design",
+      "topicIds": [
+        "C08.01"
+      ],
+      "id": "dp-ch08-01"
+    },
+    {
+      "title": "Start with a flat list and an ordinary loop",
+      "eyebrow": "BASELINE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "A vector stores the flat durations.",
+        "A range loop adds each value once.",
+        "Bound checks happen before addition."
+      ],
+      "narration": "A flat list does not need a class hierarchy. This program stores integer durations in a vector and uses a range-based loop to visit each one. The colon means take each value from durations in order. Here n is a copied integer, which is small and has no ownership issue. The checks reject a negative duration and prevent the running total from crossing the allowed budget. For this fixed valid list, the output is thirty-five. The loop is an honest starting point because the data is flat. We should preserve its simple add-once reasoning when the data later becomes nested.",
+      "actions": [
+        "Predict the total before running.",
+        "Explain why checking n > 10000 - total comes before total += n."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch08.json → A flat list works until a task contains tasks",
+      "question": {
+        "prompt": "Why not start by adding then checking whether the result exceeds the budget?",
+        "answer": "Checking first preserves the bounded arithmetic invariant and avoids relying on an addition that may become unsafe under broader bounds."
+      },
+      "code": {
+        "filename": "dp_ch08_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <vector>\n\nint main() {\n    const std::vector<int> durations{10, 20, 5};\n    int total = 0;\n    for (int n : durations) { // Copy each small integer, not the container.\n        if (n < 0 || n > 10000 - total) {\n            throw std::invalid_argument(\"duration or budget\");\n        }\n        total += n;\n    }\n    std::cout << \"flat total=\" << total << '\\n';\n}\n",
+        "expectedStdout": "flat total=35\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-02.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_baseline.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch08-02"
+    },
+    {
+      "title": "A shallow traversal silently misses work",
+      "eyebrow": "CONCRETE LIMITATION / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "The input now has children below children.",
+        "One loop sees only the root and immediate children.",
+        "A recursive function follows all valid levels."
+      ],
+      "narration": "To model the new nesting requirement safely, this small demonstration introduces a Node with a local duration and a vector of child nodes. It is a value-based alternative, not the chapter's polymorphic Work family. The shallow loop adds only immediate child values, so it prints five and misses the ten and twenty below the inner group. The recursive function solves the same question for each child and prints thirty-five. Recursion means applying the operation to a smaller part until there are no children left. All input here is fixed, finite, nonnegative, and within budget; the demonstration isolates the depth error rather than claiming general input validation.",
+      "actions": [
+        "Mark exactly which nodes the shallow loop visits.",
+        "Predict the two outputs before running."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch08.json → A flat list works until a task contains tasks",
+      "question": {
+        "prompt": "Why does the shallow result equal five?",
+        "answer": "The inner group contributes its local zero, and its ten- and twenty-minute descendants are never visited."
+      },
+      "code": {
+        "filename": "dp_ch08_shallow_traversal.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <vector>\n\nstruct Node {\n    int own_minutes;\n    std::vector<Node> children;\n};\nint recursive_total(const Node& node) {\n    int total = node.own_minutes;\n    for (const Node& child : node.children) {\n        total += recursive_total(child); // Apply the same question below.\n    }\n    return total;\n}\nint main() {\n    const Node project{0, {{0, {{10, {}}, {20, {}}}}, {5, {}}}};\n    int shallow = project.own_minutes;\n    for (const Node& child : project.children) shallow += child.own_minutes;\n    std::cout << \"shallow=\" << shallow << '\\n';\n    std::cout << \"recursive=\" << recursive_total(project) << '\\n';\n}\n",
+        "expectedStdout": "shallow=5\nrecursive=35\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-03.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_shallow_traversal.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch08-03"
+    },
+    {
+      "title": "One question, two kinds of answer",
+      "eyebrow": "THE COMPOSITE DECISION",
+      "kind": "concept",
+      "keyPoints": [
+        "Work defines minutes().",
+        "Step answers directly.",
+        "Group asks its children and combines their answers."
+      ],
+      "narration": "Now we can explain the chapter's choice. Composite gives individual items and containers one useful contract over a tree. Work supplies minutes. Step holds a checked duration and returns it. Group holds children that are themselves Work objects and adds their answers. A child may therefore be another group without changing the parent's loop. The value-based Node demonstration remains a reasonable alternative when one data representation is enough. The Work family becomes useful when distinct kinds of work need their own implementations while callers keep one query. We do not add child-editing operations to every Work merely to make every class look alike.",
+      "actions": [
+        "Point to the recursion and the runtime type selection as separate mechanisms."
+      ],
+      "sourceRef": "manuscript/ch08.json → One operation for a part and a whole",
+      "question": {
+        "prompt": "Does Composite require every leaf to support adding children?",
+        "answer": "No. Keep only meaningful common operations on Work; adding children can remain a Group-specific construction concern."
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch08-04"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json",
+      "title": "The contract we must preserve",
+      "keyPoints": [
+        "Support nested groups and individual steps through Work::minutes.",
+        "Own every child exactly once; reject null children.",
+        "Allow zero and totals through 10000; reject larger totals."
+      ],
+      "narration": "A nested work plan. A fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear.\n\nSupport nested groups and individual steps through Work::minutes. Own every child exactly once; reject null children. Allow zero and totals through 10000; reject larger totals.\n\nEvery child is non-null and owned once. Every successful child result is in the allowed nonnegative range. A group visits each child once and does not retain a running total between calls. These are the rules that define a correct extension, even if it has the right C++ types. A flat vector is better when there is no nesting. A tagged value tree can avoid virtual functions for a closed set of node kinds, but every added kind then requires editing the variant-handling code.",
+      "comparisons": [
+        {
+          "label": "Chosen design",
+          "text": "A fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear."
+        },
+        {
+          "label": "A reasonable alternative",
+          "text": "A flat vector is better when there is no nesting. A tagged value tree can avoid virtual functions for a closed set of node kinds, but every added kind then requires editing the variant-handling code."
+        }
+      ],
+      "question": {
+        "prompt": "Which promise would a new Composite implementation be allowed to break?",
+        "answer": "None of the stated requirements. The implementation may change, but these rules remain: Every child is non-null and owned once. Every successful child result is in the allowed nonnegative range. A group visits each child once and does not retain a running total between calls."
+      },
+      "topicIds": [
+        "C08.08"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch08-05"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → A flat list works until a task contains tasks",
+      "title": "A flat list works until a task contains tasks",
+      "keyPoints": [
+        "A work plan contains steps measured in minutes.",
+        "For a flat list, start with a vector of integers and a loop that adds them."
+      ],
+      "narration": "A work plan contains steps measured in minutes. A step lasts from zero to ten thousand minutes. A group may contain steps and smaller groups. The tool must report the total for either a single step or an entire project. An empty group totals zero. A result above ten thousand minutes is rejected rather than silently accepted. This upper bound is a business rule and also makes integer arithmetic easy to reason about.\n\nFor a flat list, start with a vector of integers and a loop that adds them. Nothing about that problem requires a class family. The limitation arrives when groups can contain groups. Keeping one vector for steps and another for groups forces each caller to understand both types and every nesting level. A hard-coded loop for two levels fails as soon as a third group appears. We need one operation whose meaning stays valid at any depth.",
+      "excerpt": {
+        "text": "int total = 0;\nfor (int minutes : steps) {\n    total += minutes;\n}",
+        "filename": "Excerpt — simplest starting point",
+        "explain": []
+      },
+      "question": {
+        "prompt": "How should a work plan combine a subgroup of ten and twenty minutes with another five-minute task?",
+        "answer": "The subgroup contributes thirty minutes and the extra task contributes five, for thirty-five total. The same operation must work on one task and on a nested group without counting a subgroup twice."
+      },
+      "reading": [
+        "A work plan contains steps measured in minutes. A step lasts from zero to ten thousand minutes. A group may contain steps and smaller groups. The tool must report the total for either a single step or an entire project. An empty group totals zero. A result above ten thousand minutes is rejected rather than silently accepted. This upper bound is a business rule and also makes integer arithmetic easy to reason about.",
+        "For a flat list, start with a vector of integers and a loop that adds them. Nothing about that problem requires a class family. The limitation arrives when groups can contain groups. Keeping one vector for steps and another for groups forces each caller to understand both types and every nesting level. A hard-coded loop for two levels fails as soon as a third group appears. We need one operation whose meaning stays valid at any depth."
+      ],
+      "topicIds": [
+        "C08.02"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch08-06"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → One operation for a part and a whole",
+      "title": "One operation for a part and a whole",
+      "keyPoints": [
+        "Composite is a design for a tree whose individual items and containers support the same useful operation.",
+        "Step returns its stored duration.",
+        "The contract deliberately does not put add or remove on Work."
+      ],
+      "narration": "Composite is a design for a tree whose individual items and containers support the same useful operation. A tree is a structure with one root and child branches, where following child links never leads back to an ancestor. A leaf has no children. In this example Step is a leaf, Group is a container, and Work is their shared contract. Work::minutes asks for total work time without asking which kind of object receives the request.\n\nStep returns its stored duration. Group asks each child for its minutes and adds the answers. A child group repeats that process. This repeated call on a smaller part of the same problem is recursion. Recursion stops at a Step or an empty Group, so each valid finite tree eventually returns a result. A caller needs only one expression, work.minutes(), whether it measures one step or a project containing many groups.\n\nThe contract deliberately does not put add or remove on Work. Adding a child makes sense for a container but not for a leaf. Pretending every leaf can accept a child would create confusing no-op methods or runtime errors. Our groups receive their full child lists during construction and then expose only the query. That is enough for the current requirement and keeps the assembled topology stable.",
+      "question": {
+        "prompt": "Explain the design choice in “One operation for a part and a whole” using this chapter's objects.",
+        "answer": "The contract deliberately does not put add or remove on Work. Adding a child makes sense for a container but not for a leaf. Pretending every leaf can accept a child would create confusing no-op methods or runtime errors. Our groups receive their full child lists during construction and then expose only the query. That is enough for the current requirement and keeps the assembled topology stable."
+      },
+      "reading": [
+        "Composite is a design for a tree whose individual items and containers support the same useful operation. A tree is a structure with one root and child branches, where following child links never leads back to an ancestor. A leaf has no children. In this example Step is a leaf, Group is a container, and Work is their shared contract. Work::minutes asks for total work time without asking which kind of object receives the request.",
+        "Step returns its stored duration. Group asks each child for its minutes and adds the answers. A child group repeats that process. This repeated call on a smaller part of the same problem is recursion. Recursion stops at a Step or an empty Group, so each valid finite tree eventually returns a result. A caller needs only one expression, work.minutes(), whether it measures one step or a project containing many groups.",
+        "The contract deliberately does not put add or remove on Work. Adding a child makes sense for a container but not for a leaf. Pretending every leaf can accept a child would create confusing no-op methods or runtime errors. Our groups receive their full child lists during construction and then expose only the query. That is enough for the current requirement and keeps the assembled topology stable."
+      ],
+      "topicIds": [
+        "C08.03"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch08-07"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → Build ownership from the leaves upward",
+      "title": "Build ownership from the leaves upward",
+      "keyPoints": [
+        "Children is a type alias for a vector of unique_ptr<Work>.",
+        "main first creates two Step objects for ten and twenty minutes.",
+        "Group rejects a null child in its constructor."
+      ],
+      "narration": "Children is a type alias for a vector of unique_ptr<Work>. The vector owns its pointer objects, and each unique_ptr owns exactly one Work object. The virtual destructor in Work ensures that deleting through the base type destroys a complete Step or Group. When a group is destroyed, its vector destroys its children. Child groups then destroy their own children. The project owns the complete tree through a chain of clearly stated owners.\n\nmain first creates two Step objects for ten and twenty minutes. It moves their vector into a Group, then moves that child group into another vector alongside a five-minute Step. Finally it moves that vector into project. std::move permits ownership transfer; it does not copy the work objects. The source vector remains valid after its move, but the program does not depend on its size or contents. Its old children are now owned through the new container.\n\nGroup rejects a null child in its constructor. If validation throws, already-constructed member objects are destroyed automatically, including their owned children. No manual delete loop is needed. Since the public API only builds groups from completed children and does not later attach an existing group beneath a descendant, ordinary bottom-up construction yields an acyclic tree. This does not excuse creating a unique_ptr from an already-owned raw pointer; that would violate ownership rules before this API could protect the program.",
+      "question": {
+        "prompt": "Explain the design choice in “Build ownership from the leaves upward” using this chapter's objects.",
+        "answer": "Group rejects a null child in its constructor. If validation throws, already-constructed member objects are destroyed automatically, including their owned children. No manual delete loop is needed. Since the public API only builds groups from completed children and does not later attach an existing group beneath a descendant, ordinary bottom-up construction yields an acyclic tree. This does not excuse creating a unique_ptr from an already-owned raw pointer; that would violate ownership rules before this API could protect the program."
+      },
+      "reading": [
+        "Children is a type alias for a vector of unique_ptr<Work>. The vector owns its pointer objects, and each unique_ptr owns exactly one Work object. The virtual destructor in Work ensures that deleting through the base type destroys a complete Step or Group. When a group is destroyed, its vector destroys its children. Child groups then destroy their own children. The project owns the complete tree through a chain of clearly stated owners.",
+        "main first creates two Step objects for ten and twenty minutes. It moves their vector into a Group, then moves that child group into another vector alongside a five-minute Step. Finally it moves that vector into project. std::move permits ownership transfer; it does not copy the work objects. The source vector remains valid after its move, but the program does not depend on its size or contents. Its old children are now owned through the new container.",
+        "Group rejects a null child in its constructor. If validation throws, already-constructed member objects are destroyed automatically, including their owned children. No manual delete loop is needed. Since the public API only builds groups from completed children and does not later attach an existing group beneath a descendant, ordinary bottom-up construction yields an acyclic tree. This does not excuse creating a unique_ptr from an already-owned raw pointer; that would violate ownership rules before this API could protect the program."
+      ],
+      "topicIds": [
+        "C08.04"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch08-08"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → Follow the return values, not just the arrows",
+      "title": "Follow the return values, not just the arrows",
+      "keyPoints": [
+        "For the supplied project, the outer Group starts total at zero.",
+        "In for (const auto& child : children_), the colon means take each element from children_ in sequence.",
+        "Before adding n, Group checks whether n is greater than 10000 - total."
+      ],
+      "narration": "For the supplied project, the outer Group starts total at zero. Its first child is another Group. That inner group receives ten from its first leaf and twenty from its second, then returns thirty. The outer group adds thirty and next receives five. It returns thirty-five. Each group has its own local total. The locals exist in separate function calls, so the inner subtotal does not overwrite the outer subtotal.\n\nIn for (const auto& child : children_), the colon means take each element from children_ in sequence. child is a const reference to a unique_ptr already in the vector. It is not a copy; unique ownership must not be copied. The arrow in child->minutes() follows the pointer to the owned Work object and calls its virtual function. const on minutes says the operation does not change the tree through that interface. Every invocation computes fresh local state instead of storing a running total in a member.\n\nBefore adding n, Group checks whether n is greater than 10000 - total. If so, it throws overflow_error. Despite the exception name, the rejected condition here is the project's allowed budget, reached well before the built-in int limit. Testing before addition avoids doing an unsafe addition and only checking after damage. The nonnegative child contract makes the subtraction and comparison meaningful. A future Work implementation that returns negative minutes would break that contract even if its code compiled.",
+      "question": {
+        "prompt": "Explain the design choice in “Follow the return values, not just the arrows” using this chapter's objects.",
+        "answer": "Before adding n, Group checks whether n is greater than 10000 - total. If so, it throws overflow_error. Despite the exception name, the rejected condition here is the project's allowed budget, reached well before the built-in int limit. Testing before addition avoids doing an unsafe addition and only checking after damage. The nonnegative child contract makes the subtraction and comparison meaningful. A future Work implementation that returns negative minutes would break that contract even if its code compiled."
+      },
+      "reading": [
+        "For the supplied project, the outer Group starts total at zero. Its first child is another Group. That inner group receives ten from its first leaf and twenty from its second, then returns thirty. The outer group adds thirty and next receives five. It returns thirty-five. Each group has its own local total. The locals exist in separate function calls, so the inner subtotal does not overwrite the outer subtotal.",
+        "In for (const auto& child : children_), the colon means take each element from children_ in sequence. child is a const reference to a unique_ptr already in the vector. It is not a copy; unique ownership must not be copied. The arrow in child->minutes() follows the pointer to the owned Work object and calls its virtual function. const on minutes says the operation does not change the tree through that interface. Every invocation computes fresh local state instead of storing a running total in a member.",
+        "Before adding n, Group checks whether n is greater than 10000 - total. If so, it throws overflow_error. Despite the exception name, the rejected condition here is the project's allowed budget, reached well before the built-in int limit. Testing before addition avoids doing an unsafe addition and only checking after damage. The nonnegative child contract makes the subtraction and comparison meaningful. A future Work implementation that returns negative minutes would break that contract even if its code compiled."
+      ],
+      "topicIds": [
+        "C08.05"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch08-09"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → Cost, depth, and the limits of uniform operations",
+      "title": "Cost, depth, and the limits of uniform operations",
+      "keyPoints": [
+        "The compiler checks that Step and Group provide minutes, and that an owning vector cannot be copied accidentally.",
+        "For an untrusted input format, enforce a depth limit while parsing or use an explicit stack for traversal.",
+        "Composite fits operations that make sense on both a part and a whole."
+      ],
+      "narration": "The compiler checks that Step and Group provide minutes, and that an owning vector cannot be copied accidentally. At execution, virtual dispatch selects the correct child operation at each link. A complete query visits every node once, so its work grows in proportion to the number of nodes. Recursive calls use stack space proportional to tree depth. A million siblings and a million nested groups pose different risks: the latter may exhaust the call stack.\n\nFor an untrusted input format, enforce a depth limit while parsing or use an explicit stack for traversal. Our small, internally assembled tree has no parser and no arbitrary-depth guarantee. Caching a group total could make repeated reads cheaper, but would add invalidation concerns if editing later becomes possible. Since this tree is fixed after construction, storing a checked total at construction could also be reasonable when queries dominate. The example recomputes totals so the recursive mechanism stays visible.\n\nComposite fits operations that make sense on both a part and a whole. A total duration qualifies. A command such as set_leaf_duration does not naturally apply to every container. Keep type-specific editing outside the uniform query contract. When maintaining the system, add a new leaf only after defining how it contributes to totals, ownership, and failure behavior. A new class name alone does not make a safe new component.",
+      "question": {
+        "prompt": "What test detects accidentally counting groups as steps?",
+        "answer": "Nest an empty group and a one-leaf group inside a parent. The leaf count should be one, regardless of the number of internal groups."
+      },
+      "reading": [
+        "The compiler checks that Step and Group provide minutes, and that an owning vector cannot be copied accidentally. At execution, virtual dispatch selects the correct child operation at each link. A complete query visits every node once, so its work grows in proportion to the number of nodes. Recursive calls use stack space proportional to tree depth. A million siblings and a million nested groups pose different risks: the latter may exhaust the call stack.",
+        "For an untrusted input format, enforce a depth limit while parsing or use an explicit stack for traversal. Our small, internally assembled tree has no parser and no arbitrary-depth guarantee. Caching a group total could make repeated reads cheaper, but would add invalidation concerns if editing later becomes possible. Since this tree is fixed after construction, storing a checked total at construction could also be reasonable when queries dominate. The example recomputes totals so the recursive mechanism stays visible.",
+        "Composite fits operations that make sense on both a part and a whole. A total duration qualifies. A command such as set_leaf_duration does not naturally apply to every container. Keep type-specific editing outside the uniform query contract. When maintaining the system, add a new leaf only after defining how it contributes to totals, ownership, and failure behavior. A new class name alone does not make a safe new component."
+      ],
+      "topicIds": [
+        "C08.06"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch08-10"
+    },
+    {
+      "title": "Recursion and virtual dispatch do different jobs",
+      "eyebrow": "EXECUTION MODEL",
+      "kind": "concept",
+      "keyPoints": [
+        "The recursive call follows the tree.",
+        "Virtual dispatch chooses Step or Group behavior.",
+        "A leaf or empty group stops the descent."
+      ],
+      "narration": "Two mechanisms cooperate in the chapter, and each answers a different question. Recursion says to ask a child the same minutes question. Virtual dispatch decides which implementation answers for that child object. A Step returns immediately. A Group enters another loop and asks its own children. On a finite acyclic tree, repeated descent eventually reaches a leaf or an empty group. A tree means that following child links cannot lead back to an ancestor. Without that rule, repeated calls might never finish. The ordinary bottom-up construction in this program supports the tree rule, but a future editing API would need to preserve it explicitly.",
+      "actions": [
+        "Trace one leaf call and one child-group call from the same loop."
+      ],
+      "sourceRef": "manuscript/ch08.json → One operation for a part and a whole",
+      "question": {
+        "prompt": "What stops recursion for an empty Group?",
+        "answer": "Its loop has no iterations, so its local total remains zero and returns immediately."
+      },
+      "theory": {
+        "what": "One query works recursively for leaves and containers.",
+        "where": "Group::minutes calls child->minutes through Work.",
+        "why": "Callers should not hard-code a separate loop for every depth.",
+        "invariant": "The child relation is finite and acyclic.",
+        "risk": "A cycle introduced by unsafe editing can prevent termination."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch08-11"
+    },
+    {
+      "title": "Each recursive call owns its own subtotal",
+      "eyebrow": "STACK TRACE / THIRTY-FIVE",
+      "kind": "concept",
+      "keyPoints": [
+        "Outer total starts at zero.",
+        "Inner group computes ten plus twenty.",
+        "Outer group receives thirty, then adds five."
+      ],
+      "narration": "Do not picture one total variable being passed around the whole tree. Every call to Group::minutes creates its own local total. The outer call pauses while the inner group computes thirty using a different local variable. Once the inner call returns, its local storage ends and the returned integer becomes available to the outer call. The outer call adds that thirty, then asks its second child for five. This explains why setting total to zero at the start of each call is correct. Storing one shared running total in a member could make repeated queries accumulate old work or make concurrent queries interfere.",
+      "actions": [
+        "Draw two call frames with separate total boxes.",
+        "Run the query twice and predict why both answers remain thirty-five."
+      ],
+      "sourceRef": "manuscript/ch08.json → Follow the return values, not just the arrows",
+      "question": {
+        "prompt": "Would resetting the inner total erase the outer total?",
+        "answer": "No. They are separate local variables in separate active calls."
+      },
+      "theory": {
+        "what": "Every group computes and returns an independent subtotal.",
+        "where": "The local total variable inside Group::minutes.",
+        "why": "A child result must combine cleanly into its parent result.",
+        "invariant": "Each child contributes exactly once per query.",
+        "risk": "A stored running total can retain old values across repeated queries."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch08-12"
+    },
+    {
+      "title": "Ownership follows the same tree shape",
+      "eyebrow": "LIFETIME / BUILD BOTTOM UP",
+      "kind": "concept",
+      "keyPoints": [
+        "Children owns unique_ptr<Work> handles.",
+        "Each handle owns one child object.",
+        "Destroying the root destroys the owned subtree."
+      ],
+      "narration": "Children is a type alias: a shorter name for a vector of unique_ptr values that own Work objects. The vector owns those handles, and each handle is responsible for deleting one child. A child Group repeats the ownership arrangement below itself. Moving a finished vector into Group transfers those owners without copying the work objects. Std::move permits this transfer; it does not prove that the moved-from vector is empty, and this program does not depend on that. Work has a virtual destructor so deletion through the base type reaches the correct Step or Group destructor. The root therefore controls the complete subtree lifetime.",
+      "actions": [
+        "Follow cleanup from the outer Group through its vector and each child owner."
+      ],
+      "sourceRef": "manuscript/ch08.json → Build ownership from the leaves upward",
+      "question": {
+        "prompt": "Why is copying Children disallowed by its ownership type?",
+        "answer": "Its unique_ptr elements represent exclusive ownership, so copying them would incorrectly create two exclusive owners."
+      },
+      "theory": {
+        "what": "A group exclusively owns its child objects through movable handles.",
+        "where": "Children and Group::children_.",
+        "why": "The tree should clean itself up without a manual deletion traversal.",
+        "invariant": "Each owned node has one exclusive owning path.",
+        "risk": "Creating a second unique_ptr from an already-owned raw pointer violates the ownership rule."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch08-13"
+    },
+    {
+      "title": "Validate the topology and the arithmetic",
+      "eyebrow": "INVARIANTS / FAILURE BEHAVIOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Group rejects a null child during construction.",
+        "Step accepts only zero through ten thousand.",
+        "Group rejects an excessive subtotal before adding."
+      ],
+      "narration": "The tree contract contains more than correct class names. A null child would make the arrow call invalid, so Group rejects it while taking ownership. If construction throws, completed member objects clean up automatically, including their unique owners. During a query, the duration contract says each child returns a nonnegative value. Group tests whether the next contribution exceeds the remaining budget before addition. The thrown overflow_error describes the project's budget rejection here, not evidence that signed integer overflow already happened. If a future Work implementation returns negative minutes, it can violate this reasoning even though its override compiles. New implementations must honor the same semantic range.",
+      "actions": [
+        "Trace children of ten thousand and one and locate the throw before addition."
+      ],
+      "sourceRef": "manuscript/ch08.json → Follow the return values, not just the arrows",
+      "question": {
+        "prompt": "Why is a child returning negative minutes a contract problem rather than a formatting problem?",
+        "answer": "The nonnegative range is required for meaningful durations and for the remaining-budget arithmetic."
+      },
+      "theory": {
+        "what": "Construction and queries enforce distinct structural and numeric rules.",
+        "where": "Group constructor, Step constructor, and Group::minutes.",
+        "why": "Valid object links and bounded values are both needed for a trustworthy total.",
+        "invariant": "Children are non-null and every returned duration is within the common contract.",
+        "risk": "A new derived type can compile while violating the allowed result range."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch08-14"
+    },
+    {
+      "title": "Const references make the child loop readable",
+      "eyebrow": "SYNTAX / COST / EXTENSION",
+      "kind": "concept",
+      "keyPoints": [
+        "const auto& borrows each stored owner.",
+        "child->minutes() follows the owner to Work.",
+        "steps() is a second query, not a replacement for time."
+      ],
+      "narration": "Read the child loop from left to right. Const auto ampersand declares a read-only reference to each element already stored in the vector. Auto lets the compiler infer the unique_ptr type, and the reference avoids trying to copy an exclusive owner. The arrow follows that pointer to the Work object and calls minutes. The lab adds steps with the same structural recursion but a different meaning: a zero-minute Step still counts as one leaf. Do not derive leaf count from duration, because zero is a valid duration. Each full traversal visits each node once, and active recursive calls grow with the nesting depth.",
+      "actions": [
+        "Compare an empty Group with Step(0): same minutes, different leaf counts."
+      ],
+      "sourceRef": "manuscript/ch08.json → Cost, depth, and the limits of uniform operations",
+      "question": {
+        "prompt": "Why cannot steps() be computed by counting only positive durations?",
+        "answer": "A valid zero-minute Step must count as one leaf, while an empty Group has no leaves."
+      },
+      "comparisons": [
+        {
+          "label": "Polymorphic Work tree",
+          "text": "Distinct types provide one shared query; ownership is explicit."
+        },
+        {
+          "label": "Value-based Node tree",
+          "text": "One representation can be simpler when every node follows the same rules."
+        },
+        {
+          "label": "Cached total",
+          "text": "Can reduce repeated queries, but editing later requires a correct update policy."
+        }
+      ],
+      "section": "Mechanism in C++",
+      "id": "dp-ch08-15"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → C08.07 concepts",
+      "title": "Map the roles to the actual types",
+      "keyPoints": [
+        "Component → Work::minutes",
+        "Leaf → Step",
+        "Composite / Container → Group",
+        "Client → main and each Group traversal"
+      ],
+      "narration": "Component → Work::minutes. Provide the operation shared by a whole subtree and a single item.\n\nLeaf → Step. Return its own contribution without visiting children.\n\nComposite / Container → Group. Hold components and combine their results recursively.\n\nClient → main and each Group traversal. Query through the common contract; assembly has a separate policy.",
+      "comparisons": [
+        {
+          "label": "Component → Work::minutes",
+          "text": "Provide the operation shared by a whole subtree and a single item."
+        },
+        {
+          "label": "Leaf → Step",
+          "text": "Return its own contribution without visiting children."
+        },
+        {
+          "label": "Composite / Container → Group",
+          "text": "Hold components and combine their results recursively."
+        },
+        {
+          "label": "Client → main and each Group traversal",
+          "text": "Query through the common contract; assembly has a separate policy."
+        }
+      ],
+      "question": {
+        "prompt": "In Composite, which part plays Component and what does it do?",
+        "answer": "Work::minutes. Provide the operation shared by a whole subtree and a single item."
+      },
+      "topicIds": [
+        "C08.07"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch08-16"
+    },
+    {
+      "eyebrow": "OWNERSHIP DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch08/main.cpp:1-88; content/design-patterns-cpp/ch8.json → diagrams.8",
+      "title": "The project owns a tree of work",
+      "keyPoints": [
+        "Read the ownership relationships in the named example.",
+        "Every child is non-null and owned once.",
+        "Every successful child result is in the allowed nonnegative range."
+      ],
+      "narration": "Ownership arrows point from owning Group to owned child. The Step block summarizes three distinct leaf objects, not one shared instance. The inheritance arrow describes the Group type, whereas the ownership links describe this example tree. Each child query returns a subtotal upward; ownership does not mean call direction.\n\nA fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear.\n\nProject plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts.",
+      "diagram": {
+        "chapter": 8,
+        "view": "overview",
+        "index": -1
+      },
+      "theory": {
+        "what": "The project owns a tree of work",
+        "where": "companion/examples/ch08/main.cpp",
+        "why": "A fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear.",
+        "invariant": "Every child is non-null and owned once. Every successful child result is in the allowed nonnegative range. A group visits each child once and does not retain a running total between calls.",
+        "risk": "Store total as a member and add to it on every minutes call. For this nested tree, repeated queries return 35, then 100, instead of the same result. Copy a raw child pointer into two owning unique_ptr objects. Destruction attempts to delete the same object twice, causing undefined behavior. Return 1 for an empty group. An empty project reports one minute."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Ownership arrows point from owning Group to owned child. The Step block summarizes three distinct leaf objects, not one shared instance. The inheritance arrow describes the Group type, whereas the ownership links describe this example tree. Each child query returns a subtotal upward; ownership does not mean call direction."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch08-17"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch08/main.cpp:1-88; content/design-patterns-cpp/ch8.json → diagrams.8",
+      "title": "Composite — chronological driver trace",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "Every child is non-null and owned once.",
+        "Every successful child result is in the allowed nonnegative range."
+      ],
+      "narration": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.\n\nA fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear.\n\nProject plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts.",
+      "diagram": {
+        "chapter": 8,
+        "view": "extra",
+        "index": 0
+      },
+      "theory": {
+        "what": "Composite — chronological driver trace",
+        "where": "companion/examples/ch08/main.cpp",
+        "why": "A fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear.",
+        "invariant": "Every child is non-null and owned once. Every successful child result is in the allowed nonnegative range. A group visits each child once and does not retain a running total between calls.",
+        "risk": "Store total as a member and add to it on every minutes call. For this nested tree, repeated queries return 35, then 100, instead of the same result. Copy a raw child pointer into two owning unique_ptr objects. Destruction attempts to delete the same object twice, causing undefined behavior. Return 1 for an empty group. An empty project reports one minute."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch08-18"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch08/main.cpp:29-38",
+      "title": "Accept a completed owned subtree",
+      "keyPoints": [
+        "Construction transfers a list of exclusive owners and rejects a missing child.",
+        "Validating once prevents every later query from having to handle null children.",
+        "All accepted entries own real Work objects and remain inside the group."
+      ],
+      "narration": "Construction transfers a list of exclusive owners and rejects a missing child. This is the point where a new Group takes responsibility for its subtree. Validating once prevents every later query from having to handle null children.\n\nThe comment identifies an ownership transfer. Receive the completed vector by value. Move its owners into the member vector. Borrow each pointer entry while validating it. Test whether an entry contains no object. Begin throwing a constructor argument error. Name the invalid child argument. Close the missing-child branch. Close the validation loop. Finish construction with a valid list.\n\nAll accepted entries own real Work objects and remain inside the group. Manually manufacturing duplicate owners can still violate unique_ptr rules.",
+      "diagram": {
+        "chapter": 8,
+        "view": "focus",
+        "index": 0
+      },
+      "theory": {
+        "title": "Accept a completed owned subtree",
+        "start": "// Take a finished list of children.",
+        "end": "// End group construction.",
+        "what": "Construction transfers a list of exclusive owners and rejects a missing child.",
+        "where": "This is the point where a new Group takes responsibility for its subtree.",
+        "why": "Validating once prevents every later query from having to handle null children.",
+        "invariant": "All accepted entries own real Work objects and remain inside the group.",
+        "risk": "Manually manufacturing duplicate owners can still violate unique_ptr rules.",
+        "explain": [
+          "The comment identifies an ownership transfer.",
+          "Receive the completed vector by value.",
+          "Move its owners into the member vector.",
+          "Borrow each pointer entry while validating it.",
+          "Test whether an entry contains no object.",
+          "Begin throwing a constructor argument error.",
+          "Name the invalid child argument.",
+          "Close the missing-child branch.",
+          "Close the validation loop.",
+          "Finish construction with a valid list."
+        ],
+        "resolved_start": 29,
+        "resolved_end": 38,
+        "lineStart": 29,
+        "lineEnd": 38,
+        "code": "    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    } // End group construction.",
+        "file": "examples/ch08/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Manually manufacturing duplicate owners can still violate unique_ptr rules."
+      },
+      "topicIds": [
+        "C08.11"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch08-19"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch08/main.cpp:40-51",
+      "title": "Return a checked subtotal",
+      "keyPoints": [
+        "Each group computes a fresh sum from its child queries.",
+        "One uniform query handles both leaf durations and nested subtotals.",
+        "total remains between zero and ten thousand throughout successful execution."
+      ],
+      "narration": "Each group computes a fresh sum from its child queries. This block is the recursive part of Group::minutes. One uniform query handles both leaf durations and nested subtotals.\n\nThe comment states the one-contribution rule. Start this call with the additive identity, zero. Borrow each child owner without copying it. Ask the actual child type for its duration. Test the budget before performing the addition. Begin throwing a budget-overflow exception. Supply the budget error message. Close the rejection branch. Add this accepted child exactly once. Close the loop over children. Return this group subtotal to its caller. Close the recursive query.\n\ntotal remains between zero and ten thousand throughout successful execution. Adding before checking or accepting a negative child result breaks the bound.",
+      "diagram": {
+        "chapter": 8,
+        "view": "focus",
+        "index": 1
+      },
+      "theory": {
+        "title": "Return a checked subtotal",
+        "start": "// Add each child subtotal once.",
+        "end": "// End recursive total.",
+        "what": "Each group computes a fresh sum from its child queries.",
+        "where": "This block is the recursive part of Group::minutes.",
+        "why": "One uniform query handles both leaf durations and nested subtotals.",
+        "invariant": "total remains between zero and ten thousand throughout successful execution.",
+        "risk": "Adding before checking or accepting a negative child result breaks the bound.",
+        "explain": [
+          "The comment states the one-contribution rule.",
+          "Start this call with the additive identity, zero.",
+          "Borrow each child owner without copying it.",
+          "Ask the actual child type for its duration.",
+          "Test the budget before performing the addition.",
+          "Begin throwing a budget-overflow exception.",
+          "Supply the budget error message.",
+          "Close the rejection branch.",
+          "Add this accepted child exactly once.",
+          "Close the loop over children.",
+          "Return this group subtotal to its caller.",
+          "Close the recursive query."
+        ],
+        "resolved_start": 40,
+        "resolved_end": 51,
+        "lineStart": 40,
+        "lineEnd": 51,
+        "code": "        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.",
+        "file": "examples/ch08/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Adding before checking or accepting a negative child result breaks the bound."
+      },
+      "topicIds": [
+        "C08.12"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch08-20"
+    },
+    {
+      "eyebrow": "ORIGINAL CHECKED C++",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch08/main.cpp",
+      "title": "Run the complete chapter program",
+      "keyPoints": [
+        "A nested work plan",
+        "The main program checks the 35-minute nested tree, an empty group, a 10000-minute leaf, a negative duration, a null child, and a 10001-minute group. It does not establish safe traversal of unbounded depth."
+      ],
+      "narration": "We now join the small pieces into the complete working program. A fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear.\n\nThe main program checks the 35-minute nested tree, an empty group, a 10000-minute leaf, a negative duration, a null child, and a 10001-minute group. It does not establish safe traversal of unbounded depth.\n\nProject plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/examples/ch08/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    } // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\nint main() {\n    Children small;\n    small.push_back(std::make_unique<Step>(10));\n    small.push_back(std::make_unique<Step>(20));\n    Children large;\n    large.push_back(std::make_unique<Group>(std::move(small)));\n    large.push_back(std::make_unique<Step>(5));\n    Group project(std::move(large));\n    Group empty(Children{});\n    check(project.minutes() == 35);\n    check(empty.minutes() == 0);\n    check(Step(10000).minutes() == 10000);\n    bool bad_step = false;\n    try { Step bad(-1); }\n    catch (const std::invalid_argument&) { bad_step = true; }\n    check(bad_step);\n    bool bad_child = false;\n    try {\n        Children invalid;\n        invalid.push_back(nullptr);\n        Group bad(std::move(invalid));\n    } catch (const std::invalid_argument&) { bad_child = true; }\n    check(bad_child);\n    bool too_large = false;\n    try {\n        Children huge;\n        huge.push_back(std::make_unique<Step>(10000));\n        huge.push_back(std::make_unique<Step>(1));\n        Group over(std::move(huge));\n        static_cast<void>(over.minutes());\n    } catch (const std::overflow_error&) { too_large = true; }\n    check(too_large);\n    std::cout << \"project=\" << project.minutes() << \" minutes\\n\";\n    std::cout << \"empty=\" << empty.minutes() << \" minutes\\n\";\n    std::cout << \"invalid child, duration, and total rejected\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "project=35 minutes\nempty=0 minutes\ninvalid child, duration, and total rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-21.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "question": {
+        "prompt": "Does matching the demonstration output prove every promised behavior?",
+        "answer": "No. The main program checks the 35-minute nested tree, an empty group, a 10000-minute leaf, a negative duration, a null child, and a 10001-minute group. It does not establish safe traversal of unbounded depth. A printed result shows that run; the checks and stated limits explain what was actually verified."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch08-21"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → trace",
+      "title": "Follow one request through the objects",
+      "keyPoints": [
+        "inner total: 0 -> 10 -> 30",
+        "outer total: 0 -> 30 -> 35",
+        "empty total: 0",
+        "10000 + 1 rejected before addition"
+      ],
+      "narration": "Step 1. inner total: 0 -> 10 -> 30. The first group adds its two leaf durations.\n\nStep 2. outer total: 0 -> 30 -> 35. The outer group receives the inner result and adds five.\n\nStep 3. empty total: 0. No children means the loop makes no additions.\n\nStep 4. 10000 + 1 rejected before addition. One exceeds the remaining zero-minute budget.",
+      "walkthrough": [
+        {
+          "label": "Step 1",
+          "text": "inner total: 0 -> 10 -> 30",
+          "reason": "The first group adds its two leaf durations."
+        },
+        {
+          "label": "Step 2",
+          "text": "outer total: 0 -> 30 -> 35",
+          "reason": "The outer group receives the inner result and adds five."
+        },
+        {
+          "label": "Step 3",
+          "text": "empty total: 0",
+          "reason": "No children means the loop makes no additions."
+        },
+        {
+          "label": "Step 4",
+          "text": "10000 + 1 rejected before addition",
+          "reason": "One exceeds the remaining zero-minute budget."
+        }
+      ],
+      "question": {
+        "prompt": "Which operation makes the next step possible?",
+        "answer": "inner total: 0 -> 10 -> 30 — The first group adds its two leaf durations.\nouter total: 0 -> 30 -> 35 — The outer group receives the inner result and adds five.\nempty total: 0 — No children means the loop makes no additions.\n10000 + 1 rejected before addition — One exceeds the remaining zero-minute budget."
+      },
+      "topicIds": [
+        "C08.09"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch08-22"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → example.failures",
+      "title": "Debug the promise: Store total as a member and add to it on every minutes call.",
+      "keyPoints": [
+        "Store total as a member and add to it on every minutes call.",
+        "For this nested tree, repeated queries return 35, then 100, instead of the same result."
+      ],
+      "narration": "Store total as a member and add to it on every minutes call. For this nested tree, repeated queries return 35, then 100, instead of the same result. Both levels retain state: the inner group grows from 30 to 60, and the outer grows from 35 by adding 60 and 5.\n\nThe main program checks the 35-minute nested tree, an empty group, a 10000-minute leaf, a negative duration, a null child, and a 10001-minute group. It does not establish safe traversal of unbounded depth.\n\nProject plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "For this nested tree, repeated queries return 35, then 100, instead of the same result."
+        },
+        {
+          "label": "Why it fails",
+          "text": "Both levels retain state: the inner group grows from 30 to 60, and the outer grows from 35 by adding 60 and 5."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "Both levels retain state: the inner group grows from 30 to 60, and the outer grows from 35 by adding 60 and 5. For this nested tree, repeated queries return 35, then 100, instead of the same result."
+      },
+      "topicIds": [
+        "C08.10"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch08-23"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → example.failures",
+      "title": "Debug the promise: Copy a raw child pointer into two owning unique_ptr objects.",
+      "keyPoints": [
+        "Copy a raw child pointer into two owning unique_ptr objects.",
+        "Destruction attempts to delete the same object twice, causing undefined behavior."
+      ],
+      "narration": "Copy a raw child pointer into two owning unique_ptr objects. Destruction attempts to delete the same object twice, causing undefined behavior. unique_ptr promises exclusive ownership; inventing duplicate owners violates it.\n\nThe main program checks the 35-minute nested tree, an empty group, a 10000-minute leaf, a negative duration, a null child, and a 10001-minute group. It does not establish safe traversal of unbounded depth.\n\nProject plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "Destruction attempts to delete the same object twice, causing undefined behavior."
+        },
+        {
+          "label": "Why it fails",
+          "text": "unique_ptr promises exclusive ownership; inventing duplicate owners violates it."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "unique_ptr promises exclusive ownership; inventing duplicate owners violates it. Destruction attempts to delete the same object twice, causing undefined behavior."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch08-24"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → example.failures",
+      "title": "Debug the promise: Return 1 for an empty group.",
+      "keyPoints": [
+        "Return 1 for an empty group.",
+        "An empty project reports one minute."
+      ],
+      "narration": "Return 1 for an empty group. An empty project reports one minute. The identity value for addition is zero, so the empty subtotal must be zero.\n\nThe main program checks the 35-minute nested tree, an empty group, a 10000-minute leaf, a negative duration, a null child, and a 10001-minute group. It does not establish safe traversal of unbounded depth.\n\nProject plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "An empty project reports one minute."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The identity value for addition is zero, so the empty subtotal must be zero."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The identity value for addition is zero, so the empty subtotal must be zero. An empty project reports one minute."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch08-25"
+    },
+    {
+      "title": "Trace 1: Composite: One leaf duration",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Composite: One leaf duration. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Composite: One leaf duration. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe leaf reports its own duration.\n\nThe bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → dpx-c08-trace-1; companion/solutions/ch08/main.cpp",
+      "question": {
+        "prompt": "Composite: One leaf duration. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "17. The leaf reports its own duration."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Step(17).minutes();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch08_trace_1.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Step(17).minutes();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "17\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-26.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_trace_1.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-08-a",
+      "section": "Trace experiments",
+      "id": "dp-ch08-26"
+    },
+    {
+      "title": "Trace 2: Composite: Group sum",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Composite: Group sum. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Composite: Group sum. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe parent asks both children for their subtotal and adds them.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → dpx-c08-trace-2; companion/solutions/ch08/main.cpp",
+      "question": {
+        "prompt": "Composite: Group sum. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "15. The parent asks both children for their subtotal and adds them."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Children c;\n  c.push_back(std::make_unique<Step>(7));\n  c.push_back(std::make_unique<Step>(8));\n  return Group(std::move(c)).minutes();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch08_trace_2.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Children c;\n  c.push_back(std::make_unique<Step>(7));\n  c.push_back(std::make_unique<Step>(8));\n  return Group(std::move(c)).minutes();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "15\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-27.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_trace_2.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-08-a",
+      "section": "Trace experiments",
+      "id": "dp-ch08-27"
+    },
+    {
+      "title": "Trace 3: Composite: Empty group duration",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Composite: Empty group duration. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Composite: Empty group duration. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe sum over an empty child list is zero.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → dpx-c08-trace-3; companion/solutions/ch08/main.cpp",
+      "question": {
+        "prompt": "Composite: Empty group duration. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "0. The sum over an empty child list is zero."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Group(Children{\n  }).minutes();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch08_trace_3.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Group(Children{\n  }).minutes();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-28.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_trace_3.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-08-a",
+      "section": "Trace experiments",
+      "id": "dp-ch08-28"
+    },
+    {
+      "title": "Trace 4: Composite: Budget overflow",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Composite: Budget overflow. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Composite: Budget overflow. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe group rejects 10001 before accepting a total over its budget.\n\n The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → dpx-c08-trace-4; companion/solutions/ch08/main.cpp",
+      "question": {
+        "prompt": "Composite: Budget overflow. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. The group rejects 10001 before accepting a total over its budget."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return dpx_rejects<std::overflow_error>([]{\n    Children c;\n    c.push_back(std::make_unique<Step>(9999));\n    c.push_back(std::make_unique<Step>(2));\n    Group(std::move(c)).minutes();\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch08_trace_4.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return dpx_rejects<std::overflow_error>([]{\n    Children c;\n    c.push_back(std::make_unique<Step>(9999));\n    c.push_back(std::make_unique<Step>(2));\n    Group(std::move(c)).minutes();\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-29.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_trace_4.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-08-a",
+      "section": "Trace experiments",
+      "id": "dp-ch08-29"
+    },
+    {
+      "title": "Trace 5: Composite: Zero-minute leaf count",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Composite: Zero-minute leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Composite: Zero-minute leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nLeaf count describes structure rather than duration.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → dpx-c08-trace-5; companion/solutions/ch08/main.cpp",
+      "question": {
+        "prompt": "Composite: Zero-minute leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "1. Leaf count describes structure rather than duration."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return static_cast<int>(Step(0).steps());\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch08_trace_5.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return static_cast<int>(Step(0).steps());\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-30.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_trace_5.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-08-a",
+      "section": "Trace experiments",
+      "id": "dp-ch08-30"
+    },
+    {
+      "title": "Trace 6: Composite: Two leaf count",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Composite: Two leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Composite: Two leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nBoth leaves count, including the zero-duration one.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → dpx-c08-trace-6; companion/solutions/ch08/main.cpp",
+      "question": {
+        "prompt": "Composite: Two leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "2. Both leaves count, including the zero-duration one."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Children c;\n  c.push_back(std::make_unique<Step>(0));\n  c.push_back(std::make_unique<Step>(8));\n  return static_cast<int>(Group(std::move(c)).steps());\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch08_trace_6.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Children c;\n  c.push_back(std::make_unique<Step>(0));\n  c.push_back(std::make_unique<Step>(8));\n  return static_cast<int>(Group(std::move(c)).steps());\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-31.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_trace_6.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-08-a",
+      "section": "Trace experiments",
+      "id": "dp-ch08-31"
+    },
+    {
+      "title": "Trace 7: Composite: Empty group leaf count",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Composite: Empty group leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Composite: Empty group leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nAn empty group contains no leaf activities.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → dpx-c08-trace-7; companion/solutions/ch08/main.cpp",
+      "question": {
+        "prompt": "Composite: Empty group leaf count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "0. An empty group contains no leaf activities."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return static_cast<int>(Group(Children{\n  }).steps());\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch08_trace_7.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return static_cast<int>(Group(Children{\n  }).steps());\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-32.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_trace_7.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-08-a",
+      "section": "Trace experiments",
+      "id": "dp-ch08-32"
+    },
+    {
+      "title": "Trace 8: Composite: Nested structure",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Composite: Nested structure. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Composite: Nested structure. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nAn internal group is not an extra leaf; recursion counts its children.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → dpx-c08-trace-8; companion/solutions/ch08/main.cpp",
+      "question": {
+        "prompt": "Composite: Nested structure. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. An internal group is not an extra leaf; recursion counts its children."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Children a;\n  a.push_back(std::make_unique<Step>(4));\n  Children b;\n  b.push_back(std::make_unique<Group>(std::move(a)));\n  b.push_back(std::make_unique<Step>(6));\n  Group g(std::move(b));\n  return g.minutes()==10 && g.steps()==2;\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch08_trace_8.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Children a;\n  a.push_back(std::make_unique<Step>(4));\n  Children b;\n  b.push_back(std::make_unique<Group>(std::move(a)));\n  b.push_back(std::make_unique<Step>(6));\n  Group g(std::move(b));\n  return g.minutes()==10 && g.steps()==2;\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-33.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch08_trace_8.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-08-a",
+      "section": "Trace experiments",
+      "id": "dp-ch08-33"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → exercises.08.1",
+      "title": "Exercise 08.1: Guided modification",
+      "keyPoints": [
+        "Change the final five-minute step to seven. Predict project.minutes and the inner group subtotal."
+      ],
+      "narration": "Change the final five-minute step to seven. Predict project.minutes and the inner group subtotal.\n\nPause here and make a concrete prediction or sketch a change. The hint is: The inner group is unchanged.\n\nAfter the discussion, compare the reasoning. The inner group still returns 30 and the project returns 37. Only the final leaf contributes two additional minutes.",
+      "hint": "The inner group is unchanged.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The inner group still returns 30 and the project returns 37. Only the final leaf contributes two additional minutes."
+      },
+      "topicIds": [
+        "C08.13"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-34"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → exercises.08.2",
+      "title": "Exercise 08.2: Trace unfamiliar code",
+      "keyPoints": [
+        "Construct one empty Group and a Step(4), move both into an outer Group, and query the outer group twice. State both results."
+      ],
+      "narration": "Construct one empty Group and a Step(4), move both into an outer Group, and query the outer group twice. State both results.\n\nPause here and make a concrete prediction or sketch a change. The hint is: An empty group contributes zero and totals are local.\n\nAfter the discussion, compare the reasoning. Both calls return 4. The first child returns zero, the second returns four, and each call starts a new local total at zero.",
+      "hint": "An empty group contributes zero and totals are local.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Both calls return 4. The first child returns zero, the second returns four, and each call starts a new local total at zero."
+      },
+      "topicIds": [
+        "C08.14"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-35"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → exercises.08.3",
+      "title": "Exercise 08.3: Diagnose a bug",
+      "keyPoints": [
+        "A developer writes for (auto child : children_) in Group::minutes. Why does this fail to compile, and what is the repair?"
+      ],
+      "narration": "A developer writes for (auto child : children_) in Group::minutes. Why does this fail to compile, and what is the repair?\n\nPause here and make a concrete prediction or sketch a change. The hint is: The vector stores unique ownership objects.\n\nAfter the discussion, compare the reasoning. The loop tries to copy each unique_ptr. Copying it is disabled because two copies would imply two owners. Use const auto& child to borrow each existing owner; const auto* would not match the vector element type.",
+      "hint": "The vector stores unique ownership objects.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The loop tries to copy each unique_ptr. Copying it is disabled because two copies would imply two owners. Use const auto& child to borrow each existing owner; const auto* would not match the vector element type."
+      },
+      "topicIds": [
+        "C08.15"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-36"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → exercises.08.4",
+      "title": "Exercise 08.4: Choose a design",
+      "keyPoints": [
+        "The data is always a single flat list of durations. Should you use Composite? Give a concrete simpler representation."
+      ],
+      "narration": "The data is always a single flat list of durations. Should you use Composite? Give a concrete simpler representation.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Remove abstractions when their motivating constraint disappears.\n\nAfter the discussion, compare the reasoning. Use std::vector<int> with validated durations and a checked summing function. A tree and virtual query add little when no element contains other elements. Revisit Composite if nested groups become a real requirement.",
+      "hint": "Remove abstractions when their motivating constraint disappears.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Use std::vector<int> with validated durations and a checked summing function. A tree and virtual query add little when no element contains other elements. Revisit Composite if nested groups become a real requirement."
+      },
+      "topicIds": [
+        "C08.16"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-37"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → exercises.08.5",
+      "title": "Exercise 08.5: Extend without regressions",
+      "keyPoints": [
+        "Add two calls checking project.minutes() == 35 before the output. What bug does this guard against, and what further boundary test is useful?"
+      ],
+      "narration": "Add two calls checking project.minutes() == 35 before the output. What bug does this guard against, and what further boundary test is useful?\n\nPause here and make a concrete prediction or sketch a change. The hint is: A query should not remember the last total.\n\nAfter the discussion, compare the reasoning. Repeated checks catch a member accumulator that was not reset. Also test a group containing 9999 and 1, which must return 10000, then 9999 and 2, which must throw. Together they distinguish allowed equality from overflow.",
+      "hint": "A query should not remember the last total.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Repeated checks catch a member accumulator that was not reset. Also test a group containing 9999 and 1, which must return 10000, then 9999 and 2, which must throw. Together they distinguish allowed equality from overflow."
+      },
+      "topicIds": [
+        "C08.17"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-38"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → exercises.08.6",
+      "title": "Exercise 08.6: Justify a decision",
+      "keyPoints": [
+        "Explain why add belongs on Group construction rather than Work in this design. Name a circumstance where a different decision could work."
+      ],
+      "narration": "Explain why add belongs on Group construction rather than Work in this design. Name a circumstance where a different decision could work.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Ask what adding to a leaf would mean.\n\nAfter the discussion, compare the reasoning. A leaf cannot accept children, so a universal add operation would mislead callers. Group construction makes the restriction explicit. A generic tree editor may choose a separate editable-container interface or a checked operation returning a documented failure, but that is an additional requirement.",
+      "hint": "Ask what adding to a leaf would mean.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "A leaf cannot accept children, so a universal add operation would mislead callers. Group construction makes the restriction explicit. A generic tree editor may choose a separate editable-container interface or a checked operation returning a documented failure, but that is an additional requirement."
+      },
+      "topicIds": [
+        "C08.18"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-39"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/exercises/ch08/main.cpp",
+      "title": "Extend the program without losing its tests",
+      "keyPoints": [
+        "Add a virtual steps() query returning the number of Step leaves beneath any Work object. A Step counts as one even when its duration is zero. An empty Group counts as zero. Preserve the duration query and every original test."
+      ],
+      "narration": "Add a virtual steps() query returning the number of Step leaves beneath any Work object. A Step counts as one even when its duration is zero. An empty Group counts as zero. Preserve the duration query and every original test.\n\nKeep the original checks as a baseline. The new behavior must also satisfy these checks: The existing project has three steps and 35 minutes. An empty Group has zero steps and zero minutes. Step(0) has one step and zero minutes.\n\nThe starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/exercises/ch08/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "// LAB STARTER: see the chapter for extension requirements.\n#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    } // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\nint main() {\n    Children small;\n    small.push_back(std::make_unique<Step>(10));\n    small.push_back(std::make_unique<Step>(20));\n    Children large;\n    large.push_back(std::make_unique<Group>(std::move(small)));\n    large.push_back(std::make_unique<Step>(5));\n    Group project(std::move(large));\n    Group empty(Children{});\n    check(project.minutes() == 35);\n    check(empty.minutes() == 0);\n    check(Step(10000).minutes() == 10000);\n    bool bad_step = false;\n    try { Step bad(-1); }\n    catch (const std::invalid_argument&) { bad_step = true; }\n    check(bad_step);\n    bool bad_child = false;\n    try {\n        Children invalid;\n        invalid.push_back(nullptr);\n        Group bad(std::move(invalid));\n    } catch (const std::invalid_argument&) { bad_child = true; }\n    check(bad_child);\n    bool too_large = false;\n    try {\n        Children huge;\n        huge.push_back(std::make_unique<Step>(10000));\n        huge.push_back(std::make_unique<Step>(1));\n        Group over(std::move(huge));\n        static_cast<void>(over.minutes());\n    } catch (const std::overflow_error&) { too_large = true; }\n    check(too_large);\n    std::cout << \"project=\" << project.minutes() << \" minutes\\n\";\n    std::cout << \"empty=\" << empty.minutes() << \" minutes\\n\";\n    std::cout << \"invalid child, duration, and total rejected\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "project=35 minutes\nempty=0 minutes\ninvalid child, duration, and total rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-40.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "checks": [
+        {
+          "prompt": "The existing project has three steps and 35 minutes.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "An empty Group has zero steps and zero minutes.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Step(0) has one step and zero minutes.",
+          "answer": "This is a required acceptance check for the extension."
+        }
+      ],
+      "question": {
+        "prompt": "What must the extension add?",
+        "answer": "Add a virtual steps() query returning the number of Step leaves beneath any Work object. A Step counts as one even when its duration is zero. An empty Group counts as zero. Preserve the duration query and every original test."
+      },
+      "topicIds": [
+        "C08.19"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-40"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/solutions/ch08/main.cpp",
+      "title": "Extension solution and design review",
+      "keyPoints": [
+        "The existing project has three steps and 35 minutes.",
+        "An empty Group has zero steps and zero minutes.",
+        "Step(0) has one step and zero minutes."
+      ],
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/solutions/ch08/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <utility>\n#include <vector>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Work {\npublic:\n    virtual ~Work() = default;\n    virtual int minutes() const = 0;\n    virtual std::size_t steps() const = 0;\n};\nclass Step final : public Work {\n    int minutes_;\npublic:\n    explicit Step(int n) : minutes_(n) {\n        if (n < 0 || n > 10000) {\n            throw std::invalid_argument(\"minutes\");\n        }\n    }\n    int minutes() const override { return minutes_; }\n    std::size_t steps() const override { return 1; }\n};\nusing Children = std::vector<std::unique_ptr<Work>>;\nclass Group final : public Work {\n    Children children_;\npublic:\n    // Take a finished list of children.\n    explicit Group(Children children)\n        : children_(std::move(children)) {\n        for (const auto& child : children_) {\n            if (!child) {\n                throw std::invalid_argument(\n                    \"child\");\n            }\n        }\n    }\n    std::size_t steps() const override {\n        std::size_t total = 0;\n        for (const auto& child : children_) total += child->steps();\n        return total;\n    } // End recursive total. // End group construction.\n    int minutes() const override {\n        // Add each child subtotal once.\n        int total = 0;\n        for (const auto& child : children_) {\n            const int n = child->minutes();\n            if (n > 10000 - total) {\n                throw std::overflow_error(\n                    \"budget\");\n            }\n            total += n;\n        }\n        return total;\n    } // End recursive total.\n};\nint main() {\n    Children small;\n    small.push_back(std::make_unique<Step>(10));\n    small.push_back(std::make_unique<Step>(20));\n    Children large;\n    large.push_back(std::make_unique<Group>(std::move(small)));\n    large.push_back(std::make_unique<Step>(5));\n    Group project(std::move(large));\n    Group empty(Children{});\n    check(project.minutes() == 35);\n    check(empty.minutes() == 0);\n    check(Step(10000).minutes() == 10000);\n    bool bad_step = false;\n    try { Step bad(-1); }\n    catch (const std::invalid_argument&) { bad_step = true; }\n    check(bad_step);\n    bool bad_child = false;\n    try {\n        Children invalid;\n        invalid.push_back(nullptr);\n        Group bad(std::move(invalid));\n    } catch (const std::invalid_argument&) { bad_child = true; }\n    check(bad_child);\n    bool too_large = false;\n    try {\n        Children huge;\n        huge.push_back(std::make_unique<Step>(10000));\n        huge.push_back(std::make_unique<Step>(1));\n        Group over(std::move(huge));\n        static_cast<void>(over.minutes());\n    } catch (const std::overflow_error&) { too_large = true; }\n    check(too_large);\n    check(project.steps() == 3);\n    check(empty.steps() == 0);\n    check(Step(0).steps() == 1);\n    std::cout << \"steps=\" << project.steps() << '\\n';\n    std::cout << \"project=\" << project.minutes() << \" minutes\\n\";\n    std::cout << \"empty=\" << empty.minutes() << \" minutes\\n\";\n    std::cout << \"invalid child, duration, and total rejected\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "steps=3\nproject=35 minutes\nempty=0 minutes\ninvalid child, duration, and total rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch8/dp-ch08-41.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "narration": "The solution gives Step a constant result and Group a recursive sum of child counts. The count is std::size_t, the container-size type. For the finite in-memory trees used here, the number of allocated nodes bounds the count. The duration and leaf-count operations stay separate because they answer different questions.\n\nProject plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts.",
+      "question": {
+        "prompt": "Why is this solution a reasonable extension, and could another design work?",
+        "answer": "The solution gives Step a constant result and Group a recursive sum of child counts. The count is std::size_t, the container-size type. For the finite in-memory trees used here, the number of allocated nodes bounds the count. The duration and leaf-count operations stay separate because they answer different questions."
+      },
+      "section": "Practice and extension",
+      "id": "dp-ch08-41"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → C08.21 scenario",
+      "title": "Application case 1: defend your choice",
+      "keyPoints": [
+        "A project contains individual tasks and nested task groups. One minutes() query should work on either. Which design fits?"
+      ],
+      "scenario": {
+        "prompt": "A project contains individual tasks and nested task groups. One minutes() query should work on either. Which design fits?",
+        "options": [
+          "Singleton",
+          "Proxy",
+          "Composite",
+          "Abstract Factory"
+        ],
+        "correctIndex": 2,
+        "explanation": "Leaves and groups implement the same query, and groups recurse into children.",
+        "rationales": [
+          "One shared instance cannot represent the nested structure.",
+          "Controlling access does not express whole-part recursion.",
+          "Leaves and groups implement the same query, and groups recurse into children.",
+          "The main issue is a tree query, not selecting product families."
+        ],
+        "id": "C08.21-s1"
+      },
+      "narration": "A project contains individual tasks and nested task groups. One minutes() query should work on either. Which design fits?\n\nSingleton. One shared instance cannot represent the nested structure.\n\nProxy. Controlling access does not express whole-part recursion.\n\nComposite. Leaves and groups implement the same query, and groups recurse into children.\n\nAbstract Factory. The main issue is a tree query, not selecting product families.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Composite. Leaves and groups implement the same query, and groups recurse into children."
+      },
+      "topicIds": [
+        "C08.21"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-42"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch8.json → C08.22 scenario",
+      "title": "Application case 2: defend your choice",
+      "keyPoints": [
+        "An empty Group returns 1 from minutes(). Which contract is broken?"
+      ],
+      "scenario": {
+        "prompt": "An empty Group returns 1 from minutes(). Which contract is broken?",
+        "options": [
+          "Every query must mutate the tree.",
+          "Every group must have a child.",
+          "A leaf must own its parent.",
+          "An empty group must contribute zero minutes."
+        ],
+        "correctIndex": 3,
+        "explanation": "The sum over no children is zero in this example.",
+        "rationales": [
+          "minutes() should give a stable result without accumulated mutation.",
+          "The example explicitly permits an empty group.",
+          "Upward ownership is not needed for the query.",
+          "The sum over no children is zero in this example."
+        ],
+        "id": "C08.22-s1"
+      },
+      "narration": "An empty Group returns 1 from minutes(). Which contract is broken?\n\nEvery query must mutate the tree.. minutes() should give a stable result without accumulated mutation.\n\nEvery group must have a child.. The example explicitly permits an empty group.\n\nA leaf must own its parent.. Upward ownership is not needed for the query.\n\nAn empty group must contribute zero minutes.. The sum over no children is zero in this example.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "An empty group must contribute zero minutes.. The sum over no children is zero in this example."
+      },
+      "topicIds": [
+        "C08.22"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch08-43"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 8",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch08.json → summary",
+      "title": "Keep these rules when the program grows",
+      "keyPoints": [
+        "Composite gives parts and containers one meaningful contract.",
+        "A recursive group delegates to children and combines their results.",
+        "unique_ptr expresses one owner per child.",
+        "A stored borrow and an ownership link are different relationships.",
+        "Validate numeric and depth assumptions; recursion does not remove limits."
+      ],
+      "narration": "Composite gives parts and containers one meaningful contract. A recursive group delegates to children and combines their results. unique_ptr expresses one owner per child. A stored borrow and an ownership link are different relationships. Validate numeric and depth assumptions; recursion does not remove limits.\n\nProject plans, scene trees, and nested UI elements benefit from uniform queries when their operations have meaningful leaf and group contracts.",
+      "question": {
+        "prompt": "Explain Composite without reciting its class names.",
+        "answer": "A fixed tree with one shared query lets the same algorithm measure leaves and groups. Bottom-up construction and unique_ptr make lifetime clear. A flat vector is better when there is no nesting. A tagged value tree can avoid virtual functions for a closed set of node kinds, but every added kind then requires editing the variant-handling code."
+      },
+      "topicIds": [
+        "C08.20"
+      ],
+      "section": "Recall and transfer",
+      "id": "dp-ch08-44"
+    },
+    {
+      "title": "Uniform does not mean every action fits",
+      "eyebrow": "DESIGN REVIEW",
+      "kind": "concept",
+      "keyPoints": [
+        "Total duration applies to leaves and groups.",
+        "Adding children does not apply to a leaf.",
+        "Keep specialized edits outside the shared query."
+      ],
+      "narration": "A common mistake is to put every possible operation on the shared base because the pattern promises uniform use. Uniformity is useful only for operations whose meanings remain clear. Minutes has a natural answer for a Step and a Group. Add-child does not have a natural meaning for a Step, so a do-nothing implementation would hide a programming mistake. The chapter instead takes a finished child list during Group construction. If editing becomes necessary, give editing a separate design with ownership and cycle rules. The fact that two objects share a query does not mean they should share every command.",
+      "actions": [
+        "Ask learners to classify total duration, leaf duration editing, and subtree export as shared or specialized operations."
+      ],
+      "sourceRef": "manuscript/ch08.json → One operation for a part and a whole",
+      "question": {
+        "prompt": "Why is a leaf add-child method that silently does nothing harmful?",
+        "answer": "It makes an apparently successful edit discard the request and gives callers a misleading common contract."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch08-45"
+    },
+    {
+      "title": "Depth and width create different risks",
+      "eyebrow": "ENGINEERING LIMIT / INPUT DESIGN",
+      "kind": "concept",
+      "keyPoints": [
+        "A query does work proportional to nodes visited.",
+        "Its recursive stack grows with depth.",
+        "Untrusted nesting requires an explicit limit or iterative traversal."
+      ],
+      "narration": "A large tree can be wide, deep, or both. A million direct leaf children create a long loop, but only a small number of nested calls. A million groups inside one another create a very deep call chain and can exhaust the stack. The chapter demonstrates a small trusted tree; it does not promise safe traversal of arbitrary untrusted input depth. A file parser that builds these objects should enforce a depth limit, or the query can be redesigned to use an explicit stack. Notice that validation belongs where the risky input enters. Timing a tiny example does not establish a bound for every tree shape.",
+      "actions": [
+        "Compare a shallow wide tree with a narrow deep tree using the same node count."
+      ],
+      "sourceRef": "manuscript/ch08.json → Cost, depth, and the limits of uniform operations",
+      "question": {
+        "prompt": "Why does a node-count limit alone not describe stack use precisely?",
+        "answer": "Trees with equal node counts can have very different maximum depths; recursive stack use follows depth."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch08-46"
+    },
+    {
+      "title": "Reconstruct Composite from the work plan",
+      "eyebrow": "RETRIEVAL / TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "State the shared meaningful operation.",
+        "Name the stopping cases.",
+        "Explain ownership and one preserved invariant."
+      ],
+      "narration": "Without looking at the source, explain why one client can ask for the minutes of a Step or a project. Then name the two stopping cases: a Step and an empty Group. Finally, explain how the returned subtotals differ from the owning pointers that keep the tree alive. These three explanations cover behavior, control, and lifetime. To transfer the idea, consider a folder-size tool. A file can return its byte count and a folder can sum children, but links and cycles may change the tree assumption. Reusing a pattern responsibly includes checking whether the new domain keeps the original structural promises.",
+      "actions": [
+        "Have learners explain the folder example and identify what symbolic links could change."
+      ],
+      "sourceRef": "manuscript/ch08.json → Cost, depth, and the limits of uniform operations",
+      "question": {
+        "prompt": "What must be reconsidered when a supposed tree can link back to an ancestor?",
+        "answer": "Termination and ownership assumptions; traversal needs a policy for cycles rather than blindly recurring forever."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch08-47"
+    }
+  ]
+}

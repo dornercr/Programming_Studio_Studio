@@ -1,0 +1,835 @@
+Design Patterns in C++
+Chapter 7: Bridge
+Dr. Charles Dorner
+
+1. Reports change for two different reasons
+Problem and first design
+
+SAY
+Our inspection tool must present the same count on two screens. One wants count equals six; another wants count colon six inside brackets. The tool also needs a warning report that chooses high above five and normal otherwise. We now have two reasons for change: what the report means and how the text looks. Begin by stating those reasons separately. A punctuation change should not force us to rethink the warning boundary, and a policy change should not force us to edit every format. The program builds strings in memory; its Writer name does not mean that it writes a file or contacts a service.
+
+DO
+Create a two-by-two table of report meaning and output format.
+
+SOURCE
+manuscript/ch07.json → Two useful reports, two useful formats
+
+------------------------------------------------------------
+
+2. One report needs only one function
+Problem and first design
+
+SAY
+This first program serves exactly one requirement: render a valid count in the plain format. A single function makes the contract visible and keeps the implementation short. The function returns a string value, so the caller owns the returned characters. It throws before formatting a negative number because negativity is a report-domain error. There is no need yet for an abstract Writer or a family of Report classes. We will earn that separation by showing independent changes, rather than adding it in anticipation of every possible future request. Notice that a valid zero is accepted; absence of work is still a meaningful count.
+
+DO
+Run with six and zero.
+Explain why the negative test belongs before formatting.
+
+SOURCE
+Lecture demonstration for manuscript/ch07.json → Two useful reports, two useful formats
+
+------------------------------------------------------------
+
+3. A policy edit can drift between formats
+Problem and first design
+
+SAY
+Imagine that an operations team changes the warning boundary from five to ten. In a combined implementation, each format has its own copy of the classification expression. A developer fixes the plain version but misses the bracket version. The two strings now disagree about the same observation even though both compile and run normally. Our demonstration uses the new requirement deliberately; the chapter's unchanged main example still uses five. This is the pressure that motivates a bridge. Put the classification decision in one report path, and let separate writers control punctuation. We need a boundary that prevents this kind of drift from spreading across combinations.
+
+DO
+Predict whether the two outputs agree before running.
+Locate the duplicated business decision, not just duplicated punctuation.
+
+SOURCE
+Lecture demonstration for manuscript/ch07.json → Locate the two decisions before drawing classes
+
+------------------------------------------------------------
+
+4. Separate meaning from punctuation
+Problem and first design
+
+SAY
+We can now name the design. Bridge keeps two related families connected through a stable operation so that they can grow independently. In this chapter, CountReport and WarningReport decide the meaning of the field. Plain and Brackets decide how that field is written. Report stores a borrowed Writer connection, and each concrete report crosses that connection during render. With two reports and two writers, we have four supported pairings but do not need four combination classes. This is not a promise that every imaginable display can use the same tiny operation. Independence only holds while the shared field contract carries the data each supported format needs.
+
+DO
+Point to the single classification expression in WarningReport.
+Point to punctuation in each Writer implementation.
+
+SOURCE
+manuscript/ch07.json → Locate the two decisions before drawing classes
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+Counts in plain text and brackets. Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.
+
+Support count and warning reports in both formats. Classify n > 5 as high; zero through five as normal. Reject negative counts before formatting.
+
+Reports never change a writer or own its lifetime. Writers preserve the supplied name and numeric value. Validation happens before formatting. These are the rules that define a correct extension, even if it has the right C++ types. An enum-based formatter is simpler for a permanently closed set of formats. Templates fit compile-time selection; virtual writers fit objects selected while the program runs.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json
+
+------------------------------------------------------------
+
+6. Two useful reports, two useful formats
+Requirements and mechanism
+
+SAY
+A small inspection tool prints a count and also classifies that count. One screen wants count=6. Another wants [count:6]. The classification report calls counts above five high and all others normal. It must work in either format. Negative counts are invalid. Requirements now vary in two directions: what the report means, and how its fields are written.
+
+The simplest first version returns a string directly from a function. That is a good solution when there is one meaning and one format. A second function can serve a second fixed report. The difficulty appears when both dimensions grow. If each combination has its own class, two report types and two formats need four combinations. Three types and four formats need twelve. The count is the product of the choices, not automatically an exponential function of one choice. What hurts is repeated policy and repeated formatting.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → Two useful reports, two useful formats
+
+------------------------------------------------------------
+
+7. Locate the two decisions before drawing classes
+Requirements and mechanism
+
+SAY
+Suppose the warning boundary changes from five to ten. In the combined design, each warning-format class must change. Suppose the bracket screen changes its separator. Every bracket-report class must change. That gives a concrete reason to separate the decisions. The boundary rule belongs with the report; punctuation belongs with the writer. Neither side should inspect the exact type on the other side.
+
+A bridge is a stable connection between a high-level operation and a lower-level implementation that can vary independently. Here Report supplies the high-level render operation and borrows a Writer. CountReport and WarningReport decide which field name to send. Plain and Brackets implement Writer::field. The bridge is the writer_ reference. The two families can now grow without adding one class for every cross-product combination.
+
+The pattern's traditional word abstraction means the high-level view offered to the caller. It does not require every high-level class to be an abstract C++ base class. Our Report is abstract because two report meanings already exist and both must be usable through the same contract. A single concrete report with a Writer member would still separate format from meaning when only one report is needed.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → Locate the two decisions before drawing classes
+
+------------------------------------------------------------
+
+8. Trace data and control across the bridge
+Requirements and mechanism
+
+SAY
+In main, plain and brackets are created before the report objects that borrow them. cp stores a reference to plain; cb stores a reference to brackets. Calling cb.render(6) enters CountReport. validate first rejects a negative value. The report then sends the label count and integer 6 to writer_.field. Virtual dispatch selects Brackets::field. It creates [count:6] and returns that string by value through the report to main.
+
+WarningReport follows the same route but chooses its label first. The conditional expression n > 5 ? "high" : "normal" evaluates the condition, selects exactly one of the two strings, and initializes label. The question mark introduces the true result, and the colon separates it from the false result. This colon is different from the colon that begins a constructor initializer list or a range loop. Syntax takes its meaning from its surrounding statement.
+
+The returned strings own their character storage. The label passed to field is a const reference, so field borrows the argument during the call. Neither writer keeps that reference afterward. writer_ is a longer-lived borrow stored inside Report. Those are different lifetime obligations: a call parameter need only stay valid for the call, while a stored reference must stay valid for later calls too.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → Trace data and control across the bridge
+
+------------------------------------------------------------
+
+9. What compilation guarantees and what it cannot
+Requirements and mechanism
+
+SAY
+The compiler checks public inheritance, virtual signatures, and whether each concrete class implements the required operation. override catches a mismatch. protected makes writer_ and validate available to the derived reports while keeping them out of ordinary client code. The helper is static because it depends only on its argument and needs no Report object. Constructors initialize the reference before any render call can occur.
+
+The compiler does not verify that a new Writer preserves the label and value faithfully. A writer could accidentally swap field names or drop a minus sign. That would still compile. The shared semantic contract is therefore essential: format the supplied name and integer without changing their meaning. The report checks the domain rule that counts cannot be negative. The generic writer is capable of formatting any integer, which makes it usable in other domains.
+
+At execution the same report can use either writer selected during construction. Our design does not provide a setter to switch writer_ later; C++ references cannot be rebound. To change format, construct a new report borrowing another writer. This keeps ownership and configuration simple. An application needing live format changes could instead hold a non-owning pointer with an explicit non-null rule or own an interchangeable writer. That requirement has not appeared here, so its extra states are unnecessary.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → What compilation guarantees and what it cannot
+
+------------------------------------------------------------
+
+10. When the split helps, and when it does not
+Requirements and mechanism
+
+SAY
+A bridge gives independence only when the interface is stable and truthful. If field lacks data one format needs, reports may begin checking for special writers. That is a warning that the boundary is too narrow or the supposedly independent dimensions are actually linked. Improve the contract using a real use case, or accept a smaller set of supported combinations. Do not promise that every conceivable report will work with every renderer.
+
+An enum and one formatting function may be smaller when the set of formats is fixed and tiny. A template can select a writer at compilation and may remove virtual calls, but it exposes more implementation to callers and moves the choice from runtime to build time. Neither alternative is inherently inferior. The reason for this bridge is the already demonstrated independent growth in report policy and presentation.
+
+Bridge and Adapter can produce similar shapes in a diagram. Their motivations differ. An adapter repairs an existing disagreement between interfaces. A bridge deliberately separates dimensions that should evolve independently. When reviewing a change, ask what boundary is being protected. Add tests for each report's meaning and each format's text, plus a few combinations. That protects the separation more effectively than checking only class names.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → When the split helps, and when it does not
+
+------------------------------------------------------------
+
+11. The abstraction role is not C++ syntax
+Mechanism in C++
+
+SAY
+The traditional pattern word abstraction means the useful high-level view, not automatically an abstract C++ class. Here Report happens to be abstract because several report meanings need the same render operation. A single concrete report holding a Writer could still separate meaning from formatting. This distinction matters in reviews: counting abstract classes is not evidence that a bridge exists. Look instead for independently changing decisions connected through a useful operation. Writer::field receives a name and a number because these are the stable pieces of information both current formats can display. It should not ask which concrete report made the request.
+
+DO
+Ask whether one concrete CountReport plus two writers could still preserve the separation.
+
+SOURCE
+manuscript/ch07.json → Locate the two decisions before drawing classes
+
+------------------------------------------------------------
+
+12. Trace one value across the connection
+Mechanism in C++
+
+SAY
+Follow cb.render with six. The selected object is a CountReport whose stored reference points to the Brackets object. CountReport first checks the domain rule, then calls writer_.field with count and six. The compiler checks that Writer offers this operation. Runtime virtual dispatch chooses the Brackets implementation. That implementation creates a new string and returns it through the report to the client. Data moves across the bridge as a field name and integer; control moves into the chosen writer and then back. No writer reference to the temporary name is saved. That makes the short call-time borrow safe under the current contract.
+
+DO
+Trace forward with arrows for calls, then backward with the returned string.
+
+SOURCE
+manuscript/ch07.json → Trace data and control across the bridge
+
+------------------------------------------------------------
+
+13. Two references, two lifetime duties
+Mechanism in C++
+
+SAY
+The same ampersand can appear in two places with different practical obligations. The field parameter borrows a string only while that one function call is active. The writer_ member is stored in Report and may be used much later. Its source writer must therefore outlive all those report calls. In main, writers are constructed first, followed by reports, which gives the correct reverse destruction order. The reference also fixes the pairing during construction: assigning through a reference does not make it refer to another object. A runtime format switch would need a new report or a deliberately different connection design, with its own rules.
+
+DO
+Draw the short argument lifetime inside the longer report and writer lifetimes.
+
+SOURCE
+manuscript/ch07.json → Trace data and control across the bridge
+
+------------------------------------------------------------
+
+14. Syntax does not enforce semantic honesty
+Mechanism in C++
+
+SAY
+The compiler provides several useful checks, but none can read the business requirement. Protected makes writer_ and validate available to derived reports while keeping them out of ordinary client code. Static on validate means it uses no particular Report object's data. The conditional expression in WarningReport evaluates n greater than five and selects high or normal; its colon separates the two possible results. Override catches a mismatched field or render signature. However, a writer that changes six to seven still satisfies the type signature. Tests must verify that formatting preserves data and that the report chooses the correct label on both sides of the threshold.
+
+DO
+Explain the question mark and colon in the classification expression.
+Ask which guarantees are checked by compilation and which need examples or tests.
+
+SOURCE
+manuscript/ch07.json → What compilation guarantees and what it cannot
+
+------------------------------------------------------------
+
+15. Add CSV by extending one side
+Mechanism in C++
+
+SAY
+The extension asks for comma-separated output. The useful test of our design is whether this format can be added without changing either report's decision logic. Csv implements field and joins the supplied name, a comma, and the number. That is sufficient for the existing fixed labels, because count, high, and normal contain no comma or quote. Do not claim that the result is a complete CSV encoder for arbitrary text. If labels become user-controlled, quoting and escaping become new requirements. A clear boundary makes that change local, but a boundary cannot eliminate the need to define the new format contract.
+
+DO
+Review the solution and verify that CountReport and WarningReport are unchanged.
+
+SOURCE
+manuscript/ch07.json → When the split helps, and when it does not
+
+------------------------------------------------------------
+
+16. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Abstraction → Report. Define the application-facing operation and retain the implementation connection.
+
+Refined Abstraction → CountReport / WarningReport. Choose report meaning while relying only on the implementation interface.
+
+Implementation / Implementor → Writer. Declare the lower-level operations every backend must provide.
+
+Concrete Implementation → Plain / Brackets. Produce the chosen representation without deciding application meaning.
+
+Client → main. Select a pairing during setup, then request the high-level operation.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → C07.07 concepts
+
+------------------------------------------------------------
+
+17. Separate meaning from presentation
+UML and source walkthrough
+
+SAY
+The diagram focuses on one pairing; WarningReport also derives from Report and Plain also derives from Writer in the complete listing. Triangles mean inheritance. The Report-to-Writer dependency is the borrowing bridge, not ownership and not a call sequence.
+
+Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.
+
+Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch07/main.cpp:1-81; content/design-patterns-cpp/ch7.json → diagrams.7
+
+------------------------------------------------------------
+
+18. Bridge — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.
+
+Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch07/main.cpp:1-81; content/design-patterns-cpp/ch7.json → diagrams.7
+
+------------------------------------------------------------
+
+19. The shared report boundary
+UML and source walkthrough
+
+SAY
+A report borrows one formatting mechanism and protects the count rule. These protected members support both concrete report types. All formats receive validated report inputs without duplicating the validation.
+
+The comment states that the connection is borrowed. Store a const reference to the writer interface. Declare a helper that needs no object-specific state. Open the rejection branch for a negative count. Begin throwing an invalid-argument exception. Name the invalid input and complete the throw. Close the rejection branch. Close the shared validation helper.
+
+The writer stays alive and every report rejects negative counts. A report that forgets validate can send invalid domain data onward.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch07/main.cpp:28-35
+
+------------------------------------------------------------
+
+20. Choose meaning, then delegate
+UML and source walkthrough
+
+SAY
+CountReport decides the field name and asks the writer to display it. This is the high-level operation reached by a render call. The report should know count semantics without knowing punctuation.
+
+Declare a string result for the count operation. Implement the const virtual render operation. The comment identifies the responsibility of this layer. Reject a negative argument using the shared rule. Send the count label and value through the Writer contract. Close CountReport rendering.
+
+The original count reaches Writer unchanged after validation. Calling a concrete formatter here would tie this report to one format.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch07/main.cpp:44-49
+
+------------------------------------------------------------
+
+21. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.
+
+All four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.
+
+Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch07/main.cpp
+
+------------------------------------------------------------
+
+22. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. cb borrows brackets; n = 6. main selects the pairing during construction.
+
+Step 2. validate(6) succeeds; label = count. The report owns the meaning decision.
+
+Step 3. Brackets::field returns [count:6]. The writer owns punctuation.
+
+Step 4. wb.render(5) returns [normal:5]. The report threshold is strictly greater than five.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → trace
+
+------------------------------------------------------------
+
+23. Debug the promise: Duplicate the warning threshold in every writer.
+Execute and debug
+
+SAY
+Duplicate the warning threshold in every writer. One format may print high for 6 while another prints normal. A domain rule has been scattered across format implementations.
+
+All four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.
+
+Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → example.failures
+
+------------------------------------------------------------
+
+24. Debug the promise: Store a reference to a temporary writer in a report.
+Execute and debug
+
+SAY
+Store a reference to a temporary writer in a report. Later rendering uses a destroyed object and has undefined behavior. The borrowed writer must outlive the report.
+
+All four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.
+
+Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → example.failures
+
+------------------------------------------------------------
+
+25. Debug the promise: Use n >= 5 instead of n > 5.
+Execute and debug
+
+SAY
+Use n >= 5 instead of n > 5. The boundary report becomes [high:5] instead of [normal:5]. The code no longer matches the explicit classification rule.
+
+All four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.
+
+Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → example.failures
+
+------------------------------------------------------------
+
+26. Trace 1: Bridge: Plain count
+Trace experiments
+
+SAY
+Bridge: Plain count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The report supplies count and three; Plain joins them with an equals sign.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → dpx-c07-trace-1; companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 2: Bridge: Bracket warning boundary
+Trace experiments
+
+SAY
+Bridge: Bracket warning boundary. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The warning rule chooses normal before the writer adds brackets.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → dpx-c07-trace-2; companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 3: Bridge: High warning
+Trace experiments
+
+SAY
+Bridge: High warning. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Six is above the warning threshold.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → dpx-c07-trace-3; companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 4: Bridge: Negative report input
+Trace experiments
+
+SAY
+Bridge: Negative report input. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+All report forms retain the common nonnegative-count contract.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → dpx-c07-trace-4; companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 5: Bridge: CSV count
+Trace experiments
+
+SAY
+Bridge: CSV count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Adding a writer should not require a new CountReport subclass.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → dpx-c07-trace-5; companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 6: Bridge: CSV warning
+Trace experiments
+
+SAY
+Bridge: CSV warning. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The same warning rule can use the new representation.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → dpx-c07-trace-6; companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 7: Bridge: CSV zero
+Trace experiments
+
+SAY
+Bridge: CSV zero. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Zero remains meaningful; the writer does not reject it.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → dpx-c07-trace-7; companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+33. Trace 8: Bridge: Shared writer, distinct reports
+Trace experiments
+
+SAY
+Bridge: Shared writer, distinct reports. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+One borrowed writer formats two independent report meanings.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → dpx-c07-trace-8; companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+34. Exercise 07.1: Guided modification
+Practice and extension
+
+SAY
+Change the warning threshold to ten. State the warning outputs for 10 and 11 with Plain.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Keep the comparison strict.
+
+After the discussion, compare the reasoning. Use n > 10. The outputs are normal=10 and high=11. No Writer changes because labels and punctuation still follow the same contract.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch07.json → exercises.07.1
+
+------------------------------------------------------------
+
+35. Exercise 07.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+In the supplied main program, add Plain p; WarningReport r(p); then print r.render(0), r.render(5), and r.render(6), each on a new line. Predict the text.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Follow validation, label choice, then Writer::field.
+
+After the discussion, compare the reasoning. The lines are normal=0, normal=5, and high=6. All counts are valid; only six exceeds the threshold.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch07.json → exercises.07.2
+
+------------------------------------------------------------
+
+36. Exercise 07.3: Diagnose a bug
+Practice and extension
+
+SAY
+A Brackets writer prints name + ":0" regardless of n and uses static_cast<void>(n) to suppress the unused-parameter warning. Why can the class compile, and which existing checks catch it?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Signatures cannot prove meaning.
+
+After the discussion, compare the reasoning. It compiles because the return type and parameter types match. The checks for [count:6] and [high:6] fail. The implementation ignores n, violating the writer contract even though it satisfies the C++ type interface.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch07.json → exercises.07.3
+
+------------------------------------------------------------
+
+37. Exercise 07.4: Choose a design
+Practice and extension
+
+SAY
+There will always be exactly one report and two formats selected at compile time. Compare a bridge with two formatting helper functions.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Look for demonstrated independent growth and selection time.
+
+After the discussion, compare the reasoning. Two helpers may be clearer and avoid inheritance. A bridge becomes attractive when multiple reports and independently added runtime writers appear. A template is another reasonable choice if selection stays at compile time and code size remains acceptable.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch07.json → exercises.07.4
+
+------------------------------------------------------------
+
+38. Exercise 07.5: Extend without regressions
+Practice and extension
+
+SAY
+Add a Writer that surrounds fields with braces and uses an equals sign, such as {count=6}. Preserve every existing test and add warning tests at five and six.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The report family should remain unchanged.
+
+After the discussion, compare the reasoning. Implement field to return "{" + name + "=" + std::to_string(n) + "}". Pair it with both reports. Expected warning text is {normal=5} and {high=6}. Only the new writer and its construction/tests need change.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch07.json → exercises.07.5
+
+------------------------------------------------------------
+
+39. Exercise 07.6: Justify a decision
+Practice and extension
+
+SAY
+Explain why Writer should not decide whether a count is high. Give one case where a writer may reject an input.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Separate domain meaning from representational limits.
+
+After the discussion, compare the reasoning. The threshold belongs to the report and must remain the same across formats. A writer may reject a label it cannot encode, such as unsupported control characters, if its contract documents that restriction. It should not silently change the label or numeric meaning.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch07.json → exercises.07.6
+
+------------------------------------------------------------
+
+40. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add a Csv writer producing name,value with no spaces or newline. Support the existing fixed labels count, high, and normal. Keep Report and both concrete report classes unchanged. Preserve all original tests.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: Count six becomes count,6. Warning five becomes normal,5 and warning six becomes high,6. Count zero becomes count,0.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch07/main.cpp
+
+------------------------------------------------------------
+
+41. Extension solution and design review
+Practice and extension
+
+SAY
+The reference solution adds only Csv plus construction and tests. Because the current labels contain no commas or quotes, no escaping is needed for these requirements. A general CSV writer for arbitrary names would need quoting and escaping; the narrow lab contract does not claim to provide that.
+
+Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch07/main.cpp
+
+------------------------------------------------------------
+
+42. Application case 1: defend your choice
+Practice and extension
+
+SAY
+Two report policies must each work with three output formats. The choices change independently. Which structure fits?
+
+Observer. No event subscription requirement appears.
+
+Bridge. Separate report policy from its formatting collaborator.
+
+One subclass for every pair is required. Pairwise subclasses duplicate independent choices.
+
+Prototype. Copying configured objects does not explain the independent dimensions.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → C07.21 scenario
+
+------------------------------------------------------------
+
+43. Application case 2: defend your choice
+Practice and extension
+
+SAY
+The warning rule is n > 5. A report uses n >= 5 instead. What is the boundary defect at 5?
+
+No difference because both tests compare with 5.. Strict and inclusive comparison differ at equality.
+
+It labels 5 high instead of normal.. The requirement excludes equality from the high category.
+
+The writer must reject the entire report.. The writer formats the chosen label; the policy chose it incorrectly.
+
+The program necessarily has undefined behavior.. This is a defined but incorrect decision.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch7.json → C07.22 scenario
+
+------------------------------------------------------------
+
+44. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Separate decisions that change for independent reasons. A bridge is the connection between policy and an interchangeable implementation. The number of combined variants grows as a product. A borrowed implementation must outlive its users. Test both dimensions and meaningful combinations.
+
+Adding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch07.json → summary
+
+------------------------------------------------------------
+
+45. Independence has a price and a limit
+Recall and transfer
+
+SAY
+Bridge is useful because the number of combinations grows as the product of the two choices. Two reports and four formats create eight possible pairings. Separate families can avoid writing a dedicated class for every pairing, but the combination behavior still needs thought and testing. If a new format requires information that field does not carry, forcing it into the interface may create special cases or concrete-type checks. That is evidence to revisit the contract. Sometimes an enum and a small switch is clearer for a closed set. The design is successful when real changes remain local, not when the diagram contains more boxes.
+
+DO
+Propose a format needing structured severity metadata and discuss whether the interface is sufficient.
+
+SOURCE
+manuscript/ch07.json → When the split helps, and when it does not
+
+------------------------------------------------------------
+
+46. Bridge and Adapter can look alike
+Recall and transfer
+
+SAY
+Both designs can show one object forwarding a call to another. That shared shape does not settle their purpose. In Adapter, a useful old service and an established caller disagree about an interface or meaning. In Bridge, we intentionally put reporting and formatting behind a connection so each side can develop independently. A real system can even place an adapter on one side of a bridge. The useful review question is therefore what change this boundary protects against. Here, adding a writer should not duplicate report policy. That story identifies Bridge more clearly than simply noticing a reference member.
+
+DO
+Ask learners to classify a vendor printer wrapper and then a report-format family.
+
+SOURCE
+manuscript/ch07.json → When the split helps, and when it does not
+
+------------------------------------------------------------
+
+47. Defend a new report in plain language
+Recall and transfer
+
+SAY
+Imagine adding a report that labels values above twenty as critical and others as routine. Before writing code, explain why the new labels belong to the report and why every current writer can still display them. Then ask whether the CSV contract remains safe with these fixed words. Existing CountReport and WarningReport tests should stay untouched because their rules have not changed. Add focused tests around twenty and twenty-one and test the new report with more than one writer. This exercise turns a memorized pattern into a maintenance plan: identify the changing responsibility, preserve the shared promise, and verify both the new decision and old behavior.
+
+DO
+Have learners give a one-minute change plan with one threshold test and one cross-format test.
+
+SOURCE
+manuscript/ch07.json → Locate the two decisions before drawing classes

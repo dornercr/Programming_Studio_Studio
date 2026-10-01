@@ -1,0 +1,236 @@
+{
+  "chapter": 56,
+  "title": "Performance Analysis",
+  "opening": [
+    {
+      "title": "A bottleneck is a testable explanation, not a function name",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "concept",
+      "keyPoints": [
+        "Identify the constrained completion metric",
+        "Distinguish computation, data access, and external waiting",
+        "Removing one limit can expose another"
+      ],
+      "narration": "A profile showing that most time is inside process_records does not yet explain the cause. That function may calculate, allocate, wait on a mutex, or stall on memory. A bottleneck is the stage or resource limiting the objective you care about. Form a claim that evidence could disprove: perhaps repeated allocation dominates, or a shared lock serializes workers. Collect the relevant measurements before choosing an optimization. The bottleneck can change with input size, cache state, and concurrency. This chapter uses mathematical ceilings to guide investigation, while keeping those models separate from observed behavior on a real machine.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.004: 56.1 Identifying bottlenecks",
+      "question": {
+        "prompt": "Why is \u201cthis function is hot\u201d not a complete diagnosis?",
+        "answer": "It locates attributed time but may not identify whether computation, memory access, contention, or waiting causes it."
+      }
+    },
+    {
+      "title": "Speeding up a small phase has a limited whole-job effect",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "code",
+      "keyPoints": [
+        "Original model: 20 units compute, 80 units elsewhere",
+        "Twice as fast compute reduces total time to 90",
+        "Whole-job speedup is about 1.11"
+      ],
+      "narration": "The supplied cost model gives computation twenty of the original one hundred time units. Doubling only that phase reduces twenty to ten while the other eighty stay unchanged. Total time becomes ninety, and the whole-job speedup is one hundred divided by ninety, about one point one one. The program prints these modeled values with two decimal places. It does not time a program. This calculation can save wasted work: if most of the user's wait lies outside arithmetic, even a large local improvement has a modest total effect. The model assumes the workload and the other costs truly stay fixed.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.016: 56.7 Amdahl\u2019s law",
+      "question": {
+        "prompt": "Why is the whole program not twice as fast when the compute phase is twice as fast?",
+        "answer": "Only 20% of the original time changed. The unchanged 80% still dominates the total."
+      },
+      "code": {
+        "filename": "sys_ch56_phase_ceiling.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iomanip>\n#include <iostream>\nint main() {\n    const double compute = 20.0, other = 80.0;\n    const double before = compute + other;\n    const double after = compute / 2.0 + other;\n    std::cout << std::fixed << std::setprecision(2);\n    std::cout << \"modeled before=\" << before << \" after=\" << after << '\\n';\n    std::cout << \"whole speedup=\" << before / after << '\\n';\n}\n",
+        "expectedStdout": "modeled before=100.00 after=90.00\nwhole speedup=1.11\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Fixed-workload cost model; no timing is collected."
+      }
+    },
+    {
+      "title": "More workers can lose after coordination cost is included",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "code",
+      "keyPoints": [
+        "25 modeled units remain serial",
+        "75 units divide ideally among workers",
+        "Each additional worker adds 5 modeled coordination units"
+      ],
+      "narration": "This deliberately simple model includes a cost that the ideal formula leaves out. Twenty-five units remain serial, seventy-five divide across workers, and every extra worker adds five units of overhead. Two workers reduce time to sixty-seven point five. Four improve it further to fifty-eight point seventy-five. Eight worsen it to sixty-nine point thirty-eight after rounding because added coordination exceeds the remaining parallel benefit. These numbers are assumptions calculated by the program, not a forecast for a particular processor. The useful question is what real measurements could estimate or disprove each modeled component.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.018: Worked example \u2014 Quantify the improvement ceiling",
+      "question": {
+        "prompt": "Why does the eight-worker case lose to the four-worker case in this model?",
+        "answer": "The additional coordination cost is larger than the saved parallel work. More resources do not make unchanged and added costs disappear."
+      },
+      "code": {
+        "filename": "sys_ch56_overhead_scaling.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iomanip>\n#include <iostream>\nint main() {\n    std::cout << std::fixed << std::setprecision(2);\n    for (int workers : std::array<int, 4>{1, 2, 4, 8}) {\n        const double cost = 25.0 + 75.0 / workers + 5.0 * (workers - 1);\n        std::cout << \"workers=\" << workers << \" modeled-time=\" << cost << '\\n';\n    }\n}\n",
+        "expectedStdout": "workers=1 modeled-time=100.00\nworkers=2 modeled-time=67.50\nworkers=4 modeled-time=58.75\nworkers=8 modeled-time=69.38\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Amdahl-style model with explicit added overhead; not measured scaling."
+      }
+    },
+    {
+      "title": "Read Amdahl\u2019s equation as a time accounting statement",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "concept",
+      "keyPoints": [
+        "Normalize old time to one",
+        "Keep serial fraction s unchanged",
+        "Divide the remaining fraction by worker count p",
+        "Invert the new time to obtain speedup"
+      ],
+      "narration": "The expression s plus one minus s divided by p describes normalized new time under ideal parallelization of a fixed workload. If s is one fifth and p is four, the unchanged part takes point two and the parallel part takes point two, for point four total. Inverting gives a speedup of two point five. With indefinitely many ideal workers, the remaining serial fraction limits speedup to one over s, which is five here. The arithmetic is not the uncertain part. The uncertain assumptions are whether the fraction stays fixed, overhead is negligible, and enough independent work exists to keep workers useful.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.016: 56.7 Amdahl\u2019s law",
+      "question": {
+        "prompt": "For a positive serial fraction, what happens to the ideal speedup as worker count grows without bound?",
+        "answer": "It approaches 1 divided by the serial fraction. The unchanged portion remains even when parallel work becomes arbitrarily small."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "CPU-bound does not mean every instruction matters equally",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "concept",
+      "keyPoints": [
+        "Dependencies can serialize a short operation chain",
+        "Independent instructions may overlap",
+        "The hot generated code matters only within the actual bottleneck"
+      ],
+      "narration": "A computation can be limited by arithmetic while still responding differently to two instruction reductions. Removing an instruction off the critical path may change little if other work overlaps it. Shortening a dependent chain can reduce latency more directly because each step waits for the previous result. Branch behavior, vectorization, and execution-unit capacity add other limits. Establish that the phase is actually compute-bound before studying the generated instructions in detail. Otherwise a beautiful arithmetic rewrite may leave the program waiting on the same memory access or remote service as before.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.006: 56.2 CPU-bound workloads",
+      "question": {
+        "prompt": "Why might removing ten instructions have less effect than shortening one dependency chain?",
+        "answer": "Independent work can overlap, while a serial dependency chain can directly determine when the next result becomes available."
+      }
+    },
+    {
+      "title": "A memory ceiling connects useful work to required bytes",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "concept",
+      "keyPoints": [
+        "Arithmetic intensity is operations per byte transferred",
+        "0.125 operations per byte \u00d7 40 GB/s gives 5 billion operations/s",
+        "Reuse changes the required traffic"
+      ],
+      "narration": "A memory-bound workload waits for data access rather than available arithmetic capacity. The source's roof model uses one eighth of an operation per transferred byte and forty billion bytes per second of bandwidth. Multiplying yields five billion operations per second under those assumptions. A processor capable of far more arithmetic cannot exceed that rate without reducing required traffic or improving reuse. Dependent-load latency is another possible limit that a bandwidth number alone may miss. Measure the actual access pattern and working set, then consider compact data, blocking, or fewer pointer traversals instead of only reducing arithmetic instructions.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.008: 56.3 Memory-bound workloads",
+      "question": {
+        "prompt": "What can raise the modeled bandwidth ceiling without increasing physical bandwidth?",
+        "answer": "Increasing useful operations per required transferred byte through reuse or reduced traffic, while preserving the computation\u2019s contract."
+      }
+    },
+    {
+      "title": "Waiting on I/O changes the useful optimization choices",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "concept",
+      "keyPoints": [
+        "Reduce requests or batch them",
+        "Overlap only independent work",
+        "More concurrency can overload the dependency"
+      ],
+      "narration": "If the critical path waits for a storage device or service, adding arithmetic throughput may have little effect. Batching can reduce fixed per-request cost, caching can avoid requests, and independent work can overlap waiting. But a saturated dependency has finite capacity. Sending more concurrent requests can increase queueing and tail latency without improving completions. Separate the service's work time from time spent waiting in front of it. A useful experiment changes one source of demand and measures both throughput and latency, rather than declaring more threads successful because all of them are busy or blocked.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.010: 56.4 I/O-bound workloads",
+      "question": {
+        "prompt": "Why might adding workers make an I/O-bound service slower for each user?",
+        "answer": "The extra requests can deepen the queue at an already saturated dependency, increasing latency without increasing its completion capacity."
+      }
+    },
+    {
+      "title": "Profiles and counters are evidence with definitions",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "concept",
+      "keyPoints": [
+        "Sampling estimates where execution spends time",
+        "Instrumentation can perturb the work",
+        "Hardware events need understood meanings and access"
+      ],
+      "narration": "A sampling profile estimates where execution was observed; it does not automatically measure every call exactly. Instrumentation records selected events more directly but adds work that can change the behavior being studied. Hardware counters can help distinguish misses, branches, and instructions, but their definitions, multiplexing, and permissions matter. In restricted environments, perf access may be unavailable. Report that limitation rather than filling the gap with invented counts. Connect each tool result to a hypothesis and a completion metric. A lower cache-miss count can explain a change, but the application still has to finish the required work correctly and usefully.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.012: 56.5 Profiling",
+      "question": {
+        "prompt": "What should a report say if hardware counters are unavailable in the execution environment?",
+        "answer": "State that the counter check could not be performed, report the evidence actually collected, and avoid inventing or inferring precise counts."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Strong and weak scaling ask different questions",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "concept",
+      "keyPoints": [
+        "Strong: fixed total problem, more resources",
+        "Weak: larger total problem as resources increase",
+        "State input size alongside worker count"
+      ],
+      "narration": "Strong scaling asks how quickly the same fixed job can finish with more resources. Weak scaling asks whether resources can handle a proportionally larger job at a similar per-resource load. A graph that changes both input size and workers without saying so can make results hard to interpret. Load imbalance, synchronization, memory bandwidth, and setup costs affect both experiments differently. Keep the sequential result or another trusted reference for correctness. Report useful throughput and latency alongside CPU use, and avoid interpreting high utilization as evidence that scaling is efficient when workers may be contending or repeating work.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.014: 56.6 Scaling",
+      "question": {
+        "prompt": "A run doubles workers and doubles input size while preserving duration. Is that strong scaling evidence?",
+        "answer": "It is a weak-scaling-style result. Strong scaling holds total input size fixed."
+      }
+    },
+    {
+      "title": "Use a ceiling to prioritize, then verify the revised system",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 56",
+      "kind": "concept",
+      "keyPoints": [
+        "Estimate the maximum plausible total benefit",
+        "Measure one targeted change",
+        "Check whether the bottleneck moved",
+        "Keep the model\u2019s assumptions visible"
+      ],
+      "narration": "A ceiling is valuable even when it is not a precise prediction. If a phase takes only five percent of total time, eliminating it entirely cannot save more than that fraction under the fixed-cost model. That may guide effort toward a larger wait or repeated allocation. After the change, measure again: removing one constraint can expose another, and the old fractions may no longer apply. Retain the workload, output check, build configuration, and uncertainty report so the comparison is reviewable. Performance analysis is an iterative explanation of observed limits, not a single formula that stays true after every architecture change.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch56.json \u2192 SP56.024: Guided lab and review",
+      "question": {
+        "prompt": "Why should the old Amdahl fraction be reconsidered after a major architecture change?",
+        "answer": "The workload distribution, overhead, and unaffected costs may have changed, invalidating the original fixed-fraction model."
+      }
+    }
+  ]
+}

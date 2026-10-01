@@ -1,0 +1,224 @@
+{
+  "chapter": 29,
+  "title": "Cache Organization",
+  "opening": [
+    {
+      "title": "Find the eligible set before searching for a block",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "concept",
+      "keyPoints": [
+        "Line size, set count, and ways are separate dimensions",
+        "A block maps to one eligible set in this model",
+        "Associativity controls choices within that set"
+      ],
+      "narration": "A cache does not usually let every block occupy every slot. In a set-associative model, an address selects one set and the block may use one of that set’s ways. Two ways means two possible positions inside each set, not two sets total. Keeping these quantities separate prevents incorrect capacity and indexing calculations. The block is the transferred unit of data; a cache line stores a resident block together with identifying state. We will calculate geometry first, then examine why a matching tag alone is not enough to call an access a hit. These are explicit modulo-indexed models, not universal hardware layouts.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch29.json → SP29.010: 29.4 Cache sets",
+      "question": {
+        "prompt": "How many line slots are in four sets with two ways each?",
+        "answer": "Eight line slots; associativity counts positions within each set."
+      }
+    },
+    {
+      "title": "Derive the set count from capacity and associativity",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "code",
+      "keyPoints": [
+        "128 data bytes / 16-byte lines = eight slots",
+        "Eight slots / two ways = four sets",
+        "Address 112 maps to block seven, set three, tag one"
+      ],
+      "narration": "The program starts with one hundred twenty-eight bytes of data capacity, sixteen bytes per line, and two ways per set. It derives eight slots and four sets, then decomposes address one hundred twelve. Division by sixteen gives block seven; remainder modulo four gives set three; division by four gives tag one. The first output line checks the geometry and the second checks the address. Metadata storage is excluded from the capacity in this model. All values are fixed valid constants, so a general configuration parser would still need divisibility and nonzero checks before applying these formulas to user input.",
+      "actions": [
+        "Predict exact output, run the complete program, then separate the measured fact from the declared model assumptions."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch29.json → SP29.024: Worked example — Finding set and tag bits",
+      "question": {
+        "prompt": "Why is tag one different from set three?",
+        "answer": "The set selects eligible slots; the tag distinguishes which block among those mapping to that set is requested."
+      },
+      "code": {
+        "filename": "sys_ch29_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    constexpr unsigned capacity = 128, line_bytes = 16, ways = 2;\n    constexpr unsigned slots = capacity/line_bytes;\n    constexpr unsigned sets = slots/ways;\n    constexpr unsigned address = 112;\n    const unsigned block = address/line_bytes;\n    std::cout << \"slots=\" << slots << \" sets=\" << sets << \" ways=\" << ways << '\\n';\n    std::cout << \"block=\" << block << \" set=\" << block%sets << \" tag=\" << block/sets << '\\n';\n}\n",
+        "expectedStdout": "slots=8 sets=4 ways=2\nblock=7 set=3 tag=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Fixed valid modulo-indexed geometry; capacity counts data bytes only."
+      }
+    },
+    {
+      "title": "A tag is meaningful only in a valid resident line",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "concept",
+      "keyPoints": [
+        "Empty storage can contain any bit pattern",
+        "Validity separates absence from a tag value",
+        "Tag zero must remain a legitimate identity"
+      ],
+      "narration": "A newly created cache model may initialize every numeric tag to zero. That does not mean block zero is already loaded. The line needs a validity state that distinguishes an empty slot from a resident tag whose value happens to be zero. Otherwise the first request for block zero becomes a false hit. The distinction resembles optional values elsewhere in the course: absence and ordinary content are different facts. Real cache metadata can include dirty and coherence state too. Our basic read model isolates validity and tag matching, so it does not establish whether a write already holds the required coherence permission.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch29.json → SP29.012: 29.5 Tags",
+      "question": {
+        "prompt": "Why is zero a poor empty-tag marker for an unsigned address model?",
+        "answer": "Zero is a valid tag, so the marker collides with a legitimate cached block identity."
+      }
+    },
+    {
+      "title": "Search every eligible way and require validity",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "code",
+      "keyPoints": [
+        "The model set has two ways",
+        "An invalid zero tag must not match",
+        "A valid tag one can hit the second way"
+      ],
+      "narration": "The two-way set begins with one invalid entry whose stored tag is zero and one valid entry holding tag one. A naive comparison against the first stored tag prints true for zero, but the correct search prints false because that entry is invalid. Searching for one returns true from the second way. This demonstrates both requirements: inspect all eligible ways and ignore invalid entries. The function borrows the fixed array and does not modify it, so no replacement policy is involved yet. A miss would require a separate decision about which way to fill or evict. Matching logic and replacement are distinct parts of cache organization.",
+      "actions": [
+        "Predict exact output, run the complete program, then separate the measured fact from the declared model assumptions."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch29.json → SP29.018: 29.8 Set-associative caches",
+      "question": {
+        "prompt": "Why is checking only way zero incorrect even after adding a valid bit?",
+        "answer": "Another eligible way may contain the requested valid tag, as tag one does in this example."
+      },
+      "code": {
+        "filename": "sys_ch29_valid_ways.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\nstruct Line { bool valid; unsigned tag; };\nbool hit(const std::array<Line,2>& set, unsigned requested) {\n    for (const auto& line : set)\n        if (line.valid && line.tag == requested) return true;\n    return false;\n}\nint main() {\n    const std::array<Line,2> set{{{false,0},{true,1}}};\n    std::cout << std::boolalpha;\n    std::cout << \"tag-only-zero=\" << (set[0].tag == 0) << '\\n';\n    std::cout << \"valid-zero=\" << hit(set,0) << '\\n';\n    std::cout << \"valid-one=\" << hit(set,1) << '\\n';\n}\n",
+        "expectedStdout": "tag-only-zero=true\nvalid-zero=false\nvalid-one=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Read-only lookup in one modeled two-way set; no replacement or coherence policy is modeled."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Direct mapping is one way per set",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "concept",
+      "keyPoints": [
+        "Each block has one eligible slot",
+        "Conflicting blocks can evict each other repeatedly",
+        "Unused slots elsewhere cannot accept them under the rule"
+      ],
+      "narration": "With four sets and one way, blocks zero and four both map to set zero. Alternating between them can cause repeated misses even if sets one, two, and three remain unused. The trouble is restricted placement, not necessarily insufficient total capacity. A two-way version might retain both in set zero, while a different layout could map the data to different sets. Neither change is automatically faster on a real machine because lookup cost and other workload details also matter. First identify the model’s eligible positions, then explain the collision before proposing a fix.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch29.json → SP29.016: 29.7 Direct-mapped caches",
+      "question": {
+        "prompt": "Why can a cache miss occur while other sets are empty?",
+        "answer": "The requested block may be restricted to a full conflicting set and cannot use those other slots under the indexing rule."
+      }
+    },
+    {
+      "title": "Bit extraction follows from power-of-two geometry",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "concept",
+      "keyPoints": [
+        "Offset bits select a byte within the line",
+        "Index bits select the set",
+        "Remaining high bits form the tag in this model"
+      ],
+      "narration": "For sixteen-byte lines, four low bits form the line offset. With four sets, the next two bits select the set. The remaining high bits identify the tag under this simple model. Division and remainder express the same decomposition for these powers of two. But actual cache indexing can include more complex functions, and a generic numeric exercise may use positive sizes that are not powers of two. State the geometry and indexing assumption before drawing bit fields. A mask copied from a four-set example will not correctly describe an eight-set model merely because both use the same integer address type.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch29.json → SP29.014: 29.6 Cache indexing",
+      "question": {
+        "prompt": "How many set-index bits are needed for eight sets under a power-of-two modulo model?",
+        "answer": "Three set-index bits, separate from the line-offset bits."
+      }
+    },
+    {
+      "title": "Associativity reduces some conflicts but not all misses",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "concept",
+      "keyPoints": [
+        "Two ways retain at most two blocks in one set",
+        "Three colliding blocks can still thrash",
+        "Capacity and replacement remain relevant"
+      ],
+      "narration": "Increasing ways gives each block more eligible resident positions, but it does not create unlimited storage. Three blocks repeatedly targeting a two-way set can still evict useful entries. A fully associative model removes set-index restrictions by permitting any line slot, yet it still has finite capacity and must choose a victim when full. This distinction is useful when reviewing an optimization claim: more associativity can reduce placement conflicts, but it cannot keep an arbitrarily large working set resident. Real hardware also pays for more complex tag lookup and replacement bookkeeping. Explain the access trace and capacity before predicting a benefit.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch29.json → SP29.018: 29.8 Set-associative caches",
+      "question": {
+        "prompt": "What limit remains even in a fully associative cache?",
+        "answer": "Finite total line capacity and the need for a replacement policy when all slots are occupied."
+      }
+    },
+    {
+      "title": "Lookup does not decide how a miss changes state",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "concept",
+      "keyPoints": [
+        "Indexing identifies eligible slots",
+        "Lookup tests whether usable data is present",
+        "Replacement chooses a victim after a miss"
+      ],
+      "narration": "Our tag-search program returns a Boolean and leaves its set unchanged. That is a lookup operation. A complete cache model also needs to fill a missing block and decide which eligible line to replace. Mixing these stages can hide bugs: code may update a tag before recording whether the access was a hit, causing every request to appear successful. Compute the observation from the old state, then update according to the policy. In maintenance tests, verify both the returned result and the resulting resident state. A correct index formula alone does not establish that the next access will behave correctly.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch29.json → SP29.008: 29.3 Cache slots",
+      "question": {
+        "prompt": "Why must a miss/hit classification be made before installing the requested tag?",
+        "answer": "Installing first can make the new tag match itself and falsely classify the original miss as a hit."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Configuration checks protect the formulas",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "concept",
+      "keyPoints": [
+        "Reject zero line size and zero set count",
+        "Separate data capacity from metadata overhead",
+        "Verify first and last bytes of one block"
+      ],
+      "narration": "A configurable decomposition function receives geometry as data, so it cannot assume that every input was chosen by a textbook author. Division by zero is invalid, and inconsistent capacity, line size, and associativity can produce a meaningless organization. The source lab rejects zero line size and zero set count before division. Our capacity-derived demonstration uses fixed divisible constants; a generalized version should also reject a nonintegral number of lines or sets. Test both the first and final byte of one block to show that offset changes while set and tag remain stable. These boundary tests make future configuration changes safer.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch29.json → SYS29.13: Implementation lab: Decompose a cache address for variable geometry",
+      "question": {
+        "prompt": "What should happen when a caller supplies zero line size?",
+        "answer": "Reject it before any division or remainder operation; it does not describe valid geometry."
+      }
+    },
+    {
+      "title": "Describe a resident block with all the needed facts",
+      "eyebrow": "SYSTEMS / CHAPTER 29",
+      "kind": "concept",
+      "keyPoints": [
+        "Address decomposition identifies where to look",
+        "Valid tags identify what is actually resident",
+        "Access state determines whether the request can proceed"
+      ],
+      "narration": "Reconstruct cache organization from one request. The byte address identifies a block and offset. The indexing rule identifies a set. The cache examines eligible ways for a valid matching tag, and any additional access state must permit the operation. Only then does the offset select the requested byte. If no usable line exists, a fill and replacement policy changes the state for later requests. This description connects geometry to behavior without equating a mathematical set number with a hit. Keep that distinction as the course moves to cache traces: a correct address split is necessary, but the history of accesses determines what is resident.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch29.json → SP29.030: Chapter Synthesis",
+      "question": {
+        "prompt": "Does knowing set and tag prove that the requested data is currently cached?",
+        "answer": "No. The corresponding set must actually contain a valid usable line with that tag."
+      }
+    }
+  ]
+}

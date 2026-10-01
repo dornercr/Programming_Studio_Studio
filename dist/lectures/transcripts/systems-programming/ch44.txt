@@ -1,0 +1,728 @@
+Systems Programming and Machine Organization
+Chapter 44: Threads: identities, completion, and lifetime
+Dr. Charles Dorner
+
+1. A thread is work with a lifetime
+Problem and first experiment
+
+SAY
+Starting a thread creates a new execution stream that may begin before the creator reaches its next statement. Prepare every referenced object first. The creator also needs a policy for collecting the work, even if a later setup step throws. A thread handle is therefore more than a launch button: it represents a lifecycle obligation. C++20 jthread helps by requesting stop and joining during destruction when appropriate. That does not force a blocked worker to finish or keep an already-destroyed captured object alive. Design the worker's inputs, owner, stop condition, and join point together before testing its result.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.004
+
+------------------------------------------------------------
+
+2. Capture identity by value and storage by reference
+Problem and first experiment
+
+SAY
+A loop that launches workers has two different kinds of data. The task index identifies which job this worker should do, so each worker needs its own copied value. The result array is shared storage owned by the parent, so each worker can borrow a reference if the array outlives the work. Capturing the changing loop index by reference may make all workers use the same final value and may introduce conflicting access. The repair is not a lucky delay. Capture the intended identity by value and give each worker a distinct output slot, then join before the parent reads those slots.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.004
+
+------------------------------------------------------------
+
+3. Run workers whose identities cannot drift
+Problem and first experiment
+
+SAY
+The loop creates three jthreads. The capture list takes id by value and results by reference. Each worker stores ten plus its own index into one distinct array element. The vector of thread owners lives in an inner scope, so leaving that scope joins the workers before printing. The output is 10 11 12 even if worker two finishes first. Distinct ordinary array elements are separate locations for this access pattern, and no worker resizes the array. The example does not promise a particular launch order or performance gain. Its result follows from stable identities, separate writes, sufficient storage lifetime, and the join boundary.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch44.json → SP44.018
+
+------------------------------------------------------------
+
+4. A worker exception needs an explicit channel
+Problem and first experiment
+
+SAY
+An exception escaping an ordinary C++ thread function does not automatically travel to its creator. This example catches the failure inside the worker and stores an exception_ptr, a handle to the captured exception. Main joins before inspecting that handle, so the worker's write and the parent's read are ordered. Rethrowing in main reaches the normal catch and prints caught: bad sample. The demonstration uses one writer and a join, so it does not need a mutex for concurrent handle access. A design that inspects failures while workers continue would need another synchronization rule. Error transport, like result transport, must be part of the thread contract.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch44.json → SP44.006
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Two threads sum disjoint halves of four readings. Each writes a separate result slot; main combines the results only after both joins.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Sum a vector with two asynchronous workers, splitting at size/2. Keep the input alive until both results are obtained and support empty and odd-length inputs.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Reading partial before the joins can race with a worker’s write. Letting a joinable std::thread be destroyed calls std::terminate.
+
+A related failure in the generalized operation is concrete: Give each worker size/2 elements starting at worker*(size/2). For five elements, the fifth is omitted.
+
+The repair changes the operation at the point where the rule can be enforced: Use the actual size as the second range’s end. Check empty, one-element, even, and odd sizes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The half-open ranges [0,middle) and [middle,size) meet without overlap or a gap. Futures return values, so workers need no shared mutable accumulator. get waits for completion and propagates worker exceptions. The input remains borrowed until both asynchronous tasks finish; this lab assumes the small input sums fit in long long. Parallelism is an implementation exercise, not a speed claim.
+
+A plausible alternative: A sequential std::accumulate is the practical choice for small ranges.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.03
+
+------------------------------------------------------------
+
+8. Chapter 44 — Threads
+Systems mechanisms and source lecture
+
+SAY
+A thread’s lifecycle includes creation, execution, completion, and collection or joining. Shared objects must outlive every thread that accesses them, and exceptions during setup must not leave unowned running work. C++20’s std::jthread provides joining ownership, but it does not automatically solve a worker that waits forever. [ R34 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.001, SP44.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+44.1 Thread creation 44.2 Thread termination 44.3 Joining 44.4 Shared address spaces ...plus 7 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.003
+
+------------------------------------------------------------
+
+10. Thread creation
+Systems mechanisms and source lecture
+
+SAY
+Creating a thread starts a new execution stream with a callable and arguments. Creation can fail because resources are unavailable. The new thread may begin executing before the constructor’s caller reaches its next statement. Prepare shared state before launching the worker. Capture references only to objects whose lifetimes extend through completion. Capturing a loop variable by reference can accidentally make several workers observe the same changing variable instead of distinct task indexes; capture each intended index by value.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.004, SP44.005
+
+------------------------------------------------------------
+
+11. Thread termination
+Systems mechanisms and source lecture
+
+SAY
+A thread normally terminates by returning from its callable. An uncaught exception escaping a C++ thread function causes termination of the program under the standard thread interface; it is not automatically delivered to the creating thread. Catch worker failures inside the callable when recovery or reporting is required, and communicate them through an explicit channel such as an exception pointer protected by synchronization. Cooperative cancellation also requires the worker to check or wait on a supported stop condition; a stop request does not forcibly interrupt arbitrary blocking work.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.006, SP44.007
+
+------------------------------------------------------------
+
+12. Joining
+Systems mechanisms and source lecture
+
+SAY
+Joining waits for a thread to finish and establishes the synchronization needed to observe its completed work. A std::thread must be joined or detached before its joinable destructor runs; otherwise the program terminates. std::jthread requests stop and joins during destruction when appropriate. Automatic joining is ownership help, not a deadlock cure. Destroying a joining thread object while holding a mutex the worker needs can block forever. Scope objects so that locks are released and shutdown conditions are established before joining.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.008, SP44.009
+
+------------------------------------------------------------
+
+13. Shared address spaces
+Systems mechanisms and source lecture
+
+SAY
+Threads can access the same globals, heap objects, and explicitly shared stack objects. Shared addressability does not imply permission to perform unsynchronized conflicting operations. Ordinary mutable state needs ownership or synchronization. Read-only data is simpler, but its initialization must be safely published and its lifetime maintained. A pointer to immutable bytes is still unsafe after the owner destroys or reallocates the storage.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.010, SP44.011
+
+------------------------------------------------------------
+
+14. Thread-local state
+Systems mechanisms and source lecture
+
+SAY
+Thread-local state gives each thread a distinct instance, reducing accidental sharing. C++ thread_local variables have thread storage duration and initialization/destruction rules that differ from automatic locals. Thread-local counters can reduce contention, but an aggregate result still requires a collection phase. Thread-local storage also consumes resources per thread, so a design with enormous thread counts can multiply memory costs.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.012, SP44.013
+
+------------------------------------------------------------
+
+15. Thread stacks
+Systems mechanisms and source lecture
+
+SAY
+Each thread has a stack for its calls and automatic storage under the usual implementation model. A pointer into another thread’s stack can be shared, but the designated object must remain alive and accesses must be synchronized. Large automatic arrays and deep recursion multiply stack pressure across threads. A thread-per-connection server can consume substantial virtual and committed resources even when each worker appears simple. Resource budgeting should include stack and scheduler overhead, not only application payload buffers.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.014, SP44.015
+
+------------------------------------------------------------
+
+16. Thread scheduling
+Systems mechanisms and source lecture
+
+SAY
+The scheduler decides when runnable threads execute. Thread creation order does not determine completion order. A blocked thread may not resume immediately when its condition becomes true because it must also obtain CPU time and any required lock. Avoid using sleeps to establish correctness. A delay that appears sufficient on one machine can fail under load, debugging, or different scheduling. Use joins, mutexes, condition variables, or explicit atomic protocols to express the required relationship.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.016, SP44.017
+
+------------------------------------------------------------
+
+17. Independent partial sums
+Systems mechanisms and source lecture
+
+SAY
+Four workers sum disjoint ranges of the integers 1 through 100. Each writes a distinct array element. The parent combines results only after the worker owners leave scope and join. Companion listing: ch44/partial_sums.cpp The expected result is 5050. There is no conflicting access to the same array element during worker execution, and joining completes before the parent’s reads. Adjacent elements may still share a cache line, so the design can exhibit false sharing in a more write-intensive workload without containing a language-level data race. This example demonstrates correctness, not useful speedup for 100 additions. Thread creation overhead is likely to dominate such a small workload. A performance experiment should reuse workers or use sufficiently large tasks while preserving the same partitioning argument.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.018, SP44.019
+
+------------------------------------------------------------
+
+18. Joining a worker
+Systems mechanisms and source lecture
+
+SAY
+A main thread launches a worker to compute a partial result. If main reads the result before synchronizing, it may observe incomplete state. Calling join waits for the worker to terminate and establishes the required completion relationship for the thread abstraction. After joining, resources associated with a joinable thread can be reclaimed according to the API.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.020, SP44.021
+
+------------------------------------------------------------
+
+19. Thread-local versus shared state
+Systems mechanisms and source lecture
+
+SAY
+An automatic local variable inside a thread function typically resides in that thread’s stack, while a global variable is in the process address space shared by all threads. Two threads can each have distinct local counters but race on the shared global counter. Storage placement affects sharing semantics.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.022, SP44.023
+
+------------------------------------------------------------
+
+20. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 44. Generalize to a runtime element count that is not divisible by the worker count. Define nonoverlapping half-open ranges and verify that every element belongs to exactly one worker. Compare against a sequential reference result. Review 1. Why capture id by value? Review 2. Why is automatic joining insufficient when a worker’s wait predicate never becomes true?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.024, SP44.025
+
+------------------------------------------------------------
+
+21. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is threads. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.026
+
+------------------------------------------------------------
+
+22. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Race Conditions.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.027
+
+------------------------------------------------------------
+
+23. Join means completion and an ordering guarantee
+Reason about the implementation
+
+SAY
+A join is useful even when the worker has already returned. It collects the thread's completion and supplies the synchronization relationship needed for the parent's later reads. It is not merely a request to wait a certain number of milliseconds. In our array example, no parent read occurs until every worker owner has joined. Replacing that boundary with a sleep would remove the proof because scheduling can delay a worker beyond the guessed duration. Conversely, joining immediately after every launch may make intended parallel work run one worker at a time. Choose the completion boundary according to the data dependency, not simply the next convenient line.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.008
+
+------------------------------------------------------------
+
+24. Automatic joining cannot solve an impossible wait
+Reason about the implementation
+
+SAY
+Imagine a worker waiting for a queue to close, while its owner destroys a jthread without first closing the queue. Automatic joining now waits for a worker that has no reason to return. A stop request helps only if the worker checks it or uses a wait integrated with that request. Another trap is destroying the thread owner while holding a mutex the worker needs to finish. The owner waits for the worker, and the worker waits for the owner to release the lock. Scope design must release locks and establish shutdown conditions before joining. Resource cleanup order is part of the progress proof.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.008
+
+------------------------------------------------------------
+
+25. Stack location does not prevent sharing
+Reason about the implementation
+
+SAY
+A local variable usually lives in one thread's stack frame, but another thread can access it if given a pointer or reference. The word local describes declaration scope, not a magical barrier against sharing. If the frame ends while the worker still uses the reference, the worker has a lifetime error even if only one thread writes. Separately, thousands of threads can reserve substantial stack resources, and large local arrays or deep recursion increase pressure. A thread-per-request design needs a resource budget as well as a synchronization plan. Sometimes a bounded worker pool is easier to control than an unbounded number of individually simple workers.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.014
+
+------------------------------------------------------------
+
+26. Thread-local data reduces sharing but needs collection
+Reason about the implementation
+
+SAY
+A thread_local counter gives each thread its own instance, so updates do not all contend for one shared counter. That does not automatically provide a global result. The program needs a collection phase while the relevant values still exist, or workers can return ordinary partial results to an owner. Thread-local initialization and destruction follow thread lifetime rather than one function call, which matters in a reused worker pool. Cached state can survive from one task to another unless deliberately reset. Use thread-local storage for a clear per-thread requirement, and account for its memory cost multiplied by the number of workers.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.012
+
+------------------------------------------------------------
+
+27. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Two threads sum disjoint halves of four readings. Each writes a separate result slot; main combines the results only after both joins.
+
+Start the workers. a writes slot 0; b writes slot 1. The input is read-only and result slots are distinct int objects.
+
+Join both threads. both result writes are complete. A successful join synchronizes with completion, so main may read the results afterward.
+
+Combine. 3 + 7 = 10. The array and its elements stay alive until after both workers finish.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch44/main.cpp
+
+------------------------------------------------------------
+
+28. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Start the workers. a writes slot 0; b writes slot 1. The input is read-only and result slots are distinct int objects.
+
+Join both threads. both result writes are complete. A successful join synchronizes with completion, so main may read the results afterward.
+
+Combine. 3 + 7 = 10. The array and its elements stay alive until after both workers finish.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch44/main.cpp
+
+------------------------------------------------------------
+
+29. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The half-open ranges [0,middle) and [middle,size) meet without overlap or a gap. Futures return values, so workers need no shared mutable accumulator. get waits for completion and propagates worker exceptions. The input remains borrowed until both asynchronous tasks finish; this lab assumes the small input sums fit in long long. Parallelism is an implementation exercise, not a speed claim.
+
+Use the actual size as the second range’s end. Check empty, one-element, even, and odd sizes.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch44/main.cpp:1-15
+
+------------------------------------------------------------
+
+30. Join workers before consuming their results
+Code, diagrams, and debugging
+
+SAY
+Join workers before consuming their results. The lambda captures the arrays by reference. Worker A writes only partial[0] and reads the first two immutable inputs.
+
+Two threads sum disjoint halves of four readings. Each writes a separate result slot; main combines the results only after both joins.
+
+The input is read-only and result slots are distinct int objects. A successful join synchronizes with completion, so main may read the results afterward. The array and its elements stay alive until after both workers finish.
+
+The lambda captures the arrays by reference. Worker A writes only partial[0] and reads the first two immutable inputs.
+
+Worker B writes a distinct array element and reads the other inputs, so the workers do not race on the same scalar location.
+
+join waits for A to finish and establishes visibility of A’s completed writes. The referenced arrays remain alive.
+
+Join B before combining both partial sums. Production thread startup needs cleanup if creating a later worker throws; the lab uses futures to manage this boundary.
+
+The input stays immutable and alive, and each worker writes a different partial element. Both joins finish before main combines the values.
+
+Reading partial before the joins can race with a worker’s write. Letting a joinable std::thread be destroyed calls std::terminate. In the extended lab: Give each worker size/2 elements starting at worker*(size/2). For five elements, the fifth is omitted.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch44/main.cpp:9-12
+
+------------------------------------------------------------
+
+31. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Give each worker size/2 elements starting at worker*(size/2). For five elements, the fifth is omitted.
+
+Use the actual size as the second range’s end. Check empty, one-element, even, and odd sizes.
+
+The reference solution makes the contract executable with assertions. The half-open ranges [0,middle) and [middle,size) meet without overlap or a gap. Futures return values, so workers need no shared mutable accumulator. get waits for completion and propagates worker exceptions. The input remains borrowed until both asynchronous tasks finish; this lab assumes the small input sums fit in long long. Parallelism is an implementation exercise, not a speed claim.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.06
+
+------------------------------------------------------------
+
+32. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch44/starter.cpp. Implement the first acceptance case for partition an uneven range safely. State the function inputs and result before adding code. First case: {1,2,3,4,5} totals 15 with no lost element.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.07
+
+------------------------------------------------------------
+
+33. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch44/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.08
+
+------------------------------------------------------------
+
+34. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Give each worker size/2 elements starting at worker*(size/2). For five elements, the fifth is omitted. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.09
+
+------------------------------------------------------------
+
+35. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Is using two threads faster for these four integers? Compare the selected design with this plausible alternative: A sequential std::accumulate is the practical choice for small ranges.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.10
+
+------------------------------------------------------------
+
+36. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch44/starter.cpp. Sum a vector with two asynchronous workers, splitting at size/2. Keep the input alive until both results are obtained and support empty and odd-length inputs. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch44/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.11
+
+------------------------------------------------------------
+
+37. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Partition an uneven range safely belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.12
+
+------------------------------------------------------------
+
+38. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Sum a vector with two asynchronous workers, splitting at size/2. Keep the input alive until both results are obtained and support empty and odd-length inputs.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch44/starter.cpp
+
+------------------------------------------------------------
+
+39. Review the extension solution
+Practice and extension
+
+SAY
+The half-open ranges [0,middle) and [middle,size) meet without overlap or a gap. Futures return values, so workers need no shared mutable accumulator. get waits for completion and propagates worker exceptions. The input remains borrowed until both asynchronous tasks finish; this lab assumes the small input sums fit in long long. Parallelism is an implementation exercise, not a speed claim. Repair principle: Use the actual size as the second range’s end. Check empty, one-element, even, and odd sizes.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Use the actual size as the second range’s end. Check empty, one-element, even, and odd sizes.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch44/solution.cpp
+
+------------------------------------------------------------
+
+40. Application case: Threads
+Practice and extension
+
+SAY
+Two threads in one process use a global object.
+
+What should the design assume?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.CASE
+
+------------------------------------------------------------
+
+41. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The half-open ranges [0,middle) and [middle,size) meet without overlap or a gap. Futures return values, so workers need no shared mutable accumulator. get waits for completion and propagates worker exceptions. The input remains borrowed until both asynchronous tasks finish; this lab assumes the small input sums fit in long long. Parallelism is an implementation exercise, not a speed claim.
+
+Choose a simpler approach when its narrower contract is enough. A sequential std::accumulate is the practical choice for small ranges.
+
+When this system changes, retain a check that exposes the known failure: Give each worker size/2 elements starting at worker*(size/2). For five elements, the fifth is omitted. Use the actual size as the second range’s end. Check empty, one-element, even, and odd sizes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch44.json → SYS44.14
+
+------------------------------------------------------------
+
+42. Test the partition, not just the total
+Recall and transfer
+
+SAY
+When dividing an input among workers, use explicit ranges such as begin inclusive and end exclusive. For five items and two workers, one can handle indexes zero through one and the other indexes two through four. The unequal sizes are acceptable; overlap and omission are not. A final sum can hide some mistakes when values cancel, so also check that every index belongs to exactly one range. Test empty input, one item, more workers than items, and sizes not divisible by the worker count. Keep the sequential version as a reference. Thread machinery should preserve the original calculation before any claim about speed is measured.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.024
+
+------------------------------------------------------------
+
+43. Make thread ownership visible in the interface
+Recall and transfer
+
+SAY
+A maintainable thread-owning component should explain who starts work, who requests stop, and who waits for completion. Its public interface should not require callers to guess whether a referenced buffer is still in use. Copy small task identities, borrow only sufficiently long-lived data, and use a clear completion object or join boundary. Treat errors during setup as carefully as errors inside the worker: already-started work still needs an owner if another launch fails. Our two examples show distinct result slots and an exception channel, but the same lifecycle questions apply to servers, background importers, and interactive tools with much longer-running tasks.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch44.json → SP44.001

@@ -1,0 +1,258 @@
+{
+  "chapter": 12,
+  "title": "Proxy",
+  "opening": [
+    {
+      "title": "A simple question can hide a service cost",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Ask for an opening hour",
+        "Count real-service reads separately from answers",
+        "Add reuse and permission only when required"
+      ],
+      "narration": "A visitor screen asks what hour a building opens. The answer is one small integer, but obtaining it could require a remote request or an expensive setup. Our teaching source is deliberately an in-memory object. It performs no network I/O, and its reads counter lets us measure how often the real-service operation runs. Start with the simplest requirement: return the current source hour. Then add three pressures: construct the service only if used, reuse an answer until it is invalidated, and deny every read when permission is revoked. These pressures affect object lifetime, data freshness, and control order. A correct printed hour alone will not prove that all three were respected.",
+      "actions": [
+        "Ask learners which new requirement concerns lifetime, which concerns freshness, and which concerns access."
+      ],
+      "sourceRef": "manuscript/ch12.json → A cheap question can trigger expensive work",
+      "question": {
+        "prompt": "Why does the example need a reads counter when it already prints the hour?",
+        "answer": "The hour alone cannot show whether repeated requests avoided real-service work."
+      }
+    },
+    {
+      "title": "Direct calls give fresh values and repeated work",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "code",
+      "keyPoints": [
+        "Read the source every time",
+        "No cache states to maintain",
+        "A changed source appears on the next call"
+      ],
+      "narration": "This baseline has no interface hierarchy because there is only one operation and no substitute yet. The function borrows Source through a reference. A reference names the caller's existing object, so incrementing reads updates the same counter that main later prints. The first call returns eight. We change hour to nine, and the next call returns nine. Two answers required two real-service reads. That is a fine contract if the source is cheap or freshness dominates. A cache would intentionally change this behavior: the second answer might remain eight. Before optimizing, make sure callers agree to that weaker freshness promise and know how an old answer becomes unusable.",
+      "actions": [
+        "Predict the three lines and ask which one would change under caching."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch12.json → A cheap question can trigger expensive work",
+      "question": {
+        "prompt": "Is returning nine on the second call evidence that a cache is required?",
+        "answer": "No. It demonstrates fresh direct reads; caching is useful only when avoided work justifies its freshness and state costs."
+      },
+      "code": {
+        "filename": "dp_ch12_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nstruct Source { int hour = 8; int reads = 0; };\nint read_hour(Source& source) {\n    // Borrow the same object; this is a simulated service read.\n    ++source.reads;\n    return source.hour;\n}\nint main() {\n    Source source;\n    std::cout << \"first=\" << read_hour(source) << '\\n';\n    source.hour = 9;\n    std::cout << \"second=\" << read_hour(source) << '\\n';\n    std::cout << \"reads=\" << source.reads << '\\n';\n}\n",
+        "expectedStdout": "first=8\nsecond=9\nreads=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "A fast return can bypass the access rule",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "code",
+      "keyPoints": [
+        "A warm cache still holds protected data",
+        "Permission must precede every result path",
+        "The buggy and repaired functions both compile"
+      ],
+      "narration": "The two functions here differ only in the order of two checks. The cache already contains eight and permission is false. The buggy function sees a present cached value and returns it before asking whether access is allowed. The repaired function rejects first, so the cache does not create a bypass. An optional stores either one value or no value. Testing it asks whether a value exists, and the asterisk reads that value after the test. This example is a local control-flow model, not a real authentication system. It proves an ordering rule inside this function. A deployed system must also prevent callers from reaching protected data through another entrance.",
+      "actions": [
+        "Run the demonstration after asking whether false permission alone is sufficient."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch12.json → Permission comes before the fast path",
+      "question": {
+        "prompt": "Why can a test that revokes permission only before the first read miss this bug?",
+        "answer": "An empty cache takes the permission-check path even in the buggy order. The test must revoke access after warming the cache."
+      },
+      "code": {
+        "filename": "dp_ch12_guard_order.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <optional>\n#include <stdexcept>\nint wrong(bool allowed, const std::optional<int>& cached) {\n    if (cached) return *cached; // Intentional bypass of revocation.\n    if (!allowed) throw std::runtime_error(\"denied\");\n    return 8;\n}\nint checked(bool allowed, const std::optional<int>& cached) {\n    if (!allowed) throw std::runtime_error(\"denied\");\n    if (cached) return *cached;\n    return 8;\n}\nint main() {\n    const std::optional<int> warm_cache{8};\n    std::cout << \"wrong=\" << wrong(false, warm_cache) << '\\n';\n    try {\n        const int answer = checked(false, warm_cache);\n        std::cout << \"checked=\" << answer << '\\n';\n    } catch (const std::runtime_error& error) {\n        std::cout << \"checked=\" << error.what() << '\\n';\n    }\n}\n",
+        "expectedStdout": "wrong=8\nchecked=denied\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "A substitute controls access through the same interface",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Hours defines opening()",
+        "RealHours performs the source read",
+        "HoursProxy decides whether and when to reach RealHours"
+      ],
+      "narration": "A proxy is an object that stands in for a service while controlling access to it. The client uses the same Hours interface whether the object is RealHours or HoursProxy. Virtual means a call through that interface selects the implementation of the actual object during execution. Override asks the compiler to check that our method really implements the intended virtual operation. This type relationship permits substitution, but types alone do not promise identical freshness. The proxy deliberately caches. The shared service contract must permit that policy or provide an explicit freshness operation. The pattern is not simply a class with a pointer inside; it is a substitute enforcing an access or lifecycle decision.",
+      "actions": [
+        "Ask learners to identify the common operation and the extra policy around it."
+      ],
+      "sourceRef": "manuscript/ch12.json → Use the same interface with an access-controlling substitute",
+      "question": {
+        "prompt": "Can identical method signatures prove that clients tolerate cached answers?",
+        "answer": "No. Freshness is a behavioral contract that must be documented and tested separately from the function type."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Keep service existence separate from cached data",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "real_ answers whether a service object exists",
+        "cached_ answers whether a result is remembered",
+        "Invalidation removes the result, not the service"
+      ],
+      "narration": "The proxy has two different empty-or-present states. The unique pointer real_ owns the service after it has been constructed. The optional cached_ remembers an integer result after a successful read. Initially both are empty. A permitted cache miss creates the service, reads it, and fills the cache. Invalidation clears only the remembered integer. The next read therefore reuses the already-created service but fetches new data. Confusing these states can cause needless reconstruction or a stale answer after invalidation. The loaded query reports service existence, not freshness. A diagram of this code needs both facts; a single vague loaded flag would conceal an important distinction.",
+      "actions": [
+        "Trace the pair (service present, cache present) before read, after read, and after invalidate."
+      ],
+      "sourceRef": "manuscript/ch12.json → Use the same interface with an access-controlling substitute",
+      "question": {
+        "prompt": "What does loaded() return immediately after invalidating a previously used proxy?",
+        "answer": "True. The service object remains owned; only cached_ was reset."
+      }
+    },
+    {
+      "title": "Zero is a value, not the absence of a value",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Midnight is a valid hour zero",
+        "optional<int> separates presence from content",
+        "A warm zero cache must avoid another source read"
+      ],
+      "narration": "Using zero as an empty marker creates a hidden collision with midnight. If the cache variable starts at zero and a condition treats zero as missing, a valid zero result looks uncached forever. The chapter uses optional<int> so presence is stored separately from the integer. An engaged optional holding zero tests true as an optional. Dereferencing it yields zero, which is then returned normally. This is why the chapter performs two reads after caching midnight and checks that only the first reaches Source. The output value alone would not catch repeated unnecessary reads. When designing state, ask whether your chosen marker can also be a valid business value.",
+      "actions": [
+        "Ask learners to evaluate both bool(cached) and *cached when cached contains zero."
+      ],
+      "sourceRef": "manuscript/ch12.json → Use the same interface with an access-controlling substitute",
+      "question": {
+        "prompt": "Why is testing *cached != 0 the wrong test for whether a cache entry exists?",
+        "answer": "It tests the stored hour, not presence, and it also cannot safely dereference an empty optional."
+      }
+    },
+    {
+      "title": "Revocation and invalidation are different operations",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "allow(false) blocks cached and fresh results",
+        "invalidate() removes a stored result",
+        "Reallowing access can expose an old retained value"
+      ],
+      "narration": "Revocation answers who may obtain a result now. Invalidation answers whether the remembered result may be reused. The source implements them as separate operations. Denying access does not itself erase cached data, and changing Source does not automatically invalidate it. After we reallow access, the old cached answer may therefore remain until an explicit invalidation or refresh. This is not a bug if it is the stated policy. It would be a bug if the application promised that every permission change forces freshness. Write state-transition tests that distinguish these promises. A realistic service may use revisions, change notifications, or maximum age, but each choice needs a precise rule for when it takes effect.",
+      "actions": [
+        "Give the sequence warm, deny, source change, allow, opening and ask for the returned value."
+      ],
+      "sourceRef": "manuscript/ch12.json → Trace old data and explicit invalidation",
+      "question": {
+        "prompt": "Does modifying source.hour alone make the next proxy call fresh?",
+        "answer": "No. The proxy does not observe source changes automatically; its current cache remains usable until invalidated."
+      }
+    },
+    {
+      "title": "The proxy owns the service but borrows the source",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Source must outlive both service and proxy",
+        "unique_ptr gives one owner of RealHours",
+        "Move owning handles rather than stable service objects"
+      ],
+      "narration": "Ownership tells us who keeps an object alive and eventually destroys it. HoursProxy owns RealHours through unique_ptr, so destroying the proxy releases the service automatically. Both proxy and real service borrow Source through references. Neither reference extends Source's lifetime. Main therefore constructs Source first, then the proxy, so local destruction happens safely in the reverse order. Hours deletes copying and moving, keeping service objects stable in place. You may move a unique_ptr that owns one without moving the service object itself. The compiler checks these deleted operations and override signatures. It does not generally prove that an arbitrary borrowed source will outlive every user, so that remains a construction and review responsibility.",
+      "actions": [
+        "Have learners draw owner links separately from borrowed-reference links."
+      ],
+      "sourceRef": "manuscript/ch12.json → Object lifetime and failure state",
+      "question": {
+        "prompt": "Does replacing Source& with another reference syntax make it owned?",
+        "answer": "No. A reference is borrowing; ownership and lifetime must come from the surrounding object arrangement or an owning type."
+      }
+    },
+    {
+      "title": "Record success only after the real operation succeeds",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Allocation failure leaves real_ empty",
+        "A throwing read does not fill cached_",
+        "Single-threaded ordering is part of this example’s scope"
+      ],
+      "narration": "The miss path assigns to cached_ only after real_->opening returns a value. If a future real-service operation throws before returning, that assignment is not reached and no invented successful answer is stored. The service may still exist, so a retry can use it; what state it retains after failure depends on its own contract. Allocation failure before real_ is assigned leaves the owner empty. These are distinct failure states worth testing if the real service later gains failures. The current program is single-threaded. Two simultaneous misses, or a revocation racing a return, would require a synchronization policy. Virtual methods and smart pointers do not automatically make the shared state safe for concurrent access.",
+      "actions": [
+        "Ask which assignment commits the cache value and what happens if the call on its right throws."
+      ],
+      "sourceRef": "manuscript/ch12.json → Object lifetime and failure state",
+      "question": {
+        "prompt": "Does shared ownership alone make cache mutation thread-safe?",
+        "answer": "No. Ownership bookkeeping and synchronization of the pointed-to service or cache are separate concerns."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Refresh has a failure-ordering contract too",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Check permission before invalidating",
+        "Reuse opening() for the fetch path",
+        "A denied refresh preserves the earlier cache"
+      ],
+      "narration": "The lab adds refresh, which promises to fetch a new answer during this call rather than wait for a later one. It first checks permission, then invalidates, then calls opening. Why check permission before clearing the cache? Because a denied operation should not silently discard the old cached state in this design. The solution tests that distinction: deny refresh, change the source, reallow access, and observe that an ordinary opening still returns the retained old value until a successful refresh. Reusing opening keeps one implementation of lazy construction and read behavior. Notice that a permitted refresh whose future real read fails would leave the cache empty; that is a separate guarantee from denied-refresh behavior.",
+      "actions": [
+        "Contrast deny-then-clear with clear-then-deny using the lab’s retained-cache check."
+      ],
+      "sourceRef": "manuscript/ch12.json → Object lifetime and failure state",
+      "question": {
+        "prompt": "Why is checking only that denied refresh throws an incomplete test?",
+        "answer": "It could throw after accidentally clearing the cache; a later ordinary read reveals whether state was preserved."
+      }
+    },
+    {
+      "title": "Similar wrapper shapes can serve different purposes",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Proxy controls service access or lifecycle",
+        "Decorator adds selectable behavior around a component",
+        "Direct reads win when reuse has no value"
+      ],
+      "narration": "A class diagram may show both a Proxy and a Decorator implementing an interface while containing another implementation. That shape is not enough to choose the name. Ask why the wrapper exists. Here it stands in for a service, creates the real service on demand, and enforces an access and freshness policy. A decorator usually combines separately chosen added behavior around a component. These intents can coexist in a larger system, but naming the intent helps reviewers find the important tests. For an inexpensive local integer or a service called once, direct reads may be easier and equally fast in practice. Caching is a contract change as well as a possible optimization.",
+      "actions": [
+        "Ask whether a wrapper that adds a border around text has the same main responsibility as HoursProxy."
+      ],
+      "sourceRef": "manuscript/ch12.json → Distinguish the purpose of similar wrappers",
+      "question": {
+        "prompt": "What evidence justifies adding this proxy to a real service?",
+        "answer": "A real need for controlled access or lifecycle, plus a defined freshness policy and measurements or requirements that justify avoided work."
+      }
+    },
+    {
+      "title": "Audit every exit that returns an answer",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Permission precedes cache hits and misses",
+        "Cache presence is distinct from hour content",
+        "Counters and lifecycle queries verify hidden behavior"
+      ],
+      "narration": "When you review a proxy, start with every line that returns an answer. Can any route reach that line without the required access decision? Next inspect the state that makes a fast route possible. Is cached zero distinguished from an empty cache? What event removes a stale result? Finally inspect ownership: which object keeps the real service alive, and which borrowed source must outlive it? This three-part review catches mistakes that a correct-looking output cannot reveal. Explain Proxy as a controlled substitute, then prove its particular control rules. A pattern name does not validate permission logic, refresh behavior, or lifetime on its own.",
+      "actions": [
+        "Ask for three regression tests covering warm-cache revocation, midnight, and invalidation."
+      ],
+      "sourceRef": "manuscript/ch12.json → Permission comes before the fast path",
+      "question": {
+        "prompt": "Which test most directly proves that revocation applies to the fast path?",
+        "answer": "Warm the cache, revoke permission, call opening, and verify rejection with no additional real-service read."
+      }
+    }
+  ]
+}

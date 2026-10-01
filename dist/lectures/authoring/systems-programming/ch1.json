@@ -1,0 +1,222 @@
+{
+  "chapter": 1,
+  "title": "Understanding Computer Systems: boundaries, artifacts, and evidence",
+  "opening": [
+    {
+      "title": "Printed output begins an argument; it does not finish it",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "State the promised result",
+        "Name assumptions before testing",
+        "Match evidence to the claim"
+      ],
+      "narration": "A program prints the expected number. What have we learned? We have observed one result from one build and one run. We have not yet shown that every allowed input works, that the program stayed within array bounds, or that its output reached durable storage. The source chapter asks us to separate a contract, assumptions, and evidence. For a bounded append, the contract includes both the new value and the unchanged capacity boundary. The assumptions include a live buffer and a valid current count. Evidence might combine tests at the boundary with a review of the arithmetic. This habit turns a convincing-looking demonstration into a checkable systems explanation.",
+      "actions": [
+        "Ask learners to name two claims that correct output alone cannot establish."
+      ],
+      "sourceRef": "content/systems-programming/ch1.json → SP01.003 / Turn a claim into a testable argument",
+      "question": {
+        "prompt": "Does a correct number prove that no invalid memory access occurred?",
+        "answer": "No. Output is one observation. Memory validity requires its own reasoning and supporting checks."
+      }
+    },
+    {
+      "title": "Locate the stage before repairing the symptom",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "Source becomes several different artifacts",
+        "Compile success does not imply link success",
+        "A loaded program can still fail during execution"
+      ],
+      "narration": "Consider three reports: a function name is unknown, its compiled definition cannot be found, and the program starts but cannot open a file. These reports point to different boundaries. A visible declaration helps the compiler check a call. A definition in the correct link inputs supplies the callable implementation. Permission and path checks matter only when the running program requests the file. Rebuilding unrelated source is not a focused repair for every case. The chapter's seven-stage model helps us ask which artifact exists and which guarantee has not yet been established. The compiler driver may run several stages, but that convenience does not make the stages identical.",
+      "actions": [
+        "Classify the three reports as checking, linking, or execution failures."
+      ],
+      "sourceRef": "content/systems-programming/ch1.json → SP01.014 / Seven stages, seven different questions",
+      "question": {
+        "prompt": "Which evidence should you inspect first for an unresolved function symbol?",
+        "answer": "The link command and the symbols in its object or library inputs, rather than the runtime file permissions."
+      }
+    },
+    {
+      "title": "A function call establishes a small, visible contract",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "code",
+      "keyPoints": [
+        "observe changes one borrowed counter",
+        "square receives an integer value",
+        "One observation produces 36"
+      ],
+      "narration": "Start with a calculation whose behavior is easy to trace. calls belongs to main. observe receives a reference, so its increment changes that same counter and then returns six. square receives the resulting integer by value; it does not receive an instruction to repeat the observation. Multiplying six by six gives thirty-six, and the printed call count is one. The compiler checks the function signatures, while execution changes calls and produces the output. The input six is deliberately small, so signed multiplication is representable. This program isolates parameter evaluation and value flow. It does not measure CPU instructions or promise that a variable occupies a fixed memory address.",
+      "actions": [
+        "Predict result and calls separately, then run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch1.json → SP01.019 / Declarations enable checking; definitions supply entities",
+      "question": {
+        "prompt": "Why is observe executed once even though square uses value twice?",
+        "answer": "The argument is evaluated to a value before the function body uses its parameter. Reusing the parameter does not re-evaluate the original call."
+      },
+      "code": {
+        "filename": "sys_ch01_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint observe(int& calls) {\n    ++calls;\n    return 6;\n}\nint square(int value) { return value * value; }\nint main() {\n    int calls = 0;\n    const int result = square(observe(calls));\n    std::cout << \"result=\" << result << \" calls=\" << calls << '\\n';\n}\n",
+        "expectedStdout": "result=36 calls=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Token replacement can repeat real work",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "code",
+      "keyPoints": [
+        "The macro substitutes the expression twice",
+        "Logical AND sequences the two observations safely",
+        "The function receives one evaluated value"
+      ],
+      "narration": "This macro looks like a small function but performs token replacement. Its argument appears twice. Because observe returns six, the first comparison is true, so logical AND evaluates the second comparison too. Each comparison calls observe, giving macro=true and calls=2. The ordinary function evaluates its argument once and prints function=true with calls=1. This demonstration is defined: logical AND sequences its left side before its right side. That is different from the chapter's deliberately invalid multiplication macro with two unsequenced increments. We do not run that invalid example and invent an output for it. The practical lesson is to inspect expansion and side effects before assuming macro syntax behaves like a function.",
+      "actions": [
+        "Expand SMALL on paper and count observe calls before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch1.json → SP01.018 / A macro can duplicate an operation",
+      "question": {
+        "prompt": "Why is this demonstration safe while multiplying two unsequenced increments is not?",
+        "answer": "The && operator sequences evaluation and short-circuits. The invalid multiplication example does not provide the needed sequencing between modifications."
+      },
+      "code": {
+        "filename": "sys_ch01_macro_work.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#define SMALL(x) ((x) >= 0 && (x) < 10)\nint observe(int& calls) { ++calls; return 6; }\nbool small(int value) { return value >= 0 && value < 10; }\nint main() {\n    int calls = 0;\n    const bool macro = SMALL(observe(calls));\n    std::cout << std::boolalpha << \"macro=\" << macro\n              << \" calls=\" << calls << '\\n';\n    calls = 0;\n    const bool function = small(observe(calls));\n    std::cout << \"function=\" << function << \" calls=\" << calls << '\\n';\n}\n",
+        "expectedStdout": "macro=true calls=2\nfunction=true calls=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "API, ABI, and ISA locate three kinds of agreement",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "API describes source-facing operations",
+        "ABI describes compiled value exchange",
+        "ISA describes machine-visible operations"
+      ],
+      "narration": "Suppose two components agree that add takes two integers and returns an integer. That source-facing promise is part of the API. They must also agree about where compiled arguments and results are placed. That is an ABI question. The machine instructions used to perform the addition belong to the ISA. The same x86-64 instruction set can support different calling conventions, so sharing an ISA does not automatically make arbitrary compiled components compatible. A header helps align source declarations, but it does not by itself repair a wrong binary calling convention. When diagnosing a boundary, name the kind of agreement and inspect evidence at that level.",
+      "actions": [
+        "Give students a function signature and ask what it does not specify about compiled calls."
+      ],
+      "sourceRef": "content/systems-programming/ch1.json → SP01.010 / API, ABI, and ISA answer different questions",
+      "question": {
+        "prompt": "Can two components target x86-64 and still disagree about argument passing?",
+        "answer": "Yes. Different ABIs can use different calling conventions on the same ISA."
+      }
+    },
+    {
+      "title": "Relocation is unfinished address arithmetic",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "An object file can contain unresolved references",
+        "The linker combines symbols and placement",
+        "Loader work is a later boundary"
+      ],
+      "narration": "A separately compiled caller may contain a request to call a function whose final location is not yet known. The object file records enough information for later work, including symbols and relocations. A relocation tells a tool how to finish an address-dependent calculation after placement or binding information is available. It is not evidence that the function body is already in the caller's source file. The linker combines compiled responsibilities, while loading later establishes a process image. A successfully linked file still needs a compatible execution environment and runtime resources. This chain explains why inspecting only the source or only the final output can miss the boundary where a defect begins.",
+      "actions": [
+        "Ask learners to identify what an object file may defer to later stages."
+      ],
+      "sourceRef": "content/systems-programming/ch1.json → SP01.024 / Relocation: finish an address-dependent calculation",
+      "question": {
+        "prompt": "Why can an object file exist even when the final function address is not known?",
+        "answer": "It can record symbolic references and relocation information for later resolution."
+      }
+    },
+    {
+      "title": "Optimization preserves required behavior, not source appearance",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "A variable need not keep a permanent RAM slot",
+        "An operation may be folded or removed",
+        "Invalid source behavior breaks the reasoning contract"
+      ],
+      "narration": "The expression x plus three describes a source-level computation. If x is a known constant, the compiler may replace the calculation with its result. If a local value need not be stored, it may remain in a register or disappear into another instruction. This does not mean the compiler ignored the program; it means source appearance is not the required physical schedule. To judge a transformation, begin with defined source behavior and observable requirements. An out-of-bounds read is not made valid by an optimization setting that happens to print the expected value. When comparing assembly, connect changes to behavior and assumptions rather than counting source statements as if each required one instruction.",
+      "actions": [
+        "Trace one constant expression and one input-dependent expression into possible implementations."
+      ],
+      "sourceRef": "content/systems-programming/ch1.json → SP01.021 / Optimization does not preserve source appearance",
+      "question": {
+        "prompt": "Does removing a source variable from assembly prove a compiler defect?",
+        "answer": "No. The compiler may eliminate or combine representations while preserving required observable behavior for defined executions."
+      }
+    },
+    {
+      "title": "A local speedup has a whole-program limit",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "Identify the improved fraction",
+        "Keep unchanged work in the calculation",
+        "Report a derived bound separately from a measurement"
+      ],
+      "narration": "Suppose forty percent of elapsed work can become four times faster and sixty percent is unchanged. Normalize the original time to one. The new model time is sixty hundredths plus forty hundredths divided by four, which is seventy hundredths. The modeled overall speedup is one divided by seventy hundredths, about one point four three. It is not four times. This calculation assumes the fractions and costs remain comparable and ignores new overhead. It is a derived estimate, not a timing measurement of this lecture program. Real measurements need a workload, build settings, machine conditions, and repeated observations. The model helps us decide whether an optimization is worth investigating.",
+      "actions": [
+        "Compute the normalized new time before naming the speedup."
+      ],
+      "sourceRef": "content/systems-programming/ch1.json → SP01.040 / Derive the limit of a local speedup",
+      "question": {
+        "prompt": "What portion remains even if the improved 40 percent becomes infinitely fast?",
+        "answer": "The unchanged 60 percent remains, limiting speedup to about 1.67 under this model."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Partial success changes what a correct retry means",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "A result may report progress and remaining work",
+        "Retry only the uncompleted portion",
+        "Keep ownership valid while handling failure"
+      ],
+      "narration": "Imagine an interface asked to process ten bytes but reporting that four were accepted. A retry of the original ten can duplicate the first four. The next request must describe the remaining six, beginning at the correct position, if that is the interface's documented progress model. This is a robustness problem because the state after partial success matters as much as the happy path. It is also an ownership problem: the buffer must remain alive while the remainder is used. A boolean success flag would lose important information here. The chapter's broader lesson is to define failure and partial-progress states explicitly, then make recovery follow those states.",
+      "actions": [
+        "Have learners draw the completed prefix and remaining suffix of ten bytes."
+      ],
+      "sourceRef": "content/systems-programming/ch1.json → SP01.047 / Partial success changes the retry position",
+      "question": {
+        "prompt": "Why is a simple success/failure boolean sometimes too weak for I/O?",
+        "answer": "It can hide how much work completed, so the caller cannot safely choose a retry position or distinguish no progress from partial progress."
+      }
+    },
+    {
+      "title": "Defend the boundary, assumptions, and evidence",
+      "eyebrow": "01 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "Name the first failed contract",
+        "Choose an artifact that can test the hypothesis",
+        "Do not expand one observation into a universal claim"
+      ],
+      "narration": "For a final check, explain a program that compiles, links, starts, and then rejects an input file. The earlier successes establish different facts: language checking passed, required compiled pieces were connected, and the executable began running in this environment. They do not establish permission to read this particular file or that its contents obey a format. Now name the next evidence you would gather without printing unrelated secrets. A path, error status, and expected access contract can be useful. This style of explanation scales from a twelve-line example to a large service because it narrows the responsible boundary before proposing a repair.",
+      "actions": [
+        "Ask each learner for one claim, one assumption, and one matching piece of evidence."
+      ],
+      "sourceRef": "content/systems-programming/ch1.json → SP01.059 / Defend a systems explanation—not just a result",
+      "question": {
+        "prompt": "What should a strong diagnosis include beyond the sentence it did not work?",
+        "answer": "The first failed boundary, its expected contract, the relevant assumptions, and evidence that supports or rejects a specific explanation."
+      }
+    }
+  ]
+}

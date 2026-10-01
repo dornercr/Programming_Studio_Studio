@@ -1,0 +1,234 @@
+{
+  "chapter": 51,
+  "title": "Network Programming",
+  "opening": [
+    {
+      "title": "A connection gives bytes, not a completed agreement",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "concept",
+      "keyPoints": [
+        "A socket is an owned endpoint",
+        "The protocol gives received bytes meaning",
+        "Transport progress is not transaction completion"
+      ],
+      "narration": "Imagine a client sending two orders over one connection. The operating system can deliver the beginning of the first order, then its end together with the next order. Nothing is wrong with the connection. The missing boundary is the application message format, called framing. This chapter separates endpoint setup from interpretation: creating or connecting a socket does not validate a request, authorize an action, or prove the peer completed it. Start with a written format, a size limit, and completion rules. Those rules let us decide whether a short read means wait, reject, or finish without guessing from buffer size.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.018: 51.8 TCP connections",
+      "question": {
+        "prompt": "Does a successful send prove the peer accepted an entire order?",
+        "answer": "No. It reports transport progress according to the send interface. Application acceptance needs its own protocol response and failure rules."
+      }
+    },
+    {
+      "title": "A tiny line protocol preserves the unfinished tail",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "code",
+      "keyPoints": [
+        "Append new bytes to connection state",
+        "Extract only complete newline-terminated messages",
+        "Keep bytes after the last complete message"
+      ],
+      "narration": "This is a deterministic parser model, not a socket measurement. Three supplied chunks divide the word HELLO and then divide BYE across different arrival boundaries. The parser appends each chunk, searches for a newline, prints only the complete line, and removes exactly those consumed bytes. The output is HELLO followed by BYE, with a final tail count of zero. The loop inside the loop matters because one chunk can complete more than one message. If the final newline were absent, the tail would remain buffered instead of being invented as a complete request. A production protocol also needs a bound on this buffer.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.024: Worked example \u2014 Framing over a byte stream",
+      "question": {
+        "prompt": "Why is there an inner while loop instead of one newline test per chunk?",
+        "answer": "One arrival can contain several complete messages. The parser must consume each complete frame while preserving any incomplete tail."
+      },
+      "code": {
+        "filename": "sys_ch51_line_frames.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\n#include <vector>\nint main() {\n    std::string pending;\n    for (const std::string& chunk : std::vector<std::string>{\"HE\", \"LLO\\nBY\", \"E\\n\"}) {\n        pending += chunk; // Model byte arrivals, not TCP packet boundaries.\n        std::size_t end;\n        while ((end = pending.find('\\n')) != std::string::npos) {\n            std::cout << pending.substr(0, end) << '\\n';\n            pending.erase(0, end + 1);\n        }\n    }\n    std::cout << \"tail=\" << pending.size() << '\\n';\n}\n",
+        "expectedStdout": "HELLO\nBYE\ntail=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "A supplied sequence of byte chunks models stream arrival; no networking is performed."
+      }
+    },
+    {
+      "title": "The delimiter can also be ordinary payload",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "code",
+      "keyPoints": [
+        "A newline protocol needs escaping or a restricted alphabet",
+        "A length prefix permits newline bytes in the payload",
+        "Decode lengths before using them"
+      ],
+      "narration": "The simple line protocol works only if newline has one agreed meaning. Our payload is A, newline, B. Adding a terminating newline now makes a receiver see two lines even though the sender intended one payload. The second representation uses two explicit header bytes containing the length three, followed by the same three payload bytes. Decoding the header produces three regardless of the machine's native integer layout. The output therefore reports two delimiter messages but three length-framed payload bytes. This program models serialization; it does not receive data. Real input must be checked for a complete header, an allowed length, and a complete body before slicing it.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.008: 51.3 bind",
+      "question": {
+        "prompt": "Why is dumping a host integer directly into a byte stream weaker than the explicit header here?",
+        "answer": "Its size, byte order, and representation may differ across peers. Explicit fields give the protocol a stable wire representation."
+      },
+      "code": {
+        "filename": "sys_ch51_delimiter_limit.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <array>\n#include <iostream>\n#include <string>\nint main() {\n    const std::string payload = \"A\\nB\";\n    const std::string delimited = payload + '\\n';\n    std::cout << \"delimiter messages=\"\n              << std::count(delimited.begin(), delimited.end(), '\\n') << '\\n';\n    const std::array<unsigned char, 5> frame{0, 3, 'A', '\\n', 'B'};\n    const unsigned length = (unsigned(frame[0]) << 8) | frame[1];\n    std::cout << \"length payload bytes=\" << length << '\\n';\n}\n",
+        "expectedStdout": "delimiter messages=2\nlength payload bytes=3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Portable serialization model with fully supplied, valid frame bytes."
+      }
+    },
+    {
+      "title": "The listener and accepted connection have different jobs",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "concept",
+      "keyPoints": [
+        "socket creates an endpoint; bind chooses its local address",
+        "listen enables accepting connections",
+        "accept returns a separate connected descriptor"
+      ],
+      "narration": "Picture a workshop with one reception desk and several conversations. The listening socket is the reception desk. accept returns another descriptor for one conversation, while the listener stays available for the next client. Reading application bytes from the listener confuses those roles. Each returned descriptor needs an owner that closes it on both success and rejection. For a local lab, binding loopback limits who can reach the service; port zero asks the operating system to select an available port. Neither choice proves requests are valid. The source example deliberately separates the setup sequence from the later framing and transfer helpers.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.012: 51.5 accept",
+      "question": {
+        "prompt": "After accept succeeds, which descriptor carries the new client\u2019s data?",
+        "answer": "The newly returned connected descriptor. The original listening descriptor remains available for future accepts."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Short progress and interrupted calls need explicit state",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "concept",
+      "keyPoints": [
+        "A positive count advances an offset",
+        "EINTR may require a retry under the operation\u2019s contract",
+        "EOF halfway through a frame is truncation"
+      ],
+      "narration": "Suppose a four-byte header arrives as one byte, then two, then one. The receiver must remember an offset of one, then three, then four before decoding the header. A positive return counts progress, not necessarily completion. A zero stream read indicates EOF: between messages it may be normal closure, but halfway through a header or body it is a truncated frame. A negative result requires the documented error handling, including interruption and would-block cases where applicable. Writing the offset loop once in a checked helper keeps every caller from inventing a slightly different partial-transfer policy.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.020: Worked example \u2014 A bounded framed loopback exchange",
+      "question": {
+        "prompt": "A receive gets two bytes of a four-byte header, then EOF. Is this an empty message?",
+        "answer": "No. The frame is truncated because the required header never completed."
+      }
+    },
+    {
+      "title": "A length is both a parsing field and a resource request",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate the protocol maximum before allocation",
+        "Distinguish incomplete from invalid",
+        "Retain the next message\u2019s unconsumed bytes"
+      ],
+      "narration": "An advertised length is not permission to allocate that many bytes. If a service allows at most one kilobyte, a million-byte prefix should be rejected before allocating the body buffer. An allowed length with too few bytes available is a different condition: incomplete input can become valid after another read. The small workshop parser makes that distinction with an optional complete frame and a separate invalid-length error. It also returns a consumed count so the connection can retain later messages. Clearing the entire buffer after one parse would silently discard a valid second frame or its beginning.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SYS51.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why should an oversized prefix be rejected even when its body has not arrived?",
+        "answer": "The prefix already violates the resource contract. Waiting or allocating first adds avoidable memory and connection pressure."
+      }
+    },
+    {
+      "title": "Deadlines bound a request, not merely one system call",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "concept",
+      "keyPoints": [
+        "Per-operation timeouts restart across operations",
+        "A slow peer can stretch a sequence of successful reads",
+        "Track an overall completion budget"
+      ],
+      "narration": "Consider a request that needs ten reads. A one-second timeout on each read does not automatically make the whole request finish within one second. A peer that makes tiny progress just before each timeout can keep the request open much longer. The source's small socket timeouts bound individual operations for the lab; they are not a complete request-deadline policy. A service usually needs an overall deadline or progress rule as well as a size limit. That policy belongs to connection state, alongside partial headers, pending output, and whether the peer has ended its sending direction.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.020: Worked example \u2014 A bounded framed loopback exchange",
+      "question": {
+        "prompt": "Does a one-second receive timeout guarantee a one-second whole-message limit?",
+        "answer": "No. Multiple operations can each consume time. A whole-message limit requires a separate deadline or progress budget."
+      }
+    },
+    {
+      "title": "Connection setup has its own incomplete state",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "concept",
+      "keyPoints": [
+        "Nonblocking connect may report in-progress",
+        "Readiness must be followed by the documented socket-error check",
+        "Retry needs a limit and a delay policy"
+      ],
+      "narration": "A nonblocking connect can begin an attempt without completing it. Treating the in-progress result as success lets application writes run before the connection is known to be usable. The program must wait for the relevant readiness and inspect the socket error state according to the interface. Connection failures are expected events, not rare impossibilities: the peer may be absent or unavailable. Retrying forever can consume descriptors, memory, and downstream capacity. A maintainable client makes attempt count, delay, deadline, and retryable operations explicit so a remote outage does not become uncontrolled local work.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.014: 51.6 connect",
+      "question": {
+        "prompt": "Why is writable readiness alone not a complete nonblocking-connect success check?",
+        "answer": "Readiness can accompany completion with an error. The program must inspect the documented socket error status before declaring success."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose a framing contract before choosing a bigger buffer",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "concept",
+      "keyPoints": [
+        "Delimited text needs escaping and a maximum line length",
+        "Fixed records need an agreed fixed size",
+        "Length prefixes need byte order and a size maximum"
+      ],
+      "narration": "There are several reasonable protocols. A newline format is easy to inspect when the payload alphabet excludes newline or defines escaping. Fixed-size records simplify accumulation when every record truly has the same size. A length prefix supports arbitrary payload bytes but adds header decoding and an untrusted resource request. None becomes correct merely by choosing a large receive buffer. A message can still be split, and several messages can still arrive together. Write tests that vary chunk boundaries independently of message boundaries. That verifies the parser contract rather than one convenient transport schedule.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.026: Guided lab and review",
+      "question": {
+        "prompt": "What test change best exposes a parser that assumes one read equals one message?",
+        "answer": "Feed the same valid messages through many different chunk boundaries, including multiple frames in one chunk and a header split across chunks."
+      }
+    },
+    {
+      "title": "Diagnose transport, framing, and application failures separately",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 51",
+      "kind": "concept",
+      "keyPoints": [
+        "Transport: what byte progress happened?",
+        "Framing: is one complete bounded message available?",
+        "Application: is that message meaningful and authorized?"
+      ],
+      "narration": "When a network operation fails, record the boundary that failed before changing unrelated code. A broken connection is not the same as an oversized frame. A complete bounded frame is not the same as a valid order. A valid order is not proof that its acknowledgment reached the client. Separate statuses make retries and logs meaningful. In this chapter's local fixtures, verify empty and maximum-size frames, oversized prefixes, mid-header EOF, and mid-body EOF. These checks support the byte-stream contract. They do not establish authentication, encryption, internet deployment safety, or a full transaction protocol, which would need their own requirements and tests.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch51.json \u2192 SP51.026: Guided lab and review",
+      "question": {
+        "prompt": "Why might blindly repeating an application request after a lost connection duplicate work?",
+        "answer": "The peer may have completed the request before the response was lost. Transport failure does not prove no application effect occurred."
+      }
+    }
+  ]
+}

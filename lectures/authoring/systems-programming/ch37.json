@@ -1,0 +1,222 @@
+{
+  "chapter": 37,
+  "title": "Process Creation — private values and inherited references",
+  "opening": [
+    {
+      "title": "One call produces two continuations on success",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "The parent receives a positive child ID",
+        "The child receives zero",
+        "Failure returns minus one and creates no child"
+      ],
+      "narration": "fork creates a child process, and a successful call is followed by execution in both processes. They continue after the call; the child does not restart main. The return value tells each branch its role. The parent receives the child's positive process ID, the child receives zero, and failure gives the caller minus one with no new child. Treat all three cases explicitly. A branch written for every nonzero value can accidentally treat failure as a created child. The program also needs a lifecycle plan: who waits, who closes inherited endpoints, and where the child ends if it is not meant to continue the parent's normal workflow.",
+      "actions": [
+        "Trace the three return cases without assuming an execution order."
+      ],
+      "sourceRef": "content/systems-programming/ch37.json → SP37.004 · 37.1 fork",
+      "question": {
+        "prompt": "Where does the child begin executing after a successful fork?",
+        "answer": "Immediately after the fork call, taking the branch selected by its zero return value."
+      }
+    },
+    {
+      "title": "Change the child’s private array; inspect the parent afterward",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "code",
+      "keyPoints": [
+        "The child changes only its private array values",
+        "The exit status reports its bounded check",
+        "Only the parent prints after waiting"
+      ],
+      "narration": "This real fork demonstration starts with an array containing two and four. The child changes its first element to nine and checks that its own array sums to thirteen. It reports that small test result through its exit status, then ends with _exit. After waiting for the correct child, the parent prints its unchanged values two and four and reports that the child check passed. Stable printing comes from one process after synchronization, not from assuming the parent ran first. The demo verifies private-memory behavior. It does not inspect physical page copies or prove which process the scheduler selected immediately after fork.",
+      "actions": [
+        "Predict both output lines before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch37.json → SP37.012 · 37.5 Address-space duplication",
+      "question": {
+        "prompt": "What does the unchanged parent array prove, and what does it not prove?",
+        "answer": "It proves logical independence of ordinary private memory here; it does not reveal physical copy timing or scheduling order."
+      },
+      "code": {
+        "filename": "sys_ch37_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <cerrno>\n#include <iostream>\n#include <sys/wait.h>\n#include <unistd.h>\nint main() {\n    std::array<int, 2> values{2, 4};\n    const pid_t child = fork();\n    if (child < 0) return 1;\n    if (child == 0) {\n        values[0] = 9;\n        _exit(values[0] + values[1] == 13 ? 0 : 1);\n    }\n    int status = 0;\n    pid_t result;\n    do { result = waitpid(child, &status, 0); }\n    while (result < 0 && errno == EINTR);\n    if (result != child || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return 1;\n    std::cout << \"parent=\" << values[0] << ',' << values[1] << '\\n';\n    std::cout << \"child-private-check=passed\\n\";\n}\n",
+        "expectedStdout": "parent=2,4\nchild-private-check=passed\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Private memory does not imply private everything",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "Inherited descriptors retain shared open descriptions",
+        "A child read can advance the parent’s later position",
+        "Each process still has its own descriptor-table entry"
+      ],
+      "narration": "The array experiment can create a misleading generalization: all child changes are private. Kernel-managed resources follow their own sharing rules. If a file was opened before fork, the inherited descriptor in the child can refer to the same open file description as the parent's descriptor. That object holds the current offset. A child read can therefore change where the parent's next read begins. Closing the child's entry releases its reference without closing the parent's separate entry. Keep two diagrams in mind: private address-space values and references to shared kernel objects. Confusing them causes both missing data and leaked communication endpoints.",
+      "actions": [
+        "Name the state owner for the offset rather than the descriptor variable."
+      ],
+      "sourceRef": "content/systems-programming/ch37.json → SP37.014 · 37.6 File-descriptor inheritance",
+      "question": {
+        "prompt": "Can a child’s read affect the parent without changing a parent C++ variable?",
+        "answer": "Yes. It can advance the offset in a shared open file description referenced by both processes."
+      }
+    },
+    {
+      "title": "Observe inherited offset sharing with actual reads",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "code",
+      "keyPoints": [
+        "The child consumes A from a temporary file",
+        "The parent waits before reading",
+        "Its next byte is B, with shared offset two"
+      ],
+      "narration": "The temporary file contains ABC and is positioned at zero before fork. The child reads A and reports success through its exit status. The parent waits, then reads through its inherited descriptor and receives B. The shared current offset becomes two. Waiting makes that ordering deliberate; without it, either process could consume the first byte. The program flushes the setup output before forking and performs no child-side iostream printing. It checks and closes each resource. The output demonstrates real inherited open-description sharing, while the previous program demonstrated private array values. Both results are compatible because they concern different state and ownership rules.",
+      "actions": [
+        "Predict B in the parent and explain the ordering operation."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch37.json → SP37.014 · 37.6 File-descriptor inheritance",
+      "question": {
+        "prompt": "What determines which process reads A in this demo?",
+        "answer": "The parent waits for the child’s completed read before issuing its own read."
+      },
+      "code": {
+        "filename": "sys_ch37_inherited_offset.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cerrno>\n#include <cstdio>\n#include <iostream>\n#include <sys/wait.h>\n#include <unistd.h>\nint main() {\n    FILE* file = std::tmpfile();\n    if (!file) return 1;\n    if (std::fwrite(\"ABC\", 1, 3, file) != 3 || std::fflush(file) != 0) {\n        std::fclose(file); return 1;\n    }\n    const int fd = fileno(file);\n    if (fd < 0 || lseek(fd, 0, SEEK_SET) != 0) { std::fclose(file); return 1; }\n    const pid_t child = fork();\n    if (child < 0) { std::fclose(file); return 1; }\n    if (child == 0) {\n        char byte = '?';\n        const bool okay = read(fd, &byte, 1) == 1 && byte == 'A';\n        const bool closed = close(fd) == 0;\n        _exit(okay && closed ? 0 : 1);\n    }\n    int status = 0; pid_t result;\n    do { result = waitpid(child, &status, 0); } while (result < 0 && errno == EINTR);\n    bool okay = result == child && WIFEXITED(status) && WEXITSTATUS(status) == 0;\n    char next = '?';\n    if (okay && read(fd, &next, 1) != 1) okay = false;\n    const auto offset = lseek(fd, 0, SEEK_CUR);\n    okay = std::fclose(file) == 0 && okay;\n    if (!okay || next != 'B' || offset != 2) return 1;\n    std::cout << \"child-read=A parent-read=\" << next << \" offset=\" << offset << '\\n';\n}\n",
+        "expectedStdout": "child-read=A parent-read=B offset=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Scheduling order must be established, not imagined",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "Source order across branches is not a schedule",
+        "A parent may run after the child",
+        "Wait or communication provides required ordering"
+      ],
+      "narration": "Writing the parent branch first on the page does not cause the parent to run first. After fork, either process may be scheduled before the other's next statement. If both print, their observed order may vary even though each branch follows its own local sequence. A requirement such as read after the child finishes must be encoded with waiting or a communication protocol. Tests should avoid declaring one accidental print order a guarantee. In our demos, child work is reported through status and the parent prints afterward. That preserves deterministic evidence without concealing the fact that concurrent execution order before the wait is unspecified.",
+      "actions": [
+        "Ask what operation makes the printed test result deterministic."
+      ],
+      "sourceRef": "content/systems-programming/ch37.json → SP37.006 · 37.2 Parent process",
+      "question": {
+        "prompt": "Does the location of the parent branch above the child branch guarantee earlier execution?",
+        "answer": "No. Cross-process ordering requires synchronization rather than source placement."
+      }
+    },
+    {
+      "title": "Copy-on-write is an implementation mechanism for private behavior",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "Pages can initially share physical backing",
+        "A private write can require separation",
+        "Observable independence is the interface promise"
+      ],
+      "narration": "Copy-on-write can let parent and child initially refer to shared physical backing for private pages. When a private write occurs, the system can create the separation needed to preserve independent values. This avoids eagerly copying every byte merely because fork returned. It does not make process creation free, and later allocator activity or writes may still cause substantial work. The array demo proves neither the number of copied pages nor their timing. It proves the behavior the program depends on. Keep implementation explanations and observable guarantees distinct when estimating memory use, especially when forking a large process whose later writes may be far broader than the small explicit assignment.",
+      "actions": [
+        "Separate logical duplication from physical allocation in the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch37.json → SP37.016 · 37.7 Copy-on-write",
+      "question": {
+        "prompt": "Why is fork of a large address space not automatically a full immediate physical copy?",
+        "answer": "Copy-on-write can share backing until private writes require separation, though other creation and later-copy costs remain."
+      }
+    },
+    {
+      "title": "Copied output buffers can print the same bytes twice",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "User-space buffers are part of copied memory",
+        "Normal cleanup in both processes can flush both copies",
+        "Flush before fork or use the intended child failure path"
+      ],
+      "narration": "If a library output buffer contains unflushed text before fork, both processes inherit a copy of that buffer state. If both later perform normal flushing, the same text can appear twice. The extra output did not come from the file descriptor magically copying already-written bytes; it came from two user-space copies of bytes not yet sent. Flush deliberately before creation when that is appropriate. An exec-bound child generally uses _exit on failure so it does not run the parent's buffered cleanup. That choice needs deliberate lifecycle design, because _exit also bypasses ordinary user-space cleanup that a different kind of child might actually need.",
+      "actions": [
+        "Ask whether the bytes were already in the kernel before creation."
+      ],
+      "sourceRef": "content/systems-programming/ch37.json → SP37.012 · 37.5 Address-space duplication",
+      "question": {
+        "prompt": "Where do duplicate pre-fork buffered bytes come from?",
+        "answer": "Separate copied user-space buffers can each flush the same pending bytes after fork."
+      }
+    },
+    {
+      "title": "A multithreaded parent creates a stricter child boundary",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "Only the calling thread appears in the child",
+        "Copied locks may reflect threads that no longer exist there",
+        "Use the permitted operations before exec"
+      ],
+      "narration": "The demos fork from a single-threaded program. A multithreaded parent has a harder problem: only the calling thread is present in the child, while copied mutex and library state can reflect locks held by other threads before the fork. Those missing threads cannot later release their locks in the child. This is why the child must obey the applicable async-signal-safe restrictions until exec. A convenient allocator or formatting call may not be appropriate in that narrow interval. Do not generalize the single-threaded examples into an unrestricted child setup routine for a large threaded application. Choose launch facilities and setup operations that match that environment.",
+      "actions": [
+        "State the single-threaded assumption beside the runnable demos."
+      ],
+      "sourceRef": "content/systems-programming/ch37.json → SP37.008 · 37.3 Child process",
+      "question": {
+        "prompt": "Why can a lock copied from a multithreaded parent be unusable in the child?",
+        "answer": "It may appear held by a thread that does not exist in the child and can never release it there."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Creation includes cleanup and reaping obligations",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "Failure creates no child to wait for",
+        "Each process closes endpoints it does not use",
+        "The parent collects the status of children it owns"
+      ],
+      "narration": "A correct launch path is more than a successful fork. On failure, no child exists, so the caller must clean up prepared resources without waiting for an invented process. On success, each process must close inherited communication ends it does not need. The parent must then follow a clear policy for collecting child status. A forgotten pipe writer can block another process's EOF long after the useful writer exits, and an unreaped child leaves termination bookkeeping behind. Review every branch with an ownership table: resource, parent use, child use, and release point. That table is often more revealing than the successful output alone.",
+      "actions": [
+        "Walk setup failure, child completion, and parent completion separately."
+      ],
+      "sourceRef": "content/systems-programming/ch37.json → SP37.006 · 37.2 Parent process",
+      "question": {
+        "prompt": "What should the failure branch avoid doing with the returned minus one?",
+        "answer": "It must not treat it as a successfully created child ID or apply the success-path wait assumption."
+      }
+    },
+    {
+      "title": "Recall two continuations and two kinds of state",
+      "eyebrow": "SYSTEMS 37 / PARENT, CHILD, AND SHARED KERNEL STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "fork creates a child and returns differently in each process",
+        "Ordinary private values diverge independently",
+        "Inherited kernel references can still share state"
+      ],
+      "narration": "The chapter can be recalled through two contrasts. One fork call creates two successful continuations with different return values, while failure creates only the original continuation. Ordinary private memory can diverge, while inherited references may still reach shared kernel-managed state. The first demo's parent array remains two and four; the second demo's parent reads B after the child consumed A. These are not conflicting observations. They identify different state owners. When extending a launcher, document scheduling requirements, close unused handles, and plan status collection. The next chapter replaces a process's program image, which is a different operation from creating the process in the first place.",
+      "actions": [
+        "Have learners explain both demos with their state owners."
+      ],
+      "sourceRef": "content/systems-programming/ch37.json → SP37.004 · 37.1 fork",
+      "question": {
+        "prompt": "Why can the child’s private array change without affecting the parent while its read changes the parent’s next byte?",
+        "answer": "The array belongs to private address-space state; the offset belongs to a shared open file description."
+      }
+    }
+  ]
+}

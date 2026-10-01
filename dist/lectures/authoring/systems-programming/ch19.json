@@ -1,0 +1,224 @@
+{
+  "chapter": 19,
+  "title": "Kernel Fundamentals",
+  "opening": [
+    {
+      "title": "Authority and execution mode are different facts",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "concept",
+      "keyPoints": [
+        "An administrator’s application still executes ordinary code in user mode.",
+        "Credentials influence which requests are approved.",
+        "Hardware privilege controls protected machine operations."
+      ],
+      "narration": "An administrator can be allowed to perform powerful operations, but an ordinary application launched by that administrator still runs its instructions in user mode. Its credentials affect what the kernel may authorize; they do not convert every arithmetic instruction into kernel execution. This distinction separates software policy from hardware privilege. The processor prevents user code from directly performing protected machine operations, and a controlled service interface lets the kernel consider a request. Entering that interface is only the beginning of validation. The request can still be rejected because of its arguments, resource rights, or limits.",
+      "actions": [
+        "Ask learners to distinguish identity, authorization, and processor mode."
+      ],
+      "sourceRef": "content/systems-programming/ch19.json → SP19.006",
+      "question": {
+        "prompt": "Does an administrator’s user-space process automatically execute at kernel privilege?",
+        "answer": "No. Credentials and hardware execution mode are separate parts of the system."
+      }
+    },
+    {
+      "title": "Start with a policy decision you can explain",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "code",
+      "keyPoints": [
+        "The model object has an owner identity.",
+        "Only the matching caller passes this toy policy.",
+        "Ordinary C++ checks are not hardware isolation."
+      ],
+      "narration": "Our small policy model asks one question: does the caller identity match the object's owner? The object belongs to seventeen, so the first query with seventeen prints true and the second with twenty-three prints false. Passing the object by const reference lets the function inspect the existing record without copying or modifying it. This is deliberately not a real kernel or a complete authorization system. It has no identity authentication or protected storage. The demonstration isolates the logical decision that a trusted boundary might make, while the lecture separately explains why real enforcement must stop an untrusted caller from simply rewriting the owner record.",
+      "actions": [
+        "Predict the two decisions, then name the missing enforcement mechanism."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch19.json → SP19.010",
+      "question": {
+        "prompt": "Why does this model not provide real process isolation?",
+        "answer": "Its fields and policy function are ordinary user-space data and code without a protected trust boundary."
+      },
+      "code": {
+        "filename": "sys_ch19_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nstruct ProtectedObject { unsigned owner; };\nbool authorized(unsigned caller, const ProtectedObject& object) {\n    return caller == object.owner; // A deliberately narrow policy model.\n}\nint main() {\n    const ProtectedObject object{17};\n    std::cout << std::boolalpha\n              << \"owner=\" << authorized(17, object)\n              << \" stranger=\" << authorized(23, object) << '\\n';\n}\n",
+        "expectedStdout": "owner=true stranger=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "A toy ownership-policy check; it does not implement kernel privilege or authenticated identity."
+      }
+    },
+    {
+      "title": "A real descriptor can allow reading while rejecting writing",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "code",
+      "keyPoints": [
+        "Open /dev/null with read-only access.",
+        "A read returns end-of-file.",
+        "A write is rejected with EBADF for this access mode."
+      ],
+      "narration": "This Linux/POSIX example makes actual operating-system requests. Opening /dev/null read-only returns a descriptor with a read access mode. Reading one byte returns zero because this device supplies immediate end-of-file. Trying to write through that same read-only descriptor fails, and the saved error code is EBADF. The output therefore prints read-eof true and write-denied true. No outside network or user file is modified. The program captures errno immediately after the failed call and closes its descriptor before reporting results. The important distinction is that possessing a valid descriptor does not authorize every possible operation on the referenced object.",
+      "actions": [
+        "Predict the read result separately from the write result.",
+        "Locate the immediate errno capture."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch19.json → SP19.018",
+      "question": {
+        "prompt": "Why can a valid descriptor still reject a write?",
+        "answer": "Its access mode may permit reading but not writing."
+      },
+      "code": {
+        "filename": "sys_ch19_descriptor_rights.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cerrno>\n#include <fcntl.h>\n#include <iostream>\n#include <unistd.h>\nint main() {\n    const int fd = ::open(\"/dev/null\", O_RDONLY);\n    if (fd < 0) return 1;\n    char byte = 'x';\n    const auto read_result = ::read(fd, &byte, 1);\n    const auto write_result = ::write(fd, &byte, 1);\n    const int write_error = errno; // Save before another library call.\n    const int closed = ::close(fd);\n    if (read_result != 0 || write_result != -1 || write_error != EBADF || closed != 0) return 1;\n    std::cout << std::boolalpha << \"read-eof=\" << (read_result == 0)\n              << \" write-denied=\" << (write_error == EBADF) << '\\n';\n}\n",
+        "expectedStdout": "read-eof=true write-denied=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Kernel entry is a request, not automatic permission",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate descriptor, operation, buffer, and count.",
+        "Apply policy after crossing the controlled boundary.",
+        "Do not trust user-supplied fields merely because code is now privileged."
+      ],
+      "narration": "Imagine a process asks to copy twelve bytes into an eight-byte region. The fact that control has entered the kernel does not make twelve acceptable. Trusted code must still validate the relevant object, requested operation, accessible buffer range, and policy limits. The source workshop's range model focuses on this local arithmetic duty; our descriptor example adds a separate operation-rights duty. Neither check replaces the other. Real systems combine several layers because a request can be authorized for a resource but malformed in its size, or well-formed in size but unauthorized for that resource. Keep each failure cause explicit in the interface.",
+      "actions": [
+        "Classify unauthorized, out-of-range, and unavailable as separate failure causes."
+      ],
+      "sourceRef": "content/systems-programming/ch19.json → SP19.004",
+      "question": {
+        "prompt": "Can a successful mode transition substitute for validating a requested length?",
+        "answer": "No. The protected handler must still validate all relevant untrusted arguments and policy conditions."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "A descriptor is a controlled reference, not a disk address",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "concept",
+      "keyPoints": [
+        "The number identifies a process-table entry.",
+        "The entry refers to a kernel-managed object.",
+        "Sharing a resource does not imply unrestricted authority."
+      ],
+      "narration": "The integer returned by open is not the byte address of a disk block or a direct pointer to kernel memory. It selects an entry in the calling process's descriptor table. The kernel uses that entry to find an object and the associated access state. This layer of indirection makes it possible to grant limited access to a file or pipe without exposing arbitrary device commands. It also explains why printing a descriptor number tells little about the object's location. In the demonstration, the access mode stays meaningful even though the descriptor is a small ordinary integer in user memory.",
+      "actions": [
+        "Draw process descriptor entry, kernel object, and permitted operations as separate concepts."
+      ],
+      "sourceRef": "content/systems-programming/ch19.json → SP19.012",
+      "question": {
+        "prompt": "Why cannot a program treat a file descriptor as a physical disk location?",
+        "answer": "It is an index-like process-local reference interpreted by the kernel, not a storage address."
+      }
+    },
+    {
+      "title": "Page protection does not know your vector length",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "concept",
+      "keyPoints": [
+        "Hardware protects mapped regions and permissions.",
+        "C++ objects can be smaller than a mapped page.",
+        "Object-level bounds and lifetime checks remain necessary."
+      ],
+      "narration": "A writable memory page may contain several arrays, bookkeeping fields, and unused storage. Hardware can allow a store anywhere in that page while C++ still forbids a write beyond one array's end. That is why a buffer overflow can corrupt a neighboring object without immediately causing a protection fault. Process isolation protects one boundary, while object-level memory safety protects another. Do not infer that a successful load proves a pointer is valid under the source language. Our earlier chapters' range and lifetime checks remain essential even in a system with strong user/kernel separation and carefully configured page permissions.",
+      "actions": [
+        "Compare an eight-byte array boundary with a much larger writable page boundary."
+      ],
+      "sourceRef": "content/systems-programming/ch19.json → SP19.016",
+      "question": {
+        "prompt": "Why can an out-of-bounds write succeed without a page fault?",
+        "answer": "It may remain inside a mapped writable page while crossing the boundary of its C++ object."
+      }
+    },
+    {
+      "title": "Privileged does not mean error-proof",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "concept",
+      "keyPoints": [
+        "Kernel code can still have pointer or synchronization bugs.",
+        "Its wider authority increases consequences.",
+        "Hardware mappings still constrain actual accesses."
+      ],
+      "narration": "Kernel mode grants access to protected operations needed to manage the machine, but it does not make an incorrect pointer correct. Trusted code can still miscalculate a range, use a dead object, or race with another execution path. Such defects can have broader consequences because the code controls shared resources. Nor does kernel mode mean every numeric virtual address is mapped and readable. Address translation and protection configuration still matter. The right lesson is not to distrust every operation indiscriminately, but to keep strong contracts at the places where authority and data meet. More authority makes precise validation more valuable, not less.",
+      "actions": [
+        "Ask how a bad user pointer differs from a trusted object pointer."
+      ],
+      "sourceRef": "content/systems-programming/ch19.json → SP19.008",
+      "question": {
+        "prompt": "Does kernel mode imply that every virtual address can be read successfully?",
+        "answer": "No. The active mappings and protection mechanisms still determine which accesses can complete."
+      }
+    },
+    {
+      "title": "A library call is not automatically a system call",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "concept",
+      "keyPoints": [
+        "Formatting can occur entirely in user memory.",
+        "An allocator may reuse an existing arena.",
+        "Opening a file requires an operating-system service."
+      ],
+      "narration": "Calling a C or C++ function changes control flow within the process, but does not by itself imply a kernel transition. Formatting text into a supplied buffer can remain in user space. Allocating a small object may use an existing allocator region without a new mapping request. Opening a file normally needs operating-system mediation. Even one high-level output operation may buffer data and make a system request later. When measuring or debugging, distinguish the source-level function boundary from actual kernel entries. This avoids attributing every library overhead or state change to the operating system and helps identify what evidence a trace tool should collect.",
+      "actions": [
+        "Classify addition, formatting, file opening, and allocator reuse separately."
+      ],
+      "sourceRef": "content/systems-programming/ch19.json → SP19.024",
+      "question": {
+        "prompt": "Why might a small allocation complete without a new kernel request?",
+        "answer": "The user-space allocator may satisfy it from memory it already manages."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Unprivileged instructions can still harm their own program",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "concept",
+      "keyPoints": [
+        "Ordinary stores can corrupt local process data.",
+        "Division has its own validity conditions.",
+        "We study privileged effects without executing forbidden operations."
+      ],
+      "narration": "An unprivileged instruction is allowed at the current execution level; it is not a guarantee of harmless behavior. A normal store can overwrite the wrong object inside the process, and an invalid integer division can trigger an architectural exception. Conversely, instructions that change protected control state are blocked for ordinary user code. This course examines those restrictions through documented traces and safe models rather than attempting to disable interrupts or rewrite machine-wide controls. A security review therefore needs both questions: does this operation have the required authority, and does it correctly use the data and resources already available to it?",
+      "actions": [
+        "Ask for one harmful ordinary instruction use that requires no kernel privilege."
+      ],
+      "sourceRef": "content/systems-programming/ch19.json → SP19.014",
+      "question": {
+        "prompt": "Does permission to execute a store prove that its target belongs to the intended object?",
+        "answer": "No. Hardware permission and object-level correctness are separate conditions."
+      }
+    },
+    {
+      "title": "Review protected requests as several independent contracts",
+      "eyebrow": "SYSTEMS / CHAPTER 19",
+      "kind": "concept",
+      "keyPoints": [
+        "Who may request the operation?",
+        "Which resource and range does it name?",
+        "What result and cleanup rules does the caller handle?"
+      ],
+      "narration": "Return to the descriptor demonstration and explain its complete boundary. The process opens a device with read-only access, receives a process-local reference, handles end-of-file as a read result, recognizes a denied write, and releases the descriptor. These are distinct responsibilities. A larger service must add its own input, ownership, lifetime, and concurrency rules rather than treating kernel mediation as a complete safety certificate. The source range lab should likewise preserve rejection before arithmetic or mutation. In maintenance work, keeping each contract separate makes tests more precise: a permission regression is not hidden inside a generic failed-request assertion.",
+      "actions": [
+        "Have learners give a one-minute trace from request arguments to cleanup."
+      ],
+      "sourceRef": "content/systems-programming/ch19.json → SP19.024",
+      "question": {
+        "prompt": "What two independent facts distinguish the successful read from the rejected write in the example?",
+        "answer": "The descriptor is valid, but its access mode authorizes reading rather than writing."
+      }
+    }
+  ]
+}

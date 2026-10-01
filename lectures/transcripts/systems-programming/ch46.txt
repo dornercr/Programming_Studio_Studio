@@ -1,0 +1,720 @@
+Systems Programming and Machine Organization
+Chapter 46: Atomic Operations: values, ordering, and publication
+Dr. Charles Dorner
+
+1. Atomic describes an operation, not an entire design
+Problem and first experiment
+
+SAY
+An atomic operation is indivisible with respect to its defined observers, but that statement has a limited scope. An atomic counter can safely hand out positions without proving that the data at those positions is initialized. An atomic pointer can be read without tearing while its target has already been destroyed. We need to name the complete protocol: what value changes, what other data the change announces, and how long each object remains alive. This chapter adds tools for those questions. Start with the simplest default ordering, then choose weaker memory orders only when the reasoning and a measured need justify the added complexity.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.001
+
+------------------------------------------------------------
+
+2. The old value can identify a unique slot
+Problem and first experiment
+
+SAY
+Suppose three tasks need distinct sequence positions starting at ten. fetch_add with an increment of one returns the previous value while updating the counter as one operation. The tasks therefore receive ten, eleven, and twelve in some order, and the next position becomes thirteen. A plain load followed by store cannot provide that guarantee under contention. The returned ticket identifies an allocation decision; it does not publish a payload automatically. Our fixed three-request example stays far from numeric limits. A long-lived service must define what happens at exhaustion or wraparound before treating ticket values as permanently unique identities.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.008
+
+------------------------------------------------------------
+
+3. Run three ticket allocations with stable reporting
+Problem and first experiment
+
+SAY
+The code launches three workers. Each performs one relaxed fetch_add and stores its returned ticket in a separate array element. After joining, main sorts the tickets so output does not depend on which worker ran first. It prints tickets=10,11,12 next=13. Relaxed is enough for the counter's indivisible allocation here because this counter is not being used to publish unrelated payload data. The joins order the parent's later reads of the result slots. Sorting is a reporting choice, not synchronization. The example verifies unique ticket allocation for a bounded workload and makes no claim about the hardware instruction used or whether this atomic type is lock-free.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch46.json → SP46.008
+
+------------------------------------------------------------
+
+4. A failed compare updates the expectation
+Problem and first experiment
+
+SAY
+The atomic begins at three, but expected begins at two. The first compare_exchange_strong therefore fails, leaves the atomic at three, and replaces expected with three. The first line prints first=false observed=3. The second attempt computes expected plus one from that refreshed value and succeeds, printing second=true value=4. This single-thread mechanism demonstration isolates the C++ argument contract without scheduling noise. In a real retry loop, weak comparison may fail spuriously, and other threads may change the value again. A bound check must be repeated before forming the increment. Failure is useful information, not merely an instruction to retry the same stale desired value forever.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch46.json → SP46.012
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A producer writes a value, then publishes a ready flag. A consumer must not read the value until it observes readiness.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Build a one-shot publication function. A worker writes a non-atomic payload then releases a ready flag; the caller acquires that flag before reading the payload.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Changing both operations to relaxed removes the required handoff for this non-atomic payload. This is a one-shot protocol, not a reusable queue.
+
+A related failure in the generalized operation is concrete: Use relaxed ordering on both flag operations and still rely on the flag to publish a non-atomic payload.
+
+The repair changes the operation at the point where the rule can be enforced: Use the release/acquire handoff or a mutex-based protocol that supplies the required happens-before relation. Do not treat a successful test run as a memory-order proof.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The release store follows the payload write; the acquiring load that observes it orders the subsequent payload read. The local state outlives the producer because the future is completed before return. A fresh flag makes the protocol one-shot. Reusing one Boolean for several messages would need a richer protocol to prevent missed or overwritten publications.
+
+A plausible alternative: A mutex and condition variable often make waiting and repeated exchanges easier to reason about than a custom atomic protocol.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.03
+
+------------------------------------------------------------
+
+8. Chapter 46 — Atomic Operations
+Systems mechanisms and source lecture
+
+SAY
+Atomic operations provide indivisible access and ordering tools for shared-memory protocols. They are essential building blocks, but they do not automatically produce a correct algorithm. The programmer must specify which data is published, which operation observes publication, and how object lifetime remains valid. [ R23 , R34 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.001, SP46.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+46.1 Atomic loads 46.2 Atomic stores 46.3 Read-modify-write 46.4 Atomic variables ...plus 6 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.003
+
+------------------------------------------------------------
+
+10. Atomic loads
+Systems mechanisms and source lecture
+
+SAY
+An atomic load reads an atomic object’s value according to the selected memory order. It avoids a non-atomic conflicting access to that object. It does not automatically make unrelated ordinary memory safe to read. An acquire load can participate in publication when it observes the appropriate release operation or release sequence under the language rules. Without that relationship, attaching the word acquire to a load is not a general promise that every other thread’s latest writes become available.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.004, SP46.005
+
+------------------------------------------------------------
+
+11. Atomic stores
+Systems mechanisms and source lecture
+
+SAY
+An atomic store updates one atomic object. A release store can publish earlier ordinary writes to a reader that acquires the corresponding publication. The order applies to the protocol, not to a physical instruction named “flush all memory.” A reusable flag needs more care than a one-shot flag. If a producer overwrites payload data while a consumer still reads it, a correct first publication does not prevent a later race. Reuse requires ownership transfer, acknowledgments, sequence numbers, or another complete protocol.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.006, SP46.007
+
+------------------------------------------------------------
+
+12. Read-modify-write
+Systems mechanisms and source lecture
+
+SAY
+An atomic read-modify-write operation reads and updates an object as one indivisible operation. Examples include fetch_add , exchange, and compare-and-swap. This avoids the lost-update problem of a separate load followed by store. The returned value and update rule matter. fetch_add returns the previous value, making it useful for allocating unique sequence positions within a bounded, overflow-aware design. It does not make the data stored at those positions automatically initialized or published.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.008, SP46.009
+
+------------------------------------------------------------
+
+13. Atomic variables
+Systems mechanisms and source lecture
+
+SAY
+std::atomic<T> provides atomic operations for supported types. Lock-free behavior depends on type, implementation, and platform; atomic does not universally mean one instruction or no internal locking. Use is_lock_free or the relevant compile-time property when lock freedom is an actual requirement. Even a lock-free operation can contend heavily on a shared cache line. A single global atomic counter can become a scalability bottleneck despite being correct.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.010, SP46.011
+
+------------------------------------------------------------
+
+14. Compare-and-swap
+Systems mechanisms and source lecture
+
+SAY
+Compare-and-swap compares the atomic value with an expected value and conditionally replaces it with a desired value. In the C++ interface, failure updates the expected argument with the observed value. Weak forms can fail spuriously and are commonly used in retry loops. A bounded increment can repeatedly load a value, reject it when at the limit, and attempt to replace it with value plus one. The addition is safe only after proving the bound. CAS does not solve memory reclamation or the ABA problem by itself: a pointer can change away and back while the referenced object’s identity or lifetime changes. A simple default-order loop has this shape: The test expected < limit ensures expected + 1 cannot exceed the unsigned maximum when limit is representable. Explicit weaker memory orders require a separate proof, including valid success and failure order combinations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.012, SP46.013
+
+------------------------------------------------------------
+
+15. Memory ordering
+Systems mechanisms and source lecture
+
+SAY
+Relaxed ordering provides atomicity and the atomic object’s modification-order guarantees without using that operation to publish unrelated ordinary data. It is appropriate for some independent statistics and counters when no additional ordering is required. Release/acquire ordering supports directed publication. Sequential consistency adds a single total order for the relevant sequentially consistent operations, consistent with the standard’s constraints. It is a useful starting point but still does not repair an algorithm with the wrong atomic operation boundaries. Do not translate memory orders into folklore such as “always use relaxed on x86” or “a compiler barrier is enough.” The C++ abstract machine, compiler transformations, and hardware ordering all participate. Begin with a simple correct protocol and weaken ordering only when the proof and measured need justify the complexity.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.014, SP46.015
+
+------------------------------------------------------------
+
+16. One-shot publication
+Systems mechanisms and source lecture
+
+SAY
+A producer initializes a three-element payload and then publishes readiness with release ordering. The consumer waits with acquire ordering and reads the payload before joining the producer. That ordering relationship, not the later join, protects the payload read. Companion listing: ch46/publication.cpp The expected result is 21. The acquire load that observes true synchronizes with the release publication, making the prior payload initialization available to the consumer under the language model. The payload is never modified again, and all objects remain alive through the join. The spin/yield loop is deliberately simple. For long waits, a blocking facility can avoid repeated polling. Do not generalize this one-shot example into a reusable producer–consumer queue by merely resetting the flag; reuse introduces new ownership and ordering requirements.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.016, SP46.017
+
+------------------------------------------------------------
+
+17. Compare-and-swap loop
+Systems mechanisms and source lecture
+
+SAY
+To increment an atomic value with compare-and-swap, load the expected old value, compute desired = old+1 , then attempt to replace old with desired only if the atomic still equals old. If another thread changed it first, retry using the newly observed value. CAS turns a conditional read-modify-write into one indivisible atomic operation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.018, SP46.019
+
+------------------------------------------------------------
+
+18. Release/acquire publication
+Systems mechanisms and source lecture
+
+SAY
+A producer initializes ordinary data, then performs a release store to an atomic ready flag. A consumer spins or waits until an acquire load observes the published ready value. The release/acquire pair establishes visibility of the producer’s earlier writes to the consumer, provided the program obeys the memory-model requirements.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.020, SP46.021
+
+------------------------------------------------------------
+
+19. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 46. Annotate the publication trace with “sequenced before,” “synchronizes with,” and “happens before.” Explain why replacing both orders with relaxed would remove the proof for the ordinary payload reads. Do not run the resulting invalid variant as a correctness test. Review 1. Does atomic imply lock-free? Review 2. Why can a CAS-based pointer structure still have lifetime errors?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.022, SP46.023
+
+------------------------------------------------------------
+
+20. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is atomic operations. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.024
+
+------------------------------------------------------------
+
+21. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Mutual Exclusion.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.025
+
+------------------------------------------------------------
+
+22. Publication connects an ordinary payload to a flag
+Reason about the implementation
+
+SAY
+Imagine a producer filling three ordinary integers, then setting an atomic ready flag. A consumer must not infer payload safety merely from the flag's atomic type. The producer uses a release store, and the consumer uses an acquire load that observes the corresponding publication. That relationship carries the earlier payload writes into the consumer's later reads under the language model. The payload also stays alive and is not modified again during this one-shot read. A later join cannot retroactively justify a payload read that happened too early. Name the exact release and observing acquire when explaining the source's publication example.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.020
+
+------------------------------------------------------------
+
+23. Relaxed counting is not relaxed publication
+Reason about the implementation
+
+SAY
+Our ticket counter can use relaxed ordering because its job is only to allocate distinct bounded integers; results are collected through joins. Change the counter's meaning to payload ready, and the proof changes. An observer that sees the flag needs a relationship to the producer's ordinary payload writes, not just an indivisible flag load. Replacing release and acquire with relaxed would remove that publication argument and can make ordinary accesses invalid. Do not run such a variant as a harmless performance comparison. The useful question is which data needs ordering and which operation supplies that edge, rather than a hardware slogan about one processor being strong enough.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.014
+
+------------------------------------------------------------
+
+24. Sequential consistency does not combine separate operations
+Reason about the implementation
+
+SAY
+Suppose two workers each perform a default-order atomic load and later a default-order store of old plus one. Sequential consistency constrains the order of those atomic actions, but it still permits both loads before both stores. The final count can therefore lose an intended update even though there is no data race. Stronger ordering does not change the operation boundaries. fetch_add combines the read and update into one read-modify-write; a compare-and-swap loop conditionally combines a checked update. If the rule spans several related objects, one mutex may be easier to prove correct than a collection of atomic fields whose cross-field states remain inconsistent.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.014
+
+------------------------------------------------------------
+
+25. A reused flag needs a handoff protocol
+Reason about the implementation
+
+SAY
+The one-shot source writes a payload once and never changes it after publication. Reusing the same buffer introduces a second question: when may the producer overwrite it? Resetting a Boolean flag does not by itself prove that the consumer has finished reading. A correct reusable protocol needs an acknowledgment, sequence scheme, ownership transfer, or a protected queue whose state machine covers both directions. The initial release/acquire pair can be correct while a later overwrite races with the reader. Trace the entire cycle, including who owns the buffer after consumption. A small first example should establish one guarantee clearly rather than imply it solves every repeated exchange.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.006
+
+------------------------------------------------------------
+
+26. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A producer writes a value, then publishes a ready flag. A consumer must not read the value until it observes readiness.
+
+Write payload. payload becomes 42. The write is sequenced before the release store.
+
+Publish and observe ready. the acquire load reads true from the release store. This handoff establishes the ordering needed to see the preceding payload write.
+
+Consume and join. observed becomes 42. The data remains alive; the one-shot producer performs no later writes to it.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch46/main.cpp
+
+------------------------------------------------------------
+
+27. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Write payload. payload becomes 42. The write is sequenced before the release store.
+
+Publish and observe ready. the acquire load reads true from the release store. This handoff establishes the ordering needed to see the preceding payload write.
+
+Consume and join. observed becomes 42. The data remains alive; the one-shot producer performs no later writes to it.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch46/main.cpp
+
+------------------------------------------------------------
+
+28. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The release store follows the payload write; the acquiring load that observes it orders the subsequent payload read. The local state outlives the producer because the future is completed before return. A fresh flag makes the protocol one-shot. Reusing one Boolean for several messages would need a richer protocol to prevent missed or overwritten publications.
+
+Use the release/acquire handoff or a mutex-based protocol that supplies the required happens-before relation. Do not treat a successful test run as a memory-order proof.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch46/main.cpp:1-22
+
+------------------------------------------------------------
+
+29. One-shot publication between two threads
+Code, diagrams, and debugging
+
+SAY
+Time runs down the page. The first two arrows are the release/acquire communication; the final arrow states the resulting happens-before relation, not a direct function call or ownership. Unsuccessful polling loads are omitted. Main joins both threads before reading observed.
+
+The release store follows the payload write; the acquiring load that observes it orders the subsequent payload read. The local state outlives the producer because the future is completed before return. A fresh flag makes the protocol one-shot. Reusing one Boolean for several messages would need a richer protocol to prevent missed or overwritten publications.
+
+Use the release/acquire handoff or a mutex-based protocol that supplies the required happens-before relation. Do not treat a successful test run as a memory-order proof.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch46/main.cpp:1-22
+
+------------------------------------------------------------
+
+30. Publish data with a release/acquire handoff
+Code, diagrams, and debugging
+
+SAY
+Publish data with a release/acquire handoff. The producer writes a non-atomic payload before publishing readiness. Other threads must not read it without the matching synchronization.
+
+A producer writes a value, then publishes a ready flag. A consumer must not read the value until it observes readiness.
+
+The write is sequenced before the release store. This handoff establishes the ordering needed to see the preceding payload write. The data remains alive; the one-shot producer performs no later writes to it.
+
+The producer writes a non-atomic payload before publishing readiness. Other threads must not read it without the matching synchronization.
+
+A release store publishes true. A consumer acquire load that reads this value establishes visibility of prior producer writes, allowing its later payload read. Merely replacing the flag with an ordinary bool would create a data race.
+
+The payload write precedes the release store. The consumer reads the payload only after an acquire load observes that publication; main reads observed after join.
+
+Changing both operations to relaxed removes the required handoff for this non-atomic payload. This is a one-shot protocol, not a reusable queue. In the extended lab: Use relaxed ordering on both flag operations and still rely on the flag to publish a non-atomic payload.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch46/main.cpp:11-12
+
+------------------------------------------------------------
+
+31. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Use relaxed ordering on both flag operations and still rely on the flag to publish a non-atomic payload.
+
+Use the release/acquire handoff or a mutex-based protocol that supplies the required happens-before relation. Do not treat a successful test run as a memory-order proof.
+
+The reference solution makes the contract executable with assertions. The release store follows the payload write; the acquiring load that observes it orders the subsequent payload read. The local state outlives the producer because the future is completed before return. A fresh flag makes the protocol one-shot. Reusing one Boolean for several messages would need a richer protocol to prevent missed or overwritten publications.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.06
+
+------------------------------------------------------------
+
+32. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch46/starter.cpp. Implement the first acceptance case for publish a caller-supplied payload. State the function inputs and result before adding code. First case: Publishing 42 returns 42.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.07
+
+------------------------------------------------------------
+
+33. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch46/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.08
+
+------------------------------------------------------------
+
+34. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Use relaxed ordering on both flag operations and still rely on the flag to publish a non-atomic payload. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.09
+
+------------------------------------------------------------
+
+35. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why is an ordinary bool flag insufficient? Compare the selected design with this plausible alternative: A mutex and condition variable often make waiting and repeated exchanges easier to reason about than a custom atomic protocol.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.10
+
+------------------------------------------------------------
+
+36. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch46/starter.cpp. Build a one-shot publication function. A worker writes a non-atomic payload then releases a ready flag; the caller acquires that flag before reading the payload. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch46/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.11
+
+------------------------------------------------------------
+
+37. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Publish a caller-supplied payload belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.12
+
+------------------------------------------------------------
+
+38. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Build a one-shot publication function. A worker writes a non-atomic payload then releases a ready flag; the caller acquires that flag before reading the payload.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch46/starter.cpp
+
+------------------------------------------------------------
+
+39. Review the extension solution
+Practice and extension
+
+SAY
+The release store follows the payload write; the acquiring load that observes it orders the subsequent payload read. The local state outlives the producer because the future is completed before return. A fresh flag makes the protocol one-shot. Reusing one Boolean for several messages would need a richer protocol to prevent missed or overwritten publications. Repair principle: Use the release/acquire handoff or a mutex-based protocol that supplies the required happens-before relation. Do not treat a successful test run as a memory-order proof.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Use the release/acquire handoff or a mutex-based protocol that supplies the required happens-before relation. Do not treat a successful test run as a memory-order proof.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch46/solution.cpp
+
+------------------------------------------------------------
+
+40. Application case: Atomic Operations
+Practice and extension
+
+SAY
+An atomic ready flag publishes ordinary data.
+
+What may be needed beyond atomicity of the flag itself?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.CASE
+
+------------------------------------------------------------
+
+41. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The release store follows the payload write; the acquiring load that observes it orders the subsequent payload read. The local state outlives the producer because the future is completed before return. A fresh flag makes the protocol one-shot. Reusing one Boolean for several messages would need a richer protocol to prevent missed or overwritten publications.
+
+Choose a simpler approach when its narrower contract is enough. A mutex and condition variable often make waiting and repeated exchanges easier to reason about than a custom atomic protocol.
+
+When this system changes, retain a check that exposes the known failure: Use relaxed ordering on both flag operations and still rely on the flag to publish a non-atomic payload. Use the release/acquire handoff or a mutex-based protocol that supplies the required happens-before relation. Do not treat a successful test run as a memory-order proof.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch46.json → SYS46.14
+
+------------------------------------------------------------
+
+42. Atomic is not a performance promise
+Recall and transfer
+
+SAY
+The type std::atomic does not guarantee that every operation uses one instruction or avoids internal locks. The implementation and target platform determine lock-free properties. Even a lock-free counter may scale poorly when many cores repeatedly request exclusive access to the same cache line. Our three-ticket demonstration is far too small to measure that cost. If contention matters, compare designs with per-worker batches or private accumulation while preserving the allocation contract. Performance work needs a workload, measurement method, and correctness baseline. Choosing relaxed everywhere to chase speed can remove required communication guarantees without addressing the actual bottleneck.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.010
+
+------------------------------------------------------------
+
+43. Review values, ordering, and lifetime separately
+Recall and transfer
+
+SAY
+Use three passes when reviewing atomic code. First, check the value algorithm: whether fetch_add returns the old value, whether failed comparison refreshes expected, and whether arithmetic is bounded. Second, check ordering: identify the exact communication edge needed before ordinary payload reads. Third, check lifetime: a correctly published address must still point to a live object for every use. Pointer-based structures also need a reclamation plan, and compare-and-swap alone does not solve a value changing away and back while object identity changes. Keeping these questions separate makes it easier to explain what an atomic operation guarantees and where the surrounding design must do more.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch46.json → SP46.022

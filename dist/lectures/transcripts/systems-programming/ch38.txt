@@ -1,0 +1,687 @@
+Systems Programming and Machine Organization
+Chapter 38: Program Execution — replacing an image without losing the contract
+Dr. Charles Dorner
+
+1. Replace the program without creating another process
+Problem and first experiment
+
+SAY
+A launcher often creates a child and then replaces what that child is running. Those are two operations. fork creates the child; exec installs a new program image in the calling process. On success, the same process identity continues with new code, data, and startup state, and the old call does not return. Think of replacing the work inside an existing process rather than calling another ordinary function. The parent remains available to supervise because it did not replace itself. A standalone program can also exec directly if it intends to become the new program and has no remaining old-image responsibilities.
+
+DO
+Separate the creation step from the replacement step on the board.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.008 · 38.3 Program replacement
+
+------------------------------------------------------------
+
+2. A successful replacement skips the fallback exit
+Problem and first experiment
+
+SAY
+The child supplies an explicit executable path, a terminated argument vector, and a small controlled environment. If execve succeeds, the child runs /bin/true, which exits successfully. The following _exit with status ninety-one belongs only to the failure path. The parent waits for that specific child and prints that replacement succeeded only after verifying ordinary exit zero. This example assumes the reference Linux environment provides /bin/true; if it does not, the test fails rather than claiming success. The parent-only output is deterministic. It proves the controlled launch completed, without printing variable process IDs or pretending the old child code continued after successful replacement.
+
+DO
+Predict which child statement is unreachable on success.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch38.json → SP38.006 · 38.2 execve
+
+------------------------------------------------------------
+
+3. Argument boundaries are data, not shell punctuation
+Problem and first experiment
+
+SAY
+The argument vector for a tool with one filename containing a space should contain that filename as one string. execve does not ask a shell to split words or interpret redirection symbols. That makes direct argument passing easier to reason about than building a shell command string. It does not mean the target program treats every string as harmless data: a leading dash may still name an option according to that program's own rules. Keep the strings and the pointer array alive until the call completes, and include the final null pointer. A terminating zero byte inside each string is different from the null pointer ending the array.
+
+DO
+Contrast the end of a C string with the end of the argv pointer array.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.010 · 38.4 Arguments
+
+------------------------------------------------------------
+
+4. Replacement failure returns to the existing program
+Problem and first experiment
+
+SAY
+This program deliberately requests an empty executable path. On the stated Linux/POSIX environment it fails with ENOENT, and execve returns minus one. The next statements therefore run in the old program and print that failure occurred and old code continues. We save errno immediately, before output or cleanup could alter it. No child is needed to demonstrate this return contract, and no external executable is launched by the failing call. In an exec-bound child, the same return would need a short diagnostic and an intentional termination path. Falling through into the parent's usual command loop would create behavior the launcher never intended.
+
+DO
+Predict both true values and explain which control path makes them possible.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch38.json → SP38.006 · 38.2 execve
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A state model starts process 42 running shell. A successful exec changes the program image to worker and keeps the process ID.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Model exec as a prepared replacement. Validate the new program name before committing it; preserve process identity on success and the old image on failure.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+The assignment is only a state model: unlike this C++ line, a successful real exec does not return into the old program.
+
+A related failure in the generalized operation is concrete: Clear the current image before validating the replacement. An invalid request then destroys valid existing state.
+
+The repair changes the operation at the point where the rule can be enforced: Validate and prepare first, then commit. In real exec code, keep failure reporting on the path that returns from the call.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Preparation can fail before the new state becomes visible. Swapping commits the prepared string while preserving the model’s process identifier. A real successful exec does not return into the old program; this returning function is only a state model. In actual code, the path after exec is the failure path.
+
+A plausible alternative: Launching a second process needs a creation operation as well; exec by itself is replacement.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.03
+
+------------------------------------------------------------
+
+8. Chapter 38 — Program Execution
+Systems mechanisms and source lecture
+
+SAY
+The exec family replaces the calling process’s program image. It does not create a new process by itself. This distinction makes fork followed by exec useful: the parent retains its program, while the child replaces its own image with the requested executable. [ R16 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.001, SP38.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+38.1 exec 38.2 execve 38.3 Program replacement 38.4 Arguments ...plus 6 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.003
+
+------------------------------------------------------------
+
+10. exec
+Systems mechanisms and source lecture
+
+SAY
+The exec family provides interfaces with different argument and environment conventions. Some accept an argument vector; some accept a variable-length argument list. Interfaces with a p variant search according to documented path rules, while execve takes an explicit pathname and environment vector. Choosing an interface is also a security decision. Searching a mutable or attacker-influenced path can execute an unintended program. Supplying an explicit known path and a controlled environment makes the selection easier to reason about, although executable identity and filesystem permissions still matter.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.004, SP38.005
+
+------------------------------------------------------------
+
+11. execve
+Systems mechanisms and source lecture
+
+SAY
+execve(path, argv, envp) requests replacement using a pathname, a null-terminated argument-vector array, and a null-terminated environment-vector array. A successful call does not return to the old program. Failure returns -1 with errno describing the error. The strings and pointer arrays must remain valid until the call completes. The kernel constructs the new program’s initial state; the old address space is not retained as ordinary live C objects after success. Do not place essential parent-only cleanup after exec and expect it to run on success.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.006, SP38.007
+
+------------------------------------------------------------
+
+12. Program replacement
+Systems mechanisms and source lecture
+
+SAY
+Replacement installs new code, data, stack, and related execution state while preserving the process’s identity and selected attributes according to the interface. It is not a normal function call into another executable. Open descriptors generally remain unless marked close-on-exec or affected by a documented rule. This is how a shell arranges standard input and output before executing a command. It is also why accidentally inherited descriptors can leak access into a program that never requested it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.008, SP38.009
+
+------------------------------------------------------------
+
+13. Arguments
+Systems mechanisms and source lecture
+
+SAY
+argv is an array of pointers to strings ending with a null pointer. Conventionally argv[0] identifies the program name, while later entries contain arguments. An argument containing spaces remains one argument when represented as one array element; no shell parsing is performed by execve itself. Avoid constructing a shell command string when direct argument passing is sufficient. Direct vectors preserve argument boundaries and avoid interpreting metacharacters as shell syntax. Validation is still required for the target program’s own option and input semantics.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.010, SP38.011
+
+------------------------------------------------------------
+
+14. Environment
+Systems mechanisms and source lecture
+
+SAY
+The environment is a collection of strings conventionally formatted as NAME=value . Programs and libraries can use it to select paths, locale behavior, configuration, and other settings. Inheriting every variable is convenient but can make behavior depend on the launching context. A controlled launcher should decide which variables to preserve, replace, or omit. Never treat environment variables as automatically trustworthy merely because they came from the parent. Security-sensitive execution requires a deliberate environment and privilege policy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.012, SP38.013
+
+------------------------------------------------------------
+
+15. Process images
+Systems mechanisms and source lecture
+
+SAY
+A process image includes the executable mappings and initialized runtime environment needed to begin the new program. The loader and dynamic linker perform work beyond the source-level function call used to request replacement. Some signal-related state changes across exec while other state persists according to the documented rules. For example, caught signal dispositions are reset in the ordinary case, while the signal mask is preserved. A launcher that blocks signals during setup must restore the intended mask before executing a program that expects normal delivery. [ R16 , R21 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.014, SP38.015
+
+------------------------------------------------------------
+
+16. Explicit arguments and environment
+Systems mechanisms and source lecture
+
+SAY
+The following single-threaded launcher starts /bin/echo with one argument containing a space. The child uses only a small failure message and _exit if exec fails. The parent returns the child’s ordinary exit code when available. Companion listing: ch38/launch.c The expected output is exec example . The two words arrive as one argument; the program does not ask a shell to parse them. The example assumes the reference system provides /bin/echo . The validation report records whether that executable was available rather than silently treating an absent program as a successful test.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.016, SP38.017
+
+------------------------------------------------------------
+
+17. Exec does not create a second process
+Systems mechanisms and source lecture
+
+SAY
+A child created with fork can call execve to replace its program image. The PID remains the same because execve transforms the calling process rather than spawning another one. On success, the old code, stack, and most mappings are gone, and execution begins in the new program’s startup path.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.018, SP38.019
+
+------------------------------------------------------------
+
+18. Building argv correctly
+Systems mechanisms and source lecture
+
+SAY
+For a program invocation conceptually equivalent to tool -v input.txt , construct an argument vector containing tool , -v , input.txt , and a terminating null pointer. Each logical argument is a separate string. Passing the whole command as one string does not ask execve to perform shell parsing.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.020, SP38.021
+
+------------------------------------------------------------
+
+19. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 38. Replace the executable path with a deliberately nonexistent path in a temporary copy. Verify a nonzero result and no fallthrough into parent behavior. Then add a second argument and predict how the argument vector changes without constructing a shell command string. Review 1. Does successful exec return? Review 2. Why can a descriptor survive into a program that never called open for it?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.022, SP38.023
+
+------------------------------------------------------------
+
+20. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is program execution. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.024
+
+------------------------------------------------------------
+
+21. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Process Termination.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.025
+
+------------------------------------------------------------
+
+22. The environment is an input to execution
+Reason about the implementation
+
+SAY
+Two launches of the same binary can behave differently because of locale, configuration, search paths, or other environment inputs. Passing every inherited variable is convenient but gives the launching context influence over the new program. A controlled tool can construct a small environment explicitly, as the success demo does with LC_ALL. That choice may also remove variables the target genuinely needs, so it belongs in the launcher contract rather than an unexplained cleanup step. Environment strings and their pointer array need valid storage until execve completes. Do not assume data is trusted merely because it came from a parent process; identify who controlled that parent's environment.
+
+DO
+Name one behavior affected by locale or search-path settings.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.012 · 38.5 Environment
+
+------------------------------------------------------------
+
+23. Executable selection deserves an explicit policy
+Reason about the implementation
+
+SAY
+An exec variant that searches a path can find a different executable when the path changes. That may be desirable for an interactive shell but inappropriate for a tightly controlled launcher. execve lets the caller state a pathname and environment explicitly. This narrows the selection problem without making filesystem identity irrelevant: permissions and mutable namespace entries still matter. Choose the interface from the intended trust and deployment model rather than from the shortest function name. Direct arguments avoid shell interpretation, while executable selection and target-option validation remain separate responsibilities. Security comes from those concrete boundaries, not from treating any one exec spelling as universally safe.
+
+DO
+Separate shell interpretation from choosing the intended executable.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.004 · 38.1 exec
+
+------------------------------------------------------------
+
+24. Selected descriptors survive image replacement
+Reason about the implementation
+
+SAY
+A new program usually inherits open descriptors that were not marked close-on-exec or otherwise affected by the interface rules. This is useful: a shell can connect standard output to a file before exec, and the replacement program writes normally. It is also a possible access leak. A sensitive file or an extra pipe writer left open can reach code that never requested it, and the pipe writer can keep another process waiting for EOF. Review the intended descriptor set before replacement. The old C++ objects disappear on successful exec, so their destructors are not a reliable plan for closing unwanted inherited descriptors afterward.
+
+DO
+List the descriptors the new program should receive and reject extras.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.008 · 38.3 Program replacement
+
+------------------------------------------------------------
+
+25. Signal state also crosses a documented boundary
+Reason about the implementation
+
+SAY
+Replacing code does not reset every process attribute in the same way. In the ordinary case, caught signal dispositions are reset, while the signal mask remains. A launcher that temporarily blocked signals during setup can therefore start a program with those signals still blocked unless it restores the intended mask first. The new program may then appear unresponsive to events it expects. This is another reason to view exec as a defined state transition rather than a vague fresh start. Keep a checklist of the specific state the launch policy intends to preserve, replace, or clear, and test the externally visible behavior of that policy.
+
+DO
+Contrast the two signal-state categories without treating them as one setting.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.014 · 38.6 Process images
+
+------------------------------------------------------------
+
+26. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A state model starts process 42 running shell. A successful exec changes the program image to worker and keeps the process ID.
+
+Before exec. pid 42; image shell. Process identity and program image are different concepts.
+
+Successful replacement. new image worker. The old user-space image does not continue past a successful exec call.
+
+Preserve selected process state. pid remains 42. Descriptor inheritance depends on close-on-exec flags and the API contract.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch38/main.cpp
+
+------------------------------------------------------------
+
+27. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Before exec. pid 42; image shell. Process identity and program image are different concepts.
+
+Successful replacement. new image worker. The old user-space image does not continue past a successful exec call.
+
+Preserve selected process state. pid remains 42. Descriptor inheritance depends on close-on-exec flags and the API contract.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch38/main.cpp
+
+------------------------------------------------------------
+
+28. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Preparation can fail before the new state becomes visible. Swapping commits the prepared string while preserving the model’s process identifier. A real successful exec does not return into the old program; this returning function is only a state model. In actual code, the path after exec is the failure path.
+
+Validate and prepare first, then commit. In real exec code, keep failure reporting on the path that returns from the call.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch38/main.cpp:1-11
+
+------------------------------------------------------------
+
+29. Exec replaces an image while keeping process identity
+Code, diagrams, and debugging
+
+SAY
+Exec replaces an image while keeping process identity. The fixed process identifier is 42 for this model. const prevents accidental changes through pid.
+
+A state model starts process 42 running shell. A successful exec changes the program image to worker and keeps the process ID.
+
+Process identity and program image are different concepts. The old user-space image does not continue past a successful exec call. Descriptor inheritance depends on close-on-exec flags and the API contract.
+
+The fixed process identifier is 42 for this model. const prevents accidental changes through pid.
+
+image names the current program image, initially shell.
+
+Replacing the image with worker changes the modeled program while retaining pid. This string assignment models successful exec; it does not actually replace the running executable.
+
+Successful image replacement preserves the modeled process identifier. The lab adds the failure rule that a rejected replacement preserves the old image.
+
+The assignment is only a state model: unlike this C++ line, a successful real exec does not return into the old program. In the extended lab: Clear the current image before validating the replacement. An invalid request then destroys valid existing state.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch38/main.cpp:6-8
+
+------------------------------------------------------------
+
+30. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Clear the current image before validating the replacement. An invalid request then destroys valid existing state.
+
+Validate and prepare first, then commit. In real exec code, keep failure reporting on the path that returns from the call.
+
+The reference solution makes the contract executable with assertions. Preparation can fail before the new state becomes visible. Swapping commits the prepared string while preserving the model’s process identifier. A real successful exec does not return into the old program; this returning function is only a state model. In actual code, the path after exec is the failure path.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.06
+
+------------------------------------------------------------
+
+31. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch38/starter.cpp. Implement the first acceptance case for keep failed replacement from destroying the current image. State the function inputs and result before adding code. First case: Replacing shell with worker keeps pid 42.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.07
+
+------------------------------------------------------------
+
+32. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch38/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.08
+
+------------------------------------------------------------
+
+33. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Clear the current image before validating the replacement. An invalid request then destroys valid existing state. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.09
+
+------------------------------------------------------------
+
+34. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Where should error handling for exec failure be placed? Compare the selected design with this plausible alternative: Launching a second process needs a creation operation as well; exec by itself is replacement.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.10
+
+------------------------------------------------------------
+
+35. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch38/starter.cpp. Model exec as a prepared replacement. Validate the new program name before committing it; preserve process identity on success and the old image on failure. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch38/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.11
+
+------------------------------------------------------------
+
+36. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Keep failed replacement from destroying the current image belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.12
+
+------------------------------------------------------------
+
+37. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Model exec as a prepared replacement. Validate the new program name before committing it; preserve process identity on success and the old image on failure.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch38/starter.cpp
+
+------------------------------------------------------------
+
+38. Review the extension solution
+Practice and extension
+
+SAY
+Preparation can fail before the new state becomes visible. Swapping commits the prepared string while preserving the model’s process identifier. A real successful exec does not return into the old program; this returning function is only a state model. In actual code, the path after exec is the failure path. Repair principle: Validate and prepare first, then commit. In real exec code, keep failure reporting on the path that returns from the call.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Validate and prepare first, then commit. In real exec code, keep failure reporting on the path that returns from the call.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch38/solution.cpp
+
+------------------------------------------------------------
+
+39. Application case: Program Execution
+Practice and extension
+
+SAY
+exec succeeds in a process.
+
+What happens to the calling program image?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.CASE
+
+------------------------------------------------------------
+
+40. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Preparation can fail before the new state becomes visible. Swapping commits the prepared string while preserving the model’s process identifier. A real successful exec does not return into the old program; this returning function is only a state model. In actual code, the path after exec is the failure path.
+
+Choose a simpler approach when its narrower contract is enough. Launching a second process needs a creation operation as well; exec by itself is replacement.
+
+When this system changes, retain a check that exposes the known failure: Clear the current image before validating the replacement. An invalid request then destroys valid existing state. Validate and prepare first, then commit. In real exec code, keep failure reporting on the path that returns from the call.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch38.json → SYS38.14
+
+------------------------------------------------------------
+
+41. Launch failure is part of the program’s result
+Recall and transfer
+
+SAY
+A launcher has at least two sources of failure: preparing the child's resources and replacing its image. If opening a redirected output fails, executing the target anyway with the old destination may violate the user's request. If exec returns, the child must not drift into unrelated parent logic. A minimal failure path preserves the relevant error, reports it through an intended channel, and exits with a documented result. The parent then distinguishes normal exit from signal termination before interpreting the status. Tests should include a known successful target and a guaranteed failure path, because only the first misses the most dangerous continuation mistake.
+
+DO
+Ask learners to trace a failure before the replacement and one at the replacement.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.006 · 38.2 execve
+
+------------------------------------------------------------
+
+42. Recall identity, image, inputs, and inherited state
+Recall and transfer
+
+SAY
+To explain exec clearly, name what stays and what changes. The calling process retains its identity, while its old program image is replaced. Arguments and environment supply explicit inputs to the new startup. Selected process state, including intended descriptors and the signal mask, follows documented inheritance rules. A successful call never returns, while a failed call returns into old code that still needs a plan. The two runnable demonstrations make that contrast visible without relying on unstable process IDs. These ideas let a launcher remain predictable as it grows from one harmless target to redirection, pipelines, and supervised child programs.
+
+DO
+Explain the success and failure demos using those four facts.
+
+SOURCE
+content/systems-programming/ch38.json → SP38.018 · Worked example — Exec does not create a second process

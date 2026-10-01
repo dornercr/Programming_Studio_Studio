@@ -1,0 +1,224 @@
+{
+  "chapter": 32,
+  "title": "Cache Performance — from access costs to measured work",
+  "opening": [
+    {
+      "title": "A fast hit can hide an expensive average",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "Count how often the slow path happens",
+        "State whether a penalty is additional",
+        "Keep modeled access cost separate from whole-program time"
+      ],
+      "narration": "Suppose most accesses finish quickly but one in ten follows a much slower path. Reporting only the hit time hides the work that slow path creates. Average memory-access time, often shortened to AMAT, weights each extra cost by how often it occurs. This is accounting under assumptions, not a full CPU simulator. If the miss penalty already includes the initial lookup, adding that lookup again counts it twice. Before using any equation, draw which operations every access pays and which operations only a miss pays. That simple branch picture prevents more mistakes than memorizing symbols without their meaning.",
+      "actions": [
+        "Sketch the hit path and miss path with costs beside each."
+      ],
+      "sourceRef": "content/systems-programming/ch32.json → SP32.004 · 32.1 Average memory-access time",
+      "question": {
+        "prompt": "Why must the miss penalty say whether it includes the initial hit lookup?",
+        "answer": "Otherwise the formula may count the same lookup twice or omit it."
+      }
+    },
+    {
+      "title": "Read a two-level formula as conditional work",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "code",
+      "keyPoints": [
+        "Every request pays L1 lookup",
+        "Only L1 misses pay L2 access",
+        "Only L2 misses pay the memory penalty"
+      ],
+      "narration": "The demo uses a one-nanosecond L1 lookup, a ten-percent L1 miss rate, a six-nanosecond L2 access, a twenty-five-percent local L2 miss rate, and an eighty-nanosecond additional memory penalty. One L1 miss costs six plus one quarter of eighty, or twenty-six nanoseconds on average. Only one tenth of requests pays that extra cost, so the total is one plus two point six, giving three point six. The program prints 3.60 using fixed formatting. These numbers are invented model inputs. They do not come from timing this program, and its arithmetic does not include overlapping requests or bandwidth limits.",
+      "actions": [
+        "Predict the intermediate twenty-six before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch32.json → SP32.004 · 32.1 Average memory-access time",
+      "question": {
+        "prompt": "What does the L2 miss rate divide by in this formula?",
+        "answer": "L2 accesses, which here occur only after L1 misses. It is a local miss rate."
+      },
+      "code": {
+        "filename": "sys_ch32_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iomanip>\n#include <iostream>\nint main() {\n    const double l1_lookup = 1.0;\n    const double l1_miss = 0.10;\n    const double l2_lookup = 6.0;\n    const double l2_local_miss = 0.25;\n    const double memory_extra = 80.0;\n    const double after_l1_miss = l2_lookup + l2_local_miss * memory_extra;\n    const double average = l1_lookup + l1_miss * after_l1_miss;\n    std::cout << std::fixed << std::setprecision(2);\n    std::cout << \"L1 miss path=\" << after_l1_miss << \" ns\\n\";\n    std::cout << \"modeled AMAT=\" << average << \" ns\\n\";\n}\n",
+        "expectedStdout": "L1 miss path=26.00 ns\nmodeled AMAT=3.60 ns\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Arithmetic cost model with illustrative inputs; not measured hardware timing."
+      }
+    },
+    {
+      "title": "An access improvement is not the same program speedup",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "Only some execution time may depend on these accesses",
+        "Other work remains after the optimization",
+        "Dependencies and overlap can change the simple estimate"
+      ],
+      "narration": "Imagine a program spending half its time in an affected memory phase and half elsewhere. Even halving that phase leaves one quarter plus one half of the original total, or three quarters. The whole program becomes four thirds as fast, not twice as fast. The source's AMAT comparison makes the same distinction with its own values. Also remember that a weighted access cost is not automatically the exposed stall time of an out-of-order processor. Independent misses may overlap, while a chain of dependent loads cannot all begin early. Use the model to form a hypothesis and then measure the relevant phase and complete application separately.",
+      "actions": [
+        "Ask learners to draw two equal runtime regions before changing one."
+      ],
+      "sourceRef": "content/systems-programming/ch32.json → SP32.018 · Worked example — A two-level AMAT calculation",
+      "question": {
+        "prompt": "If an optimization eliminates half of half the runtime, what fraction remains?",
+        "answer": "Three quarters of the original runtime, assuming the other half stays unchanged."
+      }
+    },
+    {
+      "title": "Batching saves setup but can add waiting",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "code",
+      "keyPoints": [
+        "Ten records still require ten record operations",
+        "Batches share a fixed setup charge",
+        "A partial final batch still needs processing"
+      ],
+      "narration": "The second model charges five units to start a batch and two units per record. Ten one-record batches therefore cost fifty plus twenty, or seventy units. With a maximum batch size of four, the batch sizes are four, four, and two. Three setup charges plus the same twenty units of record work give thirty-five units. The final short batch matters; integer division alone would incorrectly count only two batches. This model deliberately measures no clock. It isolates why shared setup can help. A real service must also account for records waiting for a batch, cancellation, memory use, and a batch becoming too large for cache.",
+      "actions": [
+        "Predict both totals and identify the unchanged useful work."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch32.json → SP32.008 · 32.3 Batching",
+      "question": {
+        "prompt": "Why are there three batches rather than two for ten records at capacity four?",
+        "answer": "Two full batches leave two records, and that partial batch still needs setup and processing."
+      },
+      "code": {
+        "filename": "sys_ch32_batch_limit.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\nstd::size_t cost(std::size_t records, std::size_t batch) {\n    // The caller supplies a positive batch size in this small model.\n    const auto batches = records / batch + (records % batch != 0);\n    return batches * 5 + records * 2;\n}\nint main() {\n    const std::size_t records = 10;\n    std::cout << \"one-record batches=\" << cost(records, 1) << '\\n';\n    std::cout << \"up-to-four batches=\" << cost(records, 4) << '\\n';\n    std::cout << \"empty work=\" << cost(0, 4) << '\\n';\n}\n",
+        "expectedStdout": "one-record batches=70\nup-to-four batches=35\nempty work=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Arithmetic cost model with illustrative inputs; not measured hardware timing."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Let the hot operation choose which bytes travel together",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "Array of structures groups fields of each record",
+        "Structure of arrays groups one field across records",
+        "Unused bytes can consume cache capacity and bandwidth"
+      ],
+      "narration": "Suppose a loop reads only the temperature from every record, while each record also stores a large text label. Keeping temperatures together can let the loop fetch more useful temperatures per cache line. That is the idea behind a structure of arrays. If another hot operation needs temperature, identifier, and status together for one record, an array of structures may be more natural. Neither layout wins independently of the work. Changing layout also changes indexing and ownership relationships, so preserve the association between fields. Measure the actual hot loop with realistic records rather than deciding from a diagram that every separated array is automatically faster.",
+      "actions": [
+        "Name the fields actually read by one chosen loop."
+      ],
+      "sourceRef": "content/systems-programming/ch32.json → SP32.012 · 32.5 Cache-friendly data structures",
+      "question": {
+        "prompt": "Which layout is a reasonable candidate when a scan uses one small field from every large record?",
+        "answer": "A structure of arrays may reduce irrelevant bytes fetched; verify correctness and measure the workload."
+      }
+    },
+    {
+      "title": "Loop order is constrained by meaning",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "Row-major traversal favors adjacent columns",
+        "Blocking limits the active region",
+        "Reordering may change dependent updates or floating-point results"
+      ],
+      "narration": "A row-major array stores consecutive columns of a row beside one another. Visiting those columns before moving to the next row usually exposes spatial locality. But loop interchange is a semantic change unless the operations are independent enough to reorder. A calculation that uses a value written in the previous iteration can break when traversal reverses. Floating-point addition also rounds, so changing reduction order can change the result even if algebra says the terms are equivalent. First establish which dependencies and numerical tolerances the program permits. Then choose a traversal or tile size, compare results, and measure the new access pattern under controlled conditions.",
+      "actions": [
+        "Contrast an independent element transform with a running-prefix calculation."
+      ],
+      "sourceRef": "content/systems-programming/ch32.json → SP32.014 · 32.6 Cache-friendly loops",
+      "question": {
+        "prompt": "What must be checked before exchanging two nested loops?",
+        "answer": "Cross-iteration dependencies and numerical behavior, as well as bounds and the actual storage layout."
+      }
+    },
+    {
+      "title": "Prefetch requests can compete with useful work",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "Request data early enough to hide latency",
+        "Do not evict it before demand arrives",
+        "Extra requests consume bandwidth and capacity"
+      ],
+      "narration": "Prefetching tries to bring data closer before the program needs it. For a predictable forward scan, future addresses may be known early enough to help. For a linked chain, the next address may depend on the current load, limiting how far ahead the program can look. Requesting data too early can let other activity evict it before use. Requesting too much can displace useful data and consume transfer capacity. That is why a clear sequential access pattern is often a better first change than adding platform-specific hints. When evaluating a prefetch change, check both missed demand accesses and the extra traffic created by guesses that were never used.",
+      "actions": [
+        "Ask what information is needed to name the next future address."
+      ],
+      "sourceRef": "content/systems-programming/ch32.json → SP32.006 · 32.2 Prefetching",
+      "question": {
+        "prompt": "Why can a pointer chain limit prefetch distance?",
+        "answer": "The address of the next item may not be known until the current item has been fetched."
+      }
+    },
+    {
+      "title": "Coalescing changes when effects become visible",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "Several updates may share one transfer",
+        "Buffered output delays its underlying write",
+        "Synchronization and persistence still impose boundaries"
+      ],
+      "narration": "If several nearby fields will be updated, doing them while the relevant line is resident may avoid repeatedly fetching and evicting it. Buffered output applies a related idea by grouping small writes. But combining work changes timing: data retained in a buffer has not necessarily reached another reader or durable storage. A program that must publish a completed record cannot postpone the required synchronization indefinitely to build a larger batch. State which boundary matters: another thread seeing data, the kernel receiving bytes, or a recovery protocol preserving an update. Performance techniques are useful only while those externally visible promises remain true.",
+      "actions": [
+        "Identify one boundary in the application that may not be delayed."
+      ],
+      "sourceRef": "content/systems-programming/ch32.json → SP32.010 · 32.4 Write coalescing",
+      "question": {
+        "prompt": "Does a larger buffer justify delaying a required commit without limit?",
+        "answer": "No. Visibility, latency, and durability requirements constrain when coalesced work must be released."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Change one explanation at a time",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "Keep a verified baseline",
+        "Separate layout, allocation, and algorithm changes",
+        "Record conditions alongside results"
+      ],
+      "narration": "A tempting optimization rewrites the container, changes allocation, adds prefetching, and reorganizes the algorithm at once. If it helps, nobody knows which explanation was right; if it fails, rollback is harder. Start with one hot phase and one proposed cause. For example, change only traversal order while holding input, compiler settings, and result checks fixed. Repeat measurements under stated warm or cold conditions and preserve the original result comparison. The arithmetic demos are useful for prediction, but actual performance evidence comes from measurements of the intended workload. A maintainable optimization has a clear reason, a correctness test, and a way to detect when changed workloads stop benefiting.",
+      "actions": [
+        "Ask for one isolated experiment rather than a broad rewrite."
+      ],
+      "sourceRef": "content/systems-programming/ch32.json → SP32.016 · 32.7 Locality optimization",
+      "question": {
+        "prompt": "Why is a four-change optimization hard to interpret?",
+        "answer": "Its result does not identify which change caused the improvement or regression, making explanation and rollback difficult."
+      }
+    },
+    {
+      "title": "Recall cost, useful bytes, and evidence together",
+      "eyebrow": "SYSTEMS 32 / COST, LOCALITY, AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "AMAT accounts for conditional costs",
+        "Locality keeps needed data close in time and space",
+        "Measurement tests the hypothesis within stated conditions"
+      ],
+      "narration": "Summarize this chapter with three questions. What cost happens on every request, and what happens only on a miss? Which bytes does the hot operation actually need together? What measurement would test the proposed improvement without changing the answer? These questions connect the equations to real maintenance. A lower miss rate may still lose if bookkeeping grows, a larger batch may miss a response deadline, and a reordered reduction may violate numerical requirements. The goal is not the smallest number in a model alone. It is faster useful work under the program's contract, supported by evidence that another developer can repeat.",
+      "actions": [
+        "Have learners defend an optimization with one requirement and one experiment."
+      ],
+      "sourceRef": "content/systems-programming/ch32.json → SP32.016 · 32.7 Locality optimization",
+      "question": {
+        "prompt": "What would make a modeled improvement unsuitable for the program?",
+        "answer": "It could violate correctness, response time, visibility, or memory constraints, or fail to improve measured workload performance."
+      }
+    }
+  ]
+}

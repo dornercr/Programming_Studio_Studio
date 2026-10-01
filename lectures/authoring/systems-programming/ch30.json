@@ -1,0 +1,224 @@
+{
+  "chapter": 30,
+  "title": "Cache Behavior",
+  "opening": [
+    {
+      "title": "A hit rate belongs to a trace and an initial state",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "concept",
+      "keyPoints": [
+        "The same addresses can behave differently when warm",
+        "Each access changes the state seen by the next",
+        "Name the cache level and observation interval"
+      ],
+      "narration": "A cache trace is a story about changing state. An access may find a resident line, or it may bring a new block in and displace another. Starting cold is a specific assumption: no requested block is initially present. Starting with the final state of an earlier run can change the very first event. Therefore, a percentage without the access sequence and initial condition is incomplete evidence. We will separate rate arithmetic from state simulation, then compare the same trace under two placement rules. Both models are deterministic and useful for reasoning; neither measures elapsed cycles on a real processor.",
+      "actions": [
+        "Ask for the trace, starting state, and denominator before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch30.json → SP30.001: Chapter 30 — Cache Behavior",
+      "question": {
+        "prompt": "Why can repeating the same address list yield a different hit rate?",
+        "answer": "The second run may begin with useful resident state retained from the first run instead of an empty cache."
+      }
+    },
+    {
+      "title": "Keep local and global denominators separate",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "code",
+      "keyPoints": [
+        "One thousand original accesses produce one hundred L1 misses",
+        "Twenty of those requests also miss L2",
+        "L2 local miss rate is 20%; global is 2%"
+      ],
+      "narration": "The program prints three rates from explicit counts. One hundred of one thousand original accesses miss L1, giving ten percent. Twenty of the one hundred requests reaching L2 miss there, giving a local L2 rate of twenty percent. Those same twenty are only two percent of the original one thousand. The difference is the denominator, not contradictory data. Multiplying ten percent by twenty percent gives the global two percent; adding them would be wrong. These are supplied counts in an arithmetic example, not collected hardware events. A real report should state whether its counters include all original accesses or only requests reaching one level.",
+      "actions": [
+        "Predict every printed value, run the model, then name its capacity, initial-state, and counting assumptions."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch30.json → SP30.010: 30.4 Miss rate",
+      "question": {
+        "prompt": "Why is ten percent plus twenty percent not the global miss rate?",
+        "answer": "The twenty percent applies only to the subset that missed L1; the fractions must be multiplied, not added."
+      },
+      "code": {
+        "filename": "sys_ch30_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iomanip>\n#include <iostream>\nint main() {\n    constexpr double accesses = 1000, l1_misses = 100, l2_misses = 20;\n    std::cout << std::fixed << std::setprecision(1);\n    std::cout << \"L1-local=\" << 100*l1_misses/accesses << \"%\\n\";\n    std::cout << \"L2-local=\" << 100*l2_misses/l1_misses << \"%\\n\";\n    std::cout << \"global=\" << 100*l2_misses/accesses << \"%\\n\";\n}\n",
+        "expectedStdout": "L1-local=10.0%\nL2-local=20.0%\nglobal=2.0%\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Supplied event-count arithmetic; no hardware counters are read."
+      }
+    },
+    {
+      "title": "A compulsory miss depends on the stated reference model",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "concept",
+      "keyPoints": [
+        "Cold first use brings in a previously unseen block",
+        "Prefetch can change observed demand behavior",
+        "Classification is not a permanent label on an address"
+      ],
+      "narration": "In a cold model with no prefetch, the first request for a block must obtain it. That is a compulsory miss. The same numeric address is not forever labeled compulsory: a later request may hit, or it may miss after eviction for a different reason. Prefetching adds another distinction because data can arrive before its first demand access. The transfer still happened, but the first demand need not be a miss. Always state the initial state and whether the model includes prefetch. Otherwise two correct traces can appear to disagree simply because they answer different questions about when the block became resident.",
+      "actions": [
+        "Ask for the trace, starting state, and denominator before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch30.json → SP30.012: 30.5 Compulsory misses",
+      "question": {
+        "prompt": "Can the first demand access hit when prefetching is included?",
+        "answer": "Yes. Prefetch may already have installed the block, though obtaining its bytes still had a cost."
+      }
+    },
+    {
+      "title": "Compare a conflict against equal-capacity flexible placement",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "code",
+      "keyPoints": [
+        "Both model caches hold two blocks",
+        "Direct mapping makes blocks zero and two collide",
+        "A fully associative LRU reference retains both"
+      ],
+      "narration": "The trace is block zero, block two, block zero, block two. In the two-slot direct-mapped model, both blocks select slot zero and keep evicting each other, so all four accesses miss. The fully associative reference also holds only two blocks, but it may place them in either slot. Its first two accesses miss and its final two hit. The output therefore reports zero direct hits and two reference hits. This comparison supports a conflict explanation for the repeated misses, not a total-capacity shortage. We use block numbers directly here, not byte addresses, and the list maintains most-recently-used order for the reference policy.",
+      "actions": [
+        "Predict every printed value, run the model, then name its capacity, initial-state, and counting assumptions."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch30.json → SP30.016: 30.7 Conflict misses",
+      "question": {
+        "prompt": "Why is the third direct-mapped miss a conflict in this comparison?",
+        "answer": "The same-capacity fully associative reference still contains block zero, while restricted placement evicted it."
+      },
+      "code": {
+        "filename": "sys_ch30_conflict_reference.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <array>\n#include <iostream>\n#include <list>\n#include <optional>\nint main() {\n    std::array<std::optional<unsigned>,2> direct;\n    std::list<unsigned> lru; // Most recently used is at the front.\n    unsigned direct_hits = 0, reference_hits = 0;\n    for (unsigned block : {0u,2u,0u,2u}) {\n        auto& slot = direct[block%2];\n        if (slot && *slot == block) ++direct_hits;\n        slot = block;\n        const auto found = std::find(lru.begin(),lru.end(),block);\n        if (found != lru.end()) { ++reference_hits; lru.erase(found); }\n        else if (lru.size() == 2) lru.pop_back();\n        lru.push_front(block);\n    }\n    std::cout << \"direct-hits=\" << direct_hits\n              << \" fully-associative-hits=\" << reference_hits << '\\n';\n}\n",
+        "expectedStdout": "direct-hits=0 fully-associative-hits=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Two-block cold read caches, direct mapping versus fully associative LRU; input values are block numbers, not byte addresses."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Capacity classification needs the reference cache and policy",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "concept",
+      "keyPoints": [
+        "Too much active data can defeat any placement flexibility",
+        "The reference commonly uses fully associative LRU",
+        "Reuse distance helps explain what could remain resident"
+      ],
+      "narration": "Now imagine a two-line fully associative LRU reference visiting blocks zero, one, two, then zero. The first three are new blocks. Installing two evicts zero under LRU, so the final zero misses even without set restrictions. That supports a capacity-related classification under this stated reference. It does not make zero inherently a capacity-miss address in every trace or replacement policy. Classification depends on history and the comparison model. A production processor can also have coherence invalidations and prefetch effects outside the simple three-category model. Use the model to explain a specific observation without forcing every hardware event into categories that omit its cause.",
+      "actions": [
+        "Ask for the trace, starting state, and denominator before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch30.json → SP30.014: 30.6 Capacity misses",
+      "question": {
+        "prompt": "Why must replacement policy be stated for a capacity reference trace?",
+        "answer": "It determines which blocks remain after competing accesses and therefore whether the reference would hit on a later reuse."
+      }
+    },
+    {
+      "title": "Observe the old state before installing the new block",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "concept",
+      "keyPoints": [
+        "Check hit against current residency",
+        "On a miss, replace only the selected slot",
+        "Explicit emptiness keeps block zero valid"
+      ],
+      "narration": "The source lab uses optional values for slots. An empty optional means no block is resident, while a present optional can hold any unsigned block number, including zero. For each access, the function checks that old state first, then installs the requested block in the selected slot. Reversing these steps would make the new block appear to match itself and inflate the hit count. Other slots retain their state. The vector is local to the function, so each call starts cold by contract. If a later feature preserves the vector across calls, that intentionally changes the initial-state policy and needs new tests.",
+      "actions": [
+        "Ask for the trace, starting state, and denominator before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch30.json → SYS30.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "What bug appears if a slot is assigned the requested block before checking for a hit?",
+        "answer": "A genuine miss can be counted as a hit because the newly installed block is compared with itself."
+      }
+    },
+    {
+      "title": "A hit avoids some work, not all work",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "concept",
+      "keyPoints": [
+        "Lookup and delivery still cost resources",
+        "Dependencies can keep hit latency on the critical path",
+        "Writes may require additional permission work"
+      ],
+      "narration": "A cache hit is not an operation that takes zero time. The processor still performs lookup, obtains the data, and uses it according to instruction dependencies. A long chain of dependent hits can limit progress even with a high hit rate. For writes on a coherent machine, a resident line may also require permission changes or communication before the store can proceed. The chapter’s simple model uses reads so residency and tag identity are enough for classification. Do not silently apply its hit definition to every write scenario. Name the operation and the modeled state before translating a hit count into a performance claim.",
+      "actions": [
+        "Ask for the trace, starting state, and denominator before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch30.json → SP30.004: 30.1 Cache hit",
+      "question": {
+        "prompt": "Why can a read-only hit model be insufficient for analyzing writes?",
+        "answer": "Writes may require ownership or coherence permissions beyond merely finding a resident tag."
+      }
+    },
+    {
+      "title": "A percentage needs a cost model before it predicts time",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "concept",
+      "keyPoints": [
+        "Miss destinations have different costs",
+        "Independent misses may overlap",
+        "Critical-path events can dominate a high average hit rate"
+      ],
+      "narration": "Suppose ninety-six percent of accesses hit. That percentage alone does not tell us whether the remaining four percent hit in the next cache, wait on main memory, overlap with other work, or stall a serial dependency chain. An average-cost formula must state its hit cost, miss penalty, and assumptions about overlap. Even then it is a model, not a substitute for a measurement under the actual workload. Report the exact counts as well as percentages for small traces: two hits among six accesses is easier to audit than a rounded thirty-three-point-three percent without its denominator.",
+      "actions": [
+        "Ask for the trace, starting state, and denominator before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch30.json → SP30.022: Worked example — Computing hit rate",
+      "question": {
+        "prompt": "Why can two workloads with the same hit rate have different runtimes?",
+        "answer": "They can differ in miss cost, dependency structure, overlap, and other resources that hit rate does not describe."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Warm-state tests belong beside cold-state tests",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "concept",
+      "keyPoints": [
+        "Reset explicitly invalidates lines",
+        "Retaining state changes the next run’s starting point",
+        "A reusable API must document which behavior it chooses"
+      ],
+      "narration": "The source hit-count helper deliberately creates a fresh slot vector on every call. Two calls with the same inputs therefore repeat the same cold trace. A persistent cache object would instead retain the final state until reset. Both APIs are reasonable, but they answer different questions. Tests should make that policy visible rather than relying on hidden static storage. For a persistent version, verify one cold pass, an immediate warm pass, and a pass after reset. When a benchmark warms up before measurement, document that too. Otherwise a performance comparison may merely compare different starting states rather than different implementations.",
+      "actions": [
+        "Ask for the trace, starting state, and denominator before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch30.json → SP30.024: Guided lab and review",
+      "question": {
+        "prompt": "Why would a static resident vector break the source helper’s current contract?",
+        "answer": "It would retain hidden state across calls even though each call is specified to start cold."
+      }
+    },
+    {
+      "title": "Explain every miss before optimizing the count",
+      "eyebrow": "SYSTEMS / CHAPTER 30",
+      "kind": "concept",
+      "keyPoints": [
+        "Trace identity, placement, and replacement",
+        "Compare against the chosen reference model",
+        "Then connect the events to measured costs"
+      ],
+      "narration": "Begin with one unexpected miss and reconstruct the preceding state. Was the block never brought in, evicted because of restricted placement, or absent even in the same-capacity reference? Did invalidation or prefetching change the story? Only after identifying the cause should you propose padding, tiling, more capacity, or another policy. Our two-cache comparison holds capacity constant and varies placement, which makes the conflict explanation testable. The rate example holds counts constant and changes denominators, which prevents a reporting error. Carry both habits into real systems work: make state assumptions explicit and choose measurements that can distinguish the proposed causes.",
+      "actions": [
+        "Ask for the trace, starting state, and denominator before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch30.json → SP30.026: Chapter Synthesis",
+      "question": {
+        "prompt": "What controlled comparison isolates placement conflict from total capacity in the added program?",
+        "answer": "The same trace runs through direct-mapped and fully associative caches with the same two-block capacity."
+      }
+    }
+  ]
+}

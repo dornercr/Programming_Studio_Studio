@@ -1,0 +1,1692 @@
+{
+  "schemaVersion": 1,
+  "courseId": "design-patterns-cpp",
+  "courseTitle": "Design Patterns in C++",
+  "chapter": 9,
+  "title": "Decorator",
+  "author": "Dr. Charles Dorner",
+  "sourceTopics": [
+    {
+      "id": "C09.01",
+      "title": "Pattern overview"
+    },
+    {
+      "id": "C09.02",
+      "title": "When two small features produce many variants"
+    },
+    {
+      "id": "C09.03",
+      "title": "A wrapper with the same public operation"
+    },
+    {
+      "id": "C09.04",
+      "title": "Order is visible behavior"
+    },
+    {
+      "id": "C09.05",
+      "title": "Follow ownership separately from the call stack"
+    },
+    {
+      "id": "C09.06",
+      "title": "Syntax, cost, and boundary assumptions"
+    },
+    {
+      "id": "C09.07",
+      "title": "Roles in the implementation"
+    },
+    {
+      "id": "C09.08",
+      "title": "Worked example: contracts and alternatives"
+    },
+    {
+      "id": "C09.09",
+      "title": "Execution trace"
+    },
+    {
+      "id": "C09.10",
+      "title": "Failure cases and repairs"
+    },
+    {
+      "id": "C09.11",
+      "title": "Code focus: Add a prefix to the inner result"
+    },
+    {
+      "id": "C09.12",
+      "title": "Code focus: Limit the inner result"
+    },
+    {
+      "id": "C09.13",
+      "title": "Exercise 09.1: Guided modification"
+    },
+    {
+      "id": "C09.14",
+      "title": "Exercise 09.2: Trace unfamiliar code"
+    },
+    {
+      "id": "C09.15",
+      "title": "Exercise 09.3: Diagnose a bug"
+    },
+    {
+      "id": "C09.16",
+      "title": "Exercise 09.4: Choose a design"
+    },
+    {
+      "id": "C09.17",
+      "title": "Exercise 09.5: Extend without regressions"
+    },
+    {
+      "id": "C09.18",
+      "title": "Exercise 09.6: Justify a decision"
+    },
+    {
+      "id": "C09.19",
+      "title": "Implementation lab"
+    },
+    {
+      "id": "C09.20",
+      "title": "Chapter summary"
+    },
+    {
+      "id": "C09.21",
+      "title": "Application case 1"
+    },
+    {
+      "id": "C09.22",
+      "title": "Application case 2"
+    }
+  ],
+  "slides": [
+    {
+      "title": "Two small display features already have an order",
+      "eyebrow": "DECORATOR / THE PROBLEM",
+      "kind": "cover",
+      "keyPoints": [
+        "Plain text begins as ready now.",
+        "A prefix adds WARN and a space.",
+        "A limit keeps at most five bytes of its input."
+      ],
+      "narration": "A status panel needs optional features around a basic message. One feature adds an alert prefix. Another keeps only the first five bytes of text. Some screens need both. Before naming a pattern, ask what the final screen should show, because prefixing and limiting can interact. If the limit runs first, the later prefix increases the visible length. If the prefix runs first, a later limit can cut the body away entirely. The chapter uses simple single-byte text, so these examples are easy to trace. A real Unicode layout requirement would need a separate definition of visible character boundaries.",
+      "actions": [
+        "Ask learners to write the two possible transformation orders before seeing code."
+      ],
+      "sourceRef": "manuscript/ch09.json → When two small features produce many variants",
+      "question": {
+        "prompt": "Why is the phrase prefix plus limit incomplete as a requirement?",
+        "answer": "It does not state the order, and the two orders can produce different visible results."
+      },
+      "section": "Problem and first design",
+      "topicIds": [
+        "C09.01"
+      ],
+      "id": "dp-ch09-01"
+    },
+    {
+      "title": "For one fixed policy, write the expression",
+      "eyebrow": "BASELINE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "Take the first five bytes of the body.",
+        "Then add the alert prefix.",
+        "A direct function needs no owned object chain."
+      ],
+      "narration": "This baseline has exactly one policy: trim the body first, then add the prefix. A single function makes that order visible. Substr starts at index zero and requests at most five bytes. The plus operation joins two strings, and the function returns the new string by value. The expected output includes quotes so the message boundary is visible. This approach is a good choice when every screen follows this same rule and no caller requires a Message object. We will introduce decorators only after independent runtime choices make a fixed expression too restrictive. Simpler code is still the correct outcome for a simpler requirement.",
+      "actions": [
+        "Run the baseline and count the final bytes including the space."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch09.json → When two small features produce many variants",
+      "question": {
+        "prompt": "Does this baseline promise that the final message is at most five bytes?",
+        "answer": "No. It limits the body first; the later prefix makes the final result longer."
+      },
+      "code": {
+        "filename": "dp_ch09_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\n\nstd::string status(const std::string& body) {\n    return \"WARN \" + body.substr(0, 5); // Trim the body, then prefix it.\n}\nint main() {\n    std::cout << \"message='\" << status(\"ready now\") << \"'\\n\";\n}\n",
+        "expectedStdout": "message='WARN ready'\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-02.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_baseline.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch09-02"
+    },
+    {
+      "title": "The same features can violate the final limit",
+      "eyebrow": "CONTROLLED CHOICE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "Prefix after limit produces ten bytes.",
+        "Limit after prefix produces five bytes.",
+        "The surviving five bytes can be only the alert marker."
+      ],
+      "narration": "Now the requirement changes: the complete visible message must fit five bytes. Our baseline no longer meets it because it adds the prefix after the body was shortened. The demonstration prints both orders and their lengths. This is a safe, deterministic way to study the failure: nothing crashes, but one answer breaks the final-size rule. Moving the limit outside fixes that rule while raising a different product question: is an alert marker with no body useful? The design must state both constraints. A pattern can make order explicit, but it cannot decide which user-visible behavior is correct for the application.",
+      "actions": [
+        "Predict both quoted outputs, including the trailing space.",
+        "Discuss whether preserving a warning marker matters more than preserving body text."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch09.json → Order is visible behavior",
+      "question": {
+        "prompt": "Which expression satisfies a final five-byte limit, and what does it discard?",
+        "answer": "Limiting the already-prefixed string satisfies the bound; with WARN plus a space, it discards the entire body."
+      },
+      "code": {
+        "filename": "dp_ch09_order_failure.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\n\nint main() {\n    const std::string body = \"ready now\";\n    const std::string prefix = \"WARN \";\n    const auto prefix_last = prefix + body.substr(0, 5);\n    const auto limit_last = (prefix + body).substr(0, 5);\n    std::cout << \"prefix last='\" << prefix_last\n              << \"' size=\" << prefix_last.size() << '\\n';\n    std::cout << \"limit last='\" << limit_last\n              << \"' size=\" << limit_last.size() << '\\n';\n}\n",
+        "expectedStdout": "prefix last='WARN ready' size=10\nlimit last='WARN ' size=5\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-03.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_order_failure.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch09-03"
+    },
+    {
+      "title": "Make each feature usable as a Message",
+      "eyebrow": "THE DECORATOR DECISION",
+      "kind": "concept",
+      "keyPoints": [
+        "Plain and wrappers all support text().",
+        "A wrapper holds one inner Message.",
+        "Another wrapper can therefore be the inner object."
+      ],
+      "narration": "When screens choose different combinations at runtime and clients expect Message objects, the fixed function is no longer the whole solution. A decorator implements the same public operation as the object it surrounds. Plain supplies the starting text. Prefix and Limit also implement Message, but each asks an inner Message for its result and then transforms that result. Because an inner Message can itself be another decorator, the arrangement can form a chain. This replaces a separate subclass for every combination with reusable features and explicit assembly. The important evidence is the preserved interface and delegated behavior, not merely the word wrapper in a class name.",
+      "actions": [
+        "Name the basic component, common contract, and two wrappers."
+      ],
+      "sourceRef": "manuscript/ch09.json → A wrapper with the same public operation",
+      "question": {
+        "prompt": "Why is inner_ typed as Message rather than Plain?",
+        "answer": "It must accept another decorator as well as a plain message so that features can nest."
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch09-04"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json",
+      "title": "The contract we must preserve",
+      "keyPoints": [
+        "Support plain text, prefixing, and a length limit.",
+        "Permit either wrapper order through Message::text.",
+        "Reject a wrapper with no inner object and preserve empty-string behavior."
+      ],
+      "narration": "Two ways to decorate a status message. Each wrapper owns exactly one Message and implements the same query. Ownership makes the assembled chain self-contained; explicit nesting makes order reviewable.\n\nSupport plain text, prefixing, and a length limit. Permit either wrapper order through Message::text. Reject a wrapper with no inner object and preserve empty-string behavior.\n\nEvery wrapper has one non-null inner owner. text returns a new value and does not mutate the chain. Limit applies to the complete result returned by its immediate inner object. These are the rules that define a correct extension, even if it has the right C++ types. A pair of string functions is better for one fixed transformation sequence. A vector of transformation functions fits a pipeline that does not otherwise need a Message object interface.",
+      "comparisons": [
+        {
+          "label": "Chosen design",
+          "text": "Each wrapper owns exactly one Message and implements the same query. Ownership makes the assembled chain self-contained; explicit nesting makes order reviewable."
+        },
+        {
+          "label": "A reasonable alternative",
+          "text": "A pair of string functions is better for one fixed transformation sequence. A vector of transformation functions fits a pipeline that does not otherwise need a Message object interface."
+        }
+      ],
+      "question": {
+        "prompt": "Which promise would a new Decorator implementation be allowed to break?",
+        "answer": "None of the stated requirements. The implementation may change, but these rules remain: Every wrapper has one non-null inner owner. text returns a new value and does not mutate the chain. Limit applies to the complete result returned by its immediate inner object."
+      },
+      "topicIds": [
+        "C09.08"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch09-05"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → When two small features produce many variants",
+      "title": "When two small features produce many variants",
+      "keyPoints": [
+        "A status panel starts with plain text such as ready now.",
+        "With one fixed policy, a direct expression is the simplest implementation."
+      ],
+      "narration": "A status panel starts with plain text such as ready now. Some screens add WARN before the text. Some limit the display to five characters. A screen may need both behaviors, and its policy must say which applies first. For this chapter, strings contain simple single-byte characters. The program is not a full Unicode layout engine.\n\nWith one fixed policy, a direct expression is the simplest implementation. Add the prefix and take a substring. That clearly states the order. The problem appears when screens choose different combinations at runtime. Classes named PrefixedMessage, LimitedMessage, PrefixedLimitedMessage, and LimitedPrefixedMessage repeat pieces of behavior. Adding a suffix or a timestamp creates more combinations. We need reusable features that can be assembled without defining a new class for every pairing.",
+      "excerpt": {
+        "text": "std::string text = \"ready now\";\nstd::string displayed = (\"WARN \" + text).substr(0, 5);",
+        "filename": "Excerpt — simplest starting point",
+        "explain": []
+      },
+      "question": {
+        "prompt": "Why can adding a prefix before trimming text differ from adding it after trimming?",
+        "answer": "Trimming the prefixed result can remove part of the original message or suffix. Trimming the original first leaves the later prefix outside the limit. Order is part of the requirement, not an implementation detail."
+      },
+      "reading": [
+        "A status panel starts with plain text such as ready now. Some screens add WARN before the text. Some limit the display to five characters. A screen may need both behaviors, and its policy must say which applies first. For this chapter, strings contain simple single-byte characters. The program is not a full Unicode layout engine.",
+        "With one fixed policy, a direct expression is the simplest implementation. Add the prefix and take a substring. That clearly states the order. The problem appears when screens choose different combinations at runtime. Classes named PrefixedMessage, LimitedMessage, PrefixedLimitedMessage, and LimitedPrefixedMessage repeat pieces of behavior. Adding a suffix or a timestamp creates more combinations. We need reusable features that can be assembled without defining a new class for every pairing."
+      ],
+      "topicIds": [
+        "C09.02"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch09-06"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → A wrapper with the same public operation",
+      "title": "A wrapper with the same public operation",
+      "keyPoints": [
+        "A decorator is an object that adds behavior around another object while keeping the same interface.",
+        "The important fact is that every layer remains usable as a Message.",
+        "We do not add a generic Decorator base class merely to repeat the inner_ member."
+      ],
+      "narration": "A decorator is an object that adds behavior around another object while keeping the same interface. Message provides text(). Plain returns its stored text. Prefix and Limit are also Messages, but each owns an inner Message and calls that object's text before adding its own behavior. Since the inner object may itself be another decorator, the same construction rule supports a chain of features.\n\nThe important fact is that every layer remains usable as a Message. This is why the common interface is needed now: callers must accept an assembled chain without knowing its exact shape. Public inheritance supplies that substitutability. Containing an inner Message supplies the behavior being extended. The inheritance link and the ownership link answer different questions and must remain distinct in the diagram.\n\nWe do not add a generic Decorator base class merely to repeat the inner_ member. Two small wrappers do not yet need that additional inheritance layer. If many wrappers later share forwarding behavior and validation, a base wrapper can remove useful duplication. First show the repeated need; then judge whether sharing that implementation makes the code easier to change.",
+      "question": {
+        "prompt": "Explain the design choice in “A wrapper with the same public operation” using this chapter's objects.",
+        "answer": "We do not add a generic Decorator base class merely to repeat the inner_ member. Two small wrappers do not yet need that additional inheritance layer. If many wrappers later share forwarding behavior and validation, a base wrapper can remove useful duplication. First show the repeated need; then judge whether sharing that implementation makes the code easier to change."
+      },
+      "reading": [
+        "A decorator is an object that adds behavior around another object while keeping the same interface. Message provides text(). Plain returns its stored text. Prefix and Limit are also Messages, but each owns an inner Message and calls that object's text before adding its own behavior. Since the inner object may itself be another decorator, the same construction rule supports a chain of features.",
+        "The important fact is that every layer remains usable as a Message. This is why the common interface is needed now: callers must accept an assembled chain without knowing its exact shape. Public inheritance supplies that substitutability. Containing an inner Message supplies the behavior being extended. The inheritance link and the ownership link answer different questions and must remain distinct in the diagram.",
+        "We do not add a generic Decorator base class merely to repeat the inner_ member. Two small wrappers do not yet need that additional inheritance layer. If many wrappers later share forwarding behavior and validation, a base wrapper can remove useful duplication. First show the repeated need; then judge whether sharing that implementation makes the code easier to change."
+      ],
+      "topicIds": [
+        "C09.03"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch09-07"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → Order is visible behavior",
+      "title": "Order is visible behavior",
+      "keyPoints": [
+        "The first chain is Prefix around Limit around Plain.",
+        "The second chain is Limit around Prefix around Plain.",
+        "Operations whose order changes the result are noncommutative: swapping them changes behavior."
+      ],
+      "narration": "The first chain is Prefix around Limit around Plain. A call enters Prefix, which asks Limit for text. Limit asks Plain and receives ready now. Limit keeps the first five characters, ready, and returns them. Prefix then adds WARN and returns WARN ready. The five-character rule applied only to the inner body, so the final string is longer than five.\n\nThe second chain is Limit around Prefix around Plain. Plain again returns ready now. Prefix returns WARN ready now. The outer Limit keeps its first five characters: W, A, R, N, and a space. The printed single quotes make the trailing space visible. The final result is 'WARN '. This is not an implementation accident. The outermost operation runs last on the returned text in this design.\n\nOperations whose order changes the result are noncommutative: swapping them changes behavior. Prefix and Limit are a concrete example. Never document a stack merely as 'prefix plus limit' if the order matters. Show the nesting or the actual transformation sequence. For logging, validation, caching, and compression wrappers in real systems, a wrong order can matter much more than a shortened message.",
+      "question": {
+        "prompt": "Explain the design choice in “Order is visible behavior” using this chapter's objects.",
+        "answer": "Operations whose order changes the result are noncommutative: swapping them changes behavior. Prefix and Limit are a concrete example. Never document a stack merely as 'prefix plus limit' if the order matters. Show the nesting or the actual transformation sequence. For logging, validation, caching, and compression wrappers in real systems, a wrong order can matter much more than a shortened message."
+      },
+      "reading": [
+        "The first chain is Prefix around Limit around Plain. A call enters Prefix, which asks Limit for text. Limit asks Plain and receives ready now. Limit keeps the first five characters, ready, and returns them. Prefix then adds WARN and returns WARN ready. The five-character rule applied only to the inner body, so the final string is longer than five.",
+        "The second chain is Limit around Prefix around Plain. Plain again returns ready now. Prefix returns WARN ready now. The outer Limit keeps its first five characters: W, A, R, N, and a space. The printed single quotes make the trailing space visible. The final result is 'WARN '. This is not an implementation accident. The outermost operation runs last on the returned text in this design.",
+        "Operations whose order changes the result are noncommutative: swapping them changes behavior. Prefix and Limit are a concrete example. Never document a stack merely as 'prefix plus limit' if the order matters. Show the nesting or the actual transformation sequence. For logging, validation, caching, and compression wrappers in real systems, a wrong order can matter much more than a shortened message."
+      ],
+      "topicIds": [
+        "C09.04"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch09-08"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → Follow ownership separately from the call stack",
+      "title": "Follow ownership separately from the call stack",
+      "keyPoints": [
+        "Each wrapper stores unique_ptr<Message>.",
+        "make_unique constructs each object and returns its owner.",
+        "During text(), each layer also creates local strings.",
+        "Message explicitly allows default construction but deletes copy and move construction and assignment."
+      ],
+      "narration": "Each wrapper stores unique_ptr<Message>. Its constructor receives an owner by value and moves that owner into inner_. The caller gives up ownership as part of construction. A null pointer is rejected immediately, so text can safely call inner_->text without a null check on every request. If construction throws, the already-initialized member owner cleans up its inner object automatically.\n\nmake_unique constructs each object and returns its owner. main nests those calls from the plain object outward. When first is destroyed, its Prefix is destroyed, which destroys its inner Limit, which destroys its Plain. Message has a virtual destructor so deleting through unique_ptr<Message> reaches the correct derived destructor. No caller needs to remember the chain's exact concrete types to clean it up.\n\nDuring text(), each layer also creates local strings. body receives the inner result by value; result stores this layer's transformed text. These values own their character storage, so the method never returns a reference to a local string. Returning a string value permits safe transfer of the result to the caller. The chain's object lifetime is much longer than each local string's lifetime, and the two should not be confused.\n\nMessage explicitly allows default construction but deletes copy and move construction and assignment. The = delete notation asks the compiler to reject those operations. Derived wrappers therefore cannot be moved as whole objects, which would empty inner_ in the source and violate its non-null rule. Move the owning unique_ptr handle instead: ownership changes hands while the wrapper object and its inner chain stay in place. Compile-time static_assert checks use the type traits from <type_traits> to verify that Prefix and Limit cannot be copied or moved. The Suffix solution checks the same property. A type trait is a library query about a type; static_assert rejects a false condition during compilation.",
+      "question": {
+        "prompt": "Explain the design choice in “Follow ownership separately from the call stack” using this chapter's objects.",
+        "answer": "Message explicitly allows default construction but deletes copy and move construction and assignment. The = delete notation asks the compiler to reject those operations. Derived wrappers therefore cannot be moved as whole objects, which would empty inner_ in the source and violate its non-null rule. Move the owning unique_ptr handle instead: ownership changes hands while the wrapper object and its inner chain stay in place. Compile-time static_assert checks use the type traits from <type_traits> to verify that Prefix and Limit cannot be copied or moved. The Suffix solution checks the same property. A type trait is a library query about a type; static_assert rejects a false condition during compilation."
+      },
+      "reading": [
+        "Each wrapper stores unique_ptr<Message>. Its constructor receives an owner by value and moves that owner into inner_. The caller gives up ownership as part of construction. A null pointer is rejected immediately, so text can safely call inner_->text without a null check on every request. If construction throws, the already-initialized member owner cleans up its inner object automatically.",
+        "make_unique constructs each object and returns its owner. main nests those calls from the plain object outward. When first is destroyed, its Prefix is destroyed, which destroys its inner Limit, which destroys its Plain. Message has a virtual destructor so deleting through unique_ptr<Message> reaches the correct derived destructor. No caller needs to remember the chain's exact concrete types to clean it up.",
+        "During text(), each layer also creates local strings. body receives the inner result by value; result stores this layer's transformed text. These values own their character storage, so the method never returns a reference to a local string. Returning a string value permits safe transfer of the result to the caller. The chain's object lifetime is much longer than each local string's lifetime, and the two should not be confused.",
+        "Message explicitly allows default construction but deletes copy and move construction and assignment. The = delete notation asks the compiler to reject those operations. Derived wrappers therefore cannot be moved as whole objects, which would empty inner_ in the source and violate its non-null rule. Move the owning unique_ptr handle instead: ownership changes hands while the wrapper object and its inner chain stay in place. Compile-time static_assert checks use the type traits from <type_traits> to verify that Prefix and Limit cannot be copied or moved. The Suffix solution checks the same property. A type trait is a library query about a type; static_assert rejects a false condition during compilation."
+      ],
+      "topicIds": [
+        "C09.05"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch09-09"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → Syntax, cost, and boundary assumptions",
+      "title": "Syntax, cost, and boundary assumptions",
+      "keyPoints": [
+        "The compiler verifies that every concrete Message implements text() const with the right return type.",
+        "At execution, virtual dispatch chooses each layer and each layer delegates once.",
+        "A chain with many layers may allocate and copy many intermediate strings.",
+        "Decorator is useful when features are independently selectable and have a consistent component contract."
+      ],
+      "narration": "The compiler verifies that every concrete Message implements text() const with the right return type. override makes the check explicit. const permits reading through a const Message reference and promises not to alter the object through that method's ordinary members. It does not automatically make an arbitrary chain thread-safe if future decorators introduce mutable caches or shared services.\n\nAt execution, virtual dispatch chooses each layer and each layer delegates once. substr(0, limit_) begins at position zero and takes at most limit_ characters. If the requested length is larger than the body, it returns the whole body. A zero limit returns an empty string. std::size_t is an unsigned size type; a negative signed value converted to it would become a large positive size. The program constructs limits from nonnegative literals, and a user-input interface would need to reject negative values before conversion.\n\nA chain with many layers may allocate and copy many intermediate strings. This example favors clarity over a claim of best performance. A fixed transformation pipeline made of ordinary functions can be simpler and cheaper when callers do not need objects sharing an interface. A streaming design may avoid large intermediates, but then each layer must define how it handles partial input and failures.\n\nDecorator is useful when features are independently selectable and have a consistent component contract. It is less useful when the features depend on many details of one another or when an object needs a radically different interface. Keep the assembly code readable, test the important orders, and document whether repeated decoration is meaningful. Applying Prefix twice adds two prefixes; it is not automatically idempotent, meaning it does not necessarily leave the result unchanged after the first application.",
+      "question": {
+        "prompt": "What ownership action happens when the outermost wrapper is destroyed?",
+        "answer": "Its unique_ptr destroys the inner object, which destroys its own inner object in turn. Virtual destructors allow deletion through Message to reach the actual types."
+      },
+      "reading": [
+        "The compiler verifies that every concrete Message implements text() const with the right return type. override makes the check explicit. const permits reading through a const Message reference and promises not to alter the object through that method's ordinary members. It does not automatically make an arbitrary chain thread-safe if future decorators introduce mutable caches or shared services.",
+        "At execution, virtual dispatch chooses each layer and each layer delegates once. substr(0, limit_) begins at position zero and takes at most limit_ characters. If the requested length is larger than the body, it returns the whole body. A zero limit returns an empty string. std::size_t is an unsigned size type; a negative signed value converted to it would become a large positive size. The program constructs limits from nonnegative literals, and a user-input interface would need to reject negative values before conversion.",
+        "A chain with many layers may allocate and copy many intermediate strings. This example favors clarity over a claim of best performance. A fixed transformation pipeline made of ordinary functions can be simpler and cheaper when callers do not need objects sharing an interface. A streaming design may avoid large intermediates, but then each layer must define how it handles partial input and failures.",
+        "Decorator is useful when features are independently selectable and have a consistent component contract. It is less useful when the features depend on many details of one another or when an object needs a radically different interface. Keep the assembly code readable, test the important orders, and document whether repeated decoration is meaningful. Applying Prefix twice adds two prefixes; it is not automatically idempotent, meaning it does not necessarily leave the result unchanged after the first application."
+      ],
+      "topicIds": [
+        "C09.06"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch09-10"
+    },
+    {
+      "title": "Calls travel inward; text returns outward",
+      "eyebrow": "EXECUTION ORDER / TWO CHAINS",
+      "kind": "concept",
+      "keyPoints": [
+        "Prefix asks Limit, which asks Plain.",
+        "Each layer transforms the returned value.",
+        "The outermost transformation runs last."
+      ],
+      "narration": "The outer object receives the first call, but that does not mean its transformation happens first. Prefix calls its inner object before joining its prefix. If that inner object is Limit, Limit first calls Plain, obtains ready now, and returns ready. Prefix then returns WARN ready. Reversing the wrapper nesting changes which intermediate string reaches Limit. The outer Limit receives WARN ready now and keeps only WARN plus a space. Trace the call direction and the return-value direction separately. This is a useful debugging habit in middleware too, because actions before delegation and actions after delegation can have very different orders.",
+      "actions": [
+        "Trace calls inward using one color and returned strings outward using another."
+      ],
+      "sourceRef": "manuscript/ch09.json → Order is visible behavior",
+      "question": {
+        "prompt": "Which operation runs last on the returned text in Prefix(Limit(Plain))?",
+        "answer": "Prefix adds its text after Limit has already shortened the body."
+      },
+      "theory": {
+        "what": "Nested components delegate once, then transform the returned value.",
+        "where": "Prefix::text and Limit::text around Plain::text.",
+        "why": "Independent features can combine without one class per combination.",
+        "invariant": "Each wrapper applies its documented transformation at the stated point.",
+        "risk": "Reading construction order as transformation order predicts the wrong output."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch09-11"
+    },
+    {
+      "title": "Same interface, different responsibility",
+      "eyebrow": "TYPE RELATIONSHIP VERSUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Wrappers inherit Message to remain substitutable.",
+        "Each wrapper owns one inner Message.",
+        "The chain is a one-child structure, not a child collection."
+      ],
+      "narration": "A Prefix has two relationships with Message. It is usable as a Message because it publicly implements the interface. It also owns another Message through inner_. These relationships answer different questions. Inheritance says what calls the outer object can receive. Ownership says who keeps the inner object alive and destroys it. The diagram's inheritance triangle must not be read as an ownership arrow. Compared with Composite, this chapter's wrapper delegates through one inner component instead of combining a collection of children. Similar recursive shapes can therefore serve different intentions. Decorator adds a feature while keeping the component contract available for the next wrapper.",
+      "actions": [
+        "Identify one inheritance link and one owning link in the actual diagram."
+      ],
+      "sourceRef": "manuscript/ch09.json → A wrapper with the same public operation",
+      "question": {
+        "prompt": "How does the child relationship differ from the Work Group in Composite?",
+        "answer": "Each decorator owns one inner Message; a Composite Group owns a collection of Work children and combines their results."
+      },
+      "theory": {
+        "what": "A wrapper both implements and owns a connection to the component contract.",
+        "where": "Prefix and Limit derive from Message and hold unique_ptr<Message>.",
+        "why": "A wrapped combination must still be acceptable wherever Message is expected.",
+        "invariant": "Every wrapper has one valid inner component.",
+        "risk": "Fixing inner_ to Plain would prevent wrapper nesting."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch09-12"
+    },
+    {
+      "title": "Reject missing components during assembly",
+      "eyebrow": "CONSTRUCTION / CLEANUP",
+      "kind": "concept",
+      "keyPoints": [
+        "Move a unique owner into inner_.",
+        "Throw if inner_ is null.",
+        "Completed members clean up automatically on failure."
+      ],
+      "narration": "A wrapper cannot add behavior around nothing, so its constructor rejects a missing inner owner. The constructor receives a unique_ptr by value, then moves it into the member. That transfer records who is responsible for the inner object's lifetime. If validation throws, C++ destroys completed member objects, and the owning pointer cleans up its child automatically. In ordinary construction, nested make_unique calls build the chain from the inside outward. Destruction follows the ownership links inward when the outer owner disappears. Message needs a virtual destructor so deleting through the common base pointer reaches each actual derived object correctly.",
+      "actions": [
+        "Trace a null constructor attempt and identify what exists when it throws."
+      ],
+      "sourceRef": "manuscript/ch09.json → Follow ownership separately from the call stack",
+      "question": {
+        "prompt": "Why is checking for null once in the constructor valuable?",
+        "answer": "It establishes the invariant that every successfully constructed wrapper can delegate to an inner object."
+      },
+      "theory": {
+        "what": "Assembly transfers exclusive ownership and rejects an unusable chain.",
+        "where": "Prefix and Limit constructors.",
+        "why": "Repeated text calls should not encounter a missing required component.",
+        "invariant": "Every living usable wrapper holds a non-null owner.",
+        "risk": "Accepting null turns a later text call into invalid pointer access."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch09-13"
+    },
+    {
+      "title": "Move handles without moving service objects",
+      "eyebrow": "SPECIAL MEMBERS / COMPILE-TIME CHECKS",
+      "kind": "concept",
+      "keyPoints": [
+        "Message deletes object copy and move operations.",
+        "Owning unique_ptr handles remain movable.",
+        "static_assert verifies wrapper type properties."
+      ],
+      "narration": "The chapter makes a careful distinction between moving an owner and moving the object it owns. A default move of a wrapper's unique_ptr member could leave the source wrapper with a null inner pointer, breaking its class invariant. Message therefore deletes copy and move operations, and the wrappers inherit that restriction. Equals delete means an attempted use is rejected during compilation. The outer unique_ptr handle can still move to a new owner while the wrapper stays at the same object location with its inner chain intact. Static assertions verify these type properties at build time. This is a policy choice that keeps the set of valid wrapper states small.",
+      "actions": [
+        "Compare moving the outer unique_ptr variable with moving the Prefix object itself."
+      ],
+      "sourceRef": "manuscript/ch09.json → Follow ownership separately from the call stack",
+      "question": {
+        "prompt": "Why can moving a unique_ptr<Prefix> be safe while moving a Prefix object is disabled?",
+        "answer": "Moving the handle transfers ownership of the same intact object; moving the object could empty its required inner owner."
+      },
+      "theory": {
+        "what": "The program transfers ownership handles while preserving valid wrapper objects.",
+        "where": "Deleted Message special members and the wrapper static_assert checks.",
+        "why": "Moved-from service objects would otherwise need a separate supported state.",
+        "invariant": "A wrapper object retains its non-null component for its usable lifetime.",
+        "risk": "Adding an object move operation without a moved-from contract can break text()."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch09-14"
+    },
+    {
+      "title": "Returned strings are values with their own lives",
+      "eyebrow": "VALUES / LIMITS / EXTENSION",
+      "kind": "concept",
+      "keyPoints": [
+        "text() returns a string value, not a local reference.",
+        "substr uses a start position and count.",
+        "Suffix should be tested inside and outside Limit."
+      ],
+      "narration": "Each call creates temporary local strings while the longer-lived message chain remains in place. Returning a string value safely gives the result to the caller. Returning a reference to a local result would instead leave the caller referring to destroyed storage. Substr takes a starting position followed by a maximum count; reversing their purpose can produce an empty result or an out-of-range error. The lab's Suffix follows the same ownership contract while appending text after delegation. Test it on both sides of Limit, because a suffix may be removed by an outer limit or extend a result after an inner limit. Reusing the interface does not remove interaction tests.",
+      "actions": [
+        "Predict Suffix(Limit(Plain, 5), !) and Limit(Suffix(Plain, !), 5)."
+      ],
+      "sourceRef": "manuscript/ch09.json → Syntax, cost, and boundary assumptions",
+      "question": {
+        "prompt": "Why is return const std::string& unsafe when it refers to a local result?",
+        "answer": "The local string is destroyed when the method returns, so the reference dangles."
+      },
+      "comparisons": [
+        {
+          "label": "Return a string value",
+          "text": "The caller receives a valid result with its own value lifetime."
+        },
+        {
+          "label": "Return a local reference",
+          "text": "The referenced local object dies at the end of the call."
+        },
+        {
+          "label": "Fixed string pipeline",
+          "text": "Often simpler when no interchangeable Message objects are required."
+        }
+      ],
+      "section": "Mechanism in C++",
+      "id": "dp-ch09-15"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → C09.07 concepts",
+      "title": "Map the roles to the actual types",
+      "keyPoints": [
+        "Component → Message::text",
+        "Concrete Component → Plain",
+        "Base Decorator → No separate base; each wrapper stores inner_",
+        "Concrete Decorators → Prefix / Limit",
+        "Client → main"
+      ],
+      "narration": "Component → Message::text. Define the operation usable on both a basic object and a decorated object.\n\nConcrete Component → Plain. Supply the original behavior at the innermost end.\n\nBase Decorator → No separate base; each wrapper stores inner_. The attachment centralizes storage and forwarding in one reusable base.\n\nConcrete Decorators → Prefix / Limit. Delegate inward and then add their specific behavior.\n\nClient → main. Assemble the desired chain, then call through the component contract.",
+      "comparisons": [
+        {
+          "label": "Component → Message::text",
+          "text": "Define the operation usable on both a basic object and a decorated object."
+        },
+        {
+          "label": "Concrete Component → Plain",
+          "text": "Supply the original behavior at the innermost end."
+        },
+        {
+          "label": "Base Decorator → No separate base; each wrapper stores inner_",
+          "text": "The attachment centralizes storage and forwarding in one reusable base."
+        },
+        {
+          "label": "Concrete Decorators → Prefix / Limit",
+          "text": "Delegate inward and then add their specific behavior."
+        },
+        {
+          "label": "Client → main",
+          "text": "Assemble the desired chain, then call through the component contract."
+        }
+      ],
+      "question": {
+        "prompt": "In Decorator, which part plays Component and what does it do?",
+        "answer": "Message::text. Define the operation usable on both a basic object and a decorated object."
+      },
+      "topicIds": [
+        "C09.07"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch09-16"
+    },
+    {
+      "eyebrow": "OWNERSHIP DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch09/main.cpp:1-83; content/design-patterns-cpp/ch9.json → diagrams.9",
+      "title": "The same components, two different orders",
+      "keyPoints": [
+        "Read the ownership relationships in the named example.",
+        "Every wrapper has one non-null inner owner.",
+        "text returns a new value and does not mutate the chain."
+      ],
+      "narration": "The ownership chain shown is first, where Prefix owns Limit and Limit owns Plain. The second chain reverses the wrapper order. Triangles describe type substitutability; ownership arrows describe who destroys which object. Calls travel inward and results return outward.\n\nEach wrapper owns exactly one Message and implements the same query. Ownership makes the assembled chain self-contained; explicit nesting makes order reviewable.\n\nMiddleware and formatting layers use the same principle: keep feature contracts small, make order explicit, and test combinations that may interact.",
+      "diagram": {
+        "chapter": 9,
+        "view": "overview",
+        "index": -1
+      },
+      "theory": {
+        "what": "The same components, two different orders",
+        "where": "companion/examples/ch09/main.cpp",
+        "why": "Each wrapper owns exactly one Message and implements the same query. Ownership makes the assembled chain self-contained; explicit nesting makes order reviewable.",
+        "invariant": "Every wrapper has one non-null inner owner. text returns a new value and does not mutate the chain. Limit applies to the complete result returned by its immediate inner object.",
+        "risk": "Assume Prefix(Limit(text)) and Limit(Prefix(text)) are equivalent. The first produces WARN ready, the second WARN plus a trailing space. Return const std::string& to a local result variable. The caller receives a dangling reference after the method returns. Allow inner_ to be null. Calling text dereferences a null pointer and has undefined behavior."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "The ownership chain shown is first, where Prefix owns Limit and Limit owns Plain. The second chain reverses the wrapper order. Triangles describe type substitutability; ownership arrows describe who destroys which object. Calls travel inward and results return outward."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch09-17"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch09/main.cpp:1-83; content/design-patterns-cpp/ch9.json → diagrams.9",
+      "title": "Decorator — chronological driver trace",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "Every wrapper has one non-null inner owner.",
+        "text returns a new value and does not mutate the chain."
+      ],
+      "narration": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.\n\nEach wrapper owns exactly one Message and implements the same query. Ownership makes the assembled chain self-contained; explicit nesting makes order reviewable.\n\nMiddleware and formatting layers use the same principle: keep feature contracts small, make order explicit, and test combinations that may interact.",
+      "diagram": {
+        "chapter": 9,
+        "view": "extra",
+        "index": 0
+      },
+      "theory": {
+        "what": "Decorator — chronological driver trace",
+        "where": "companion/examples/ch09/main.cpp",
+        "why": "Each wrapper owns exactly one Message and implements the same query. Ownership makes the assembled chain self-contained; explicit nesting makes order reviewable.",
+        "invariant": "Every wrapper has one non-null inner owner. text returns a new value and does not mutate the chain. Limit applies to the complete result returned by its immediate inner object.",
+        "risk": "Assume Prefix(Limit(text)) and Limit(Prefix(text)) are equivalent. The first produces WARN ready, the second WARN plus a trailing space. Return const std::string& to a local result variable. The caller receives a dangling reference after the method returns. Allow inner_ to be null. Calling text dereferences a null pointer and has undefined behavior."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch09-18"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch09/main.cpp:36-40",
+      "title": "Add a prefix to the inner result",
+      "keyPoints": [
+        "Prefix transforms the complete text returned by its inner component.",
+        "One prefix operation can wrap plain or already-decorated text.",
+        "The inner object exists and is called once for this result."
+      ],
+      "narration": "Prefix transforms the complete text returned by its inner component. This block executes after the inner text call returns. One prefix operation can wrap plain or already-decorated text.\n\nThe comment identifies inward delegation before transformation. Call the inner component and own its returned string. Create a result with prefix followed by body. Return the owned string value to the caller. Close the prefix query.\n\nThe inner object exists and is called once for this result. Moving this behavior inside a limiter changes which text is cut.",
+      "diagram": {
+        "chapter": 9,
+        "view": "focus",
+        "index": 0
+      },
+      "theory": {
+        "title": "Add a prefix to the inner result",
+        "start": "// Ask inward before adding our text.",
+        "end": "// End prefix rendering.",
+        "what": "Prefix transforms the complete text returned by its inner component.",
+        "where": "This block executes after the inner text call returns.",
+        "why": "One prefix operation can wrap plain or already-decorated text.",
+        "invariant": "The inner object exists and is called once for this result.",
+        "risk": "Moving this behavior inside a limiter changes which text is cut.",
+        "explain": [
+          "The comment identifies inward delegation before transformation.",
+          "Call the inner component and own its returned string.",
+          "Create a result with prefix followed by body.",
+          "Return the owned string value to the caller.",
+          "Close the prefix query."
+        ],
+        "resolved_start": 36,
+        "resolved_end": 40,
+        "lineStart": 36,
+        "lineEnd": 40,
+        "code": "        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.",
+        "file": "examples/ch09/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Moving this behavior inside a limiter changes which text is cut."
+      },
+      "topicIds": [
+        "C09.11"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch09-19"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch09/main.cpp:51-55",
+      "title": "Limit the inner result",
+      "keyPoints": [
+        "Limit takes a prefix of whatever its inner component returns.",
+        "The same wrapper can limit raw text or the result of another feature.",
+        "Zero yields empty text; an oversized limit keeps the full body."
+      ],
+      "narration": "Limit takes a prefix of whatever its inner component returns. This block is the length policy at its chosen position in the chain. The same wrapper can limit raw text or the result of another feature.\n\nThe comment defines the scope of the length rule. Obtain the whole inner result by value. Take at most limit_ characters from the beginning. Return the new string value. Close the length-limiting query.\n\nZero yields empty text; an oversized limit keeps the full body. A byte substring can split multibyte text if the ASCII assumption is removed.",
+      "diagram": {
+        "chapter": 9,
+        "view": "focus",
+        "index": 1
+      },
+      "theory": {
+        "title": "Limit the inner result",
+        "start": "// Limit the entire inner result.",
+        "end": "// End limit rendering.",
+        "what": "Limit takes a prefix of whatever its inner component returns.",
+        "where": "This block is the length policy at its chosen position in the chain.",
+        "why": "The same wrapper can limit raw text or the result of another feature.",
+        "invariant": "Zero yields empty text; an oversized limit keeps the full body.",
+        "risk": "A byte substring can split multibyte text if the ASCII assumption is removed.",
+        "explain": [
+          "The comment defines the scope of the length rule.",
+          "Obtain the whole inner result by value.",
+          "Take at most limit_ characters from the beginning.",
+          "Return the new string value.",
+          "Close the length-limiting query."
+        ],
+        "resolved_start": 51,
+        "resolved_end": 55,
+        "lineStart": 51,
+        "lineEnd": 55,
+        "code": "        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.",
+        "file": "examples/ch09/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "A byte substring can split multibyte text if the ASCII assumption is removed."
+      },
+      "topicIds": [
+        "C09.12"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch09-20"
+    },
+    {
+      "eyebrow": "ORIGINAL CHECKED C++",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch09/main.cpp",
+      "title": "Run the complete chapter program",
+      "keyPoints": [
+        "Two ways to decorate a status message",
+        "Both wrapper orders are checked, together with empty Plain text, zero limit, an oversized limit, and a rejected missing inner object. The example makes no promise about Unicode grapheme boundaries or allocation performance. Compile-time type traits verify that Prefix and Limit object copying and moving are disabled; ownership handles remain movable."
+      ],
+      "narration": "We now join the small pieces into the complete working program. Each wrapper owns exactly one Message and implements the same query. Ownership makes the assembled chain self-contained; explicit nesting makes order reviewable.\n\nBoth wrapper orders are checked, together with empty Plain text, zero limit, an oversized limit, and a rejected missing inner object. The example makes no promise about Unicode grapheme boundaries or allocation performance. Compile-time type traits verify that Prefix and Limit object copying and moving are disabled; ownership handles remain movable.\n\nMiddleware and formatting layers use the same principle: keep feature contracts small, make order explicit, and test combinations that may interact. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/examples/ch09/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nint main() {\n    auto first = std::make_unique<Prefix>(\n        std::make_unique<Limit>(std::make_unique<Plain>(\"ready now\"), 5),\n        \"WARN \");\n    auto second = std::make_unique<Limit>(\n        std::make_unique<Prefix>(std::make_unique<Plain>(\"ready now\"),\n                                 \"WARN \"), 5);\n    check(first->text() == \"WARN ready\");\n    check(second->text() == \"WARN \");\n    check(Plain(\"\").text().empty());\n    Limit zero(std::make_unique<Plain>(\"ready\"), 0);\n    check(zero.text().empty());\n    Limit wide(std::make_unique<Plain>(\"ready\"), 99);\n    check(wide.text() == \"ready\");\n    bool rejected = false;\n    try { Prefix bad(nullptr, \"WARN \"); }\n    catch (const std::invalid_argument&) { rejected = true; }\n    check(rejected);\n    std::cout << \"prefix outside: '\" << first->text() << \"'\\n\";\n    std::cout << \"limit outside: '\" << second->text() << \"'\\n\";\n    std::cout << \"empty and missing-inner checks passed\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "prefix outside: 'WARN ready'\nlimit outside: 'WARN '\nempty and missing-inner checks passed\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-21.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "question": {
+        "prompt": "Does matching the demonstration output prove every promised behavior?",
+        "answer": "No. Both wrapper orders are checked, together with empty Plain text, zero limit, an oversized limit, and a rejected missing inner object. The example makes no promise about Unicode grapheme boundaries or allocation performance. Compile-time type traits verify that Prefix and Limit object copying and moving are disabled; ownership handles remain movable. A printed result shows that run; the checks and stated limits explain what was actually verified."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch09-21"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → trace",
+      "title": "Follow one request through the objects",
+      "keyPoints": [
+        "Plain -> ready now",
+        "inner Limit -> ready; outer Prefix -> WARN ready",
+        "inner Prefix -> WARN ready now; outer Limit -> WARN ",
+        "outer owner destroyed -> inner owners destroyed"
+      ],
+      "narration": "Step 1. Plain -> ready now. The leaf owns the original text.\n\nStep 2. inner Limit -> ready; outer Prefix -> WARN ready. Only the body is limited in first.\n\nStep 3. inner Prefix -> WARN ready now; outer Limit -> WARN . The entire decorated result is limited in second.\n\nStep 4. outer owner destroyed -> inner owners destroyed. The chain of unique_ptr members releases each component once.",
+      "walkthrough": [
+        {
+          "label": "Step 1",
+          "text": "Plain -> ready now",
+          "reason": "The leaf owns the original text."
+        },
+        {
+          "label": "Step 2",
+          "text": "inner Limit -> ready; outer Prefix -> WARN ready",
+          "reason": "Only the body is limited in first."
+        },
+        {
+          "label": "Step 3",
+          "text": "inner Prefix -> WARN ready now; outer Limit -> WARN ",
+          "reason": "The entire decorated result is limited in second."
+        },
+        {
+          "label": "Step 4",
+          "text": "outer owner destroyed -> inner owners destroyed",
+          "reason": "The chain of unique_ptr members releases each component once."
+        }
+      ],
+      "question": {
+        "prompt": "Which operation makes the next step possible?",
+        "answer": "Plain -> ready now — The leaf owns the original text.\ninner Limit -> ready; outer Prefix -> WARN ready — Only the body is limited in first.\ninner Prefix -> WARN ready now; outer Limit -> WARN  — The entire decorated result is limited in second.\nouter owner destroyed -> inner owners destroyed — The chain of unique_ptr members releases each component once."
+      },
+      "topicIds": [
+        "C09.09"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch09-22"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → example.failures",
+      "title": "Debug the promise: Assume Prefix(Limit(text)) and Limit(Prefix(text)) are equivalent.",
+      "keyPoints": [
+        "Assume Prefix(Limit(text)) and Limit(Prefix(text)) are equivalent.",
+        "The first produces WARN ready, the second WARN plus a trailing space."
+      ],
+      "narration": "Assume Prefix(Limit(text)) and Limit(Prefix(text)) are equivalent. The first produces WARN ready, the second WARN plus a trailing space. The limit acts on different intermediate strings.\n\nBoth wrapper orders are checked, together with empty Plain text, zero limit, an oversized limit, and a rejected missing inner object. The example makes no promise about Unicode grapheme boundaries or allocation performance. Compile-time type traits verify that Prefix and Limit object copying and moving are disabled; ownership handles remain movable.\n\nMiddleware and formatting layers use the same principle: keep feature contracts small, make order explicit, and test combinations that may interact.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "The first produces WARN ready, the second WARN plus a trailing space."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The limit acts on different intermediate strings."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The limit acts on different intermediate strings. The first produces WARN ready, the second WARN plus a trailing space."
+      },
+      "topicIds": [
+        "C09.10"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch09-23"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → example.failures",
+      "title": "Debug the promise: Return const std::string& to a local result variable.",
+      "keyPoints": [
+        "Return const std::string& to a local result variable.",
+        "The caller receives a dangling reference after the method returns."
+      ],
+      "narration": "Return const std::string& to a local result variable. The caller receives a dangling reference after the method returns. A local string is destroyed at the end of its scope.\n\nBoth wrapper orders are checked, together with empty Plain text, zero limit, an oversized limit, and a rejected missing inner object. The example makes no promise about Unicode grapheme boundaries or allocation performance. Compile-time type traits verify that Prefix and Limit object copying and moving are disabled; ownership handles remain movable.\n\nMiddleware and formatting layers use the same principle: keep feature contracts small, make order explicit, and test combinations that may interact.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "The caller receives a dangling reference after the method returns."
+        },
+        {
+          "label": "Why it fails",
+          "text": "A local string is destroyed at the end of its scope."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "A local string is destroyed at the end of its scope. The caller receives a dangling reference after the method returns."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch09-24"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → example.failures",
+      "title": "Debug the promise: Allow inner_ to be null.",
+      "keyPoints": [
+        "Allow inner_ to be null.",
+        "Calling text dereferences a null pointer and has undefined behavior."
+      ],
+      "narration": "Allow inner_ to be null. Calling text dereferences a null pointer and has undefined behavior. The wrapper has no component to delegate to.\n\nBoth wrapper orders are checked, together with empty Plain text, zero limit, an oversized limit, and a rejected missing inner object. The example makes no promise about Unicode grapheme boundaries or allocation performance. Compile-time type traits verify that Prefix and Limit object copying and moving are disabled; ownership handles remain movable.\n\nMiddleware and formatting layers use the same principle: keep feature contracts small, make order explicit, and test combinations that may interact.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "Calling text dereferences a null pointer and has undefined behavior."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The wrapper has no component to delegate to."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The wrapper has no component to delegate to. Calling text dereferences a null pointer and has undefined behavior."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch09-25"
+    },
+    {
+      "title": "Trace 1: Decorator: Prefix text",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Decorator: Prefix text. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Decorator: Prefix text. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe prefix belongs before the inner message.\n\nThe bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → dpx-c09-trace-1; companion/solutions/ch09/main.cpp",
+      "question": {
+        "prompt": "Decorator: Prefix text. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"!ok\". The prefix belongs before the inner message."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Prefix(std::make_unique<Plain>(\"ok\"),\"!\").text();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch09_trace_1.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Prefix(std::make_unique<Plain>(\"ok\"),\"!\").text();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "!ok\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-26.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_trace_1.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-09-a",
+      "section": "Trace experiments",
+      "id": "dp-ch09-26"
+    },
+    {
+      "title": "Trace 2: Decorator: Limit outer result",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Decorator: Limit outer result. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Decorator: Limit outer result. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe outer limit trims the already-prefixed string.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → dpx-c09-trace-2; companion/solutions/ch09/main.cpp",
+      "question": {
+        "prompt": "Decorator: Limit outer result. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"!re\". The outer limit trims the already-prefixed string."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Limit(std::make_unique<Prefix>(std::make_unique<Plain>(\"ready\"),\"!\"),3).text();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch09_trace_2.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Limit(std::make_unique<Prefix>(std::make_unique<Plain>(\"ready\"),\"!\"),3).text();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "!re\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-27.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_trace_2.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-09-a",
+      "section": "Trace experiments",
+      "id": "dp-ch09-27"
+    },
+    {
+      "title": "Trace 3: Decorator: Prefix outside limit",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Decorator: Prefix outside limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Decorator: Prefix outside limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe inner limit trims ready first, then the prefix adds one byte.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → dpx-c09-trace-3; companion/solutions/ch09/main.cpp",
+      "question": {
+        "prompt": "Decorator: Prefix outside limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"!rea\". The inner limit trims ready first, then the prefix adds one byte."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Prefix(std::make_unique<Limit>(std::make_unique<Plain>(\"ready\"),3),\"!\").text();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch09_trace_3.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Prefix(std::make_unique<Limit>(std::make_unique<Plain>(\"ready\"),3),\"!\").text();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "!rea\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-28.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_trace_3.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-09-a",
+      "section": "Trace experiments",
+      "id": "dp-ch09-28"
+    },
+    {
+      "title": "Trace 4: Decorator: Zero limit",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Decorator: Zero limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Decorator: Zero limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nA zero-length prefix of a string is empty.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → dpx-c09-trace-4; companion/solutions/ch09/main.cpp",
+      "question": {
+        "prompt": "Decorator: Zero limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"\". A zero-length prefix of a string is empty."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Limit(std::make_unique<Plain>(\"abc\"),0).text();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch09_trace_4.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Limit(std::make_unique<Plain>(\"abc\"),0).text();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-29.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_trace_4.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-09-a",
+      "section": "Trace experiments",
+      "id": "dp-ch09-29"
+    },
+    {
+      "title": "Trace 5: Decorator: Suffix text",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Decorator: Suffix text. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Decorator: Suffix text. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe suffix belongs after the inner message.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → dpx-c09-trace-5; companion/solutions/ch09/main.cpp",
+      "question": {
+        "prompt": "Decorator: Suffix text. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"ok!\". The suffix belongs after the inner message."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Suffix(std::make_unique<Plain>(\"ok\"),\"!\").text();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch09_trace_5.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Suffix(std::make_unique<Plain>(\"ok\"),\"!\").text();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "ok!\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-30.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_trace_5.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-09-a",
+      "section": "Trace experiments",
+      "id": "dp-ch09-30"
+    },
+    {
+      "title": "Trace 6: Decorator: Suffix outside limit",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Decorator: Suffix outside limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Decorator: Suffix outside limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe outer suffix is not subject to the inner limit.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → dpx-c09-trace-6; companion/solutions/ch09/main.cpp",
+      "question": {
+        "prompt": "Decorator: Suffix outside limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"rea!\". The outer suffix is not subject to the inner limit."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Suffix(std::make_unique<Limit>(std::make_unique<Plain>(\"ready\"),3),\"!\").text();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch09_trace_6.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Suffix(std::make_unique<Limit>(std::make_unique<Plain>(\"ready\"),3),\"!\").text();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "rea!\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-31.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_trace_6.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-09-a",
+      "section": "Trace experiments",
+      "id": "dp-ch09-31"
+    },
+    {
+      "title": "Trace 7: Decorator: Limit outside suffix",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Decorator: Limit outside suffix. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Decorator: Limit outside suffix. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe suffix exists in the inner result but is cut off by the outer limit.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → dpx-c09-trace-7; companion/solutions/ch09/main.cpp",
+      "question": {
+        "prompt": "Decorator: Limit outside suffix. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"ready\". The suffix exists in the inner result but is cut off by the outer limit."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return Limit(std::make_unique<Suffix>(std::make_unique<Plain>(\"ready\"),\"!\"),5).text();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch09_trace_7.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return Limit(std::make_unique<Suffix>(std::make_unique<Plain>(\"ready\"),\"!\"),5).text();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "ready\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-32.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_trace_7.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-09-a",
+      "section": "Trace experiments",
+      "id": "dp-ch09-32"
+    },
+    {
+      "title": "Trace 8: Decorator: No inner message",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Decorator: No inner message. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Decorator: No inner message. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nA wrapper requires a live owned inner message.\n\n The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → dpx-c09-trace-8; companion/solutions/ch09/main.cpp",
+      "question": {
+        "prompt": "Decorator: No inner message. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. A wrapper requires a live owned inner message."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return dpx_rejects<std::invalid_argument>([]{\n    Suffix s(nullptr,\"!\");\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch09_trace_8.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return dpx_rejects<std::invalid_argument>([]{\n    Suffix s(nullptr,\"!\");\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-33.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch09_trace_8.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-09-a",
+      "section": "Trace experiments",
+      "id": "dp-ch09-33"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → exercises.09.1",
+      "title": "Exercise 09.1: Guided modification",
+      "keyPoints": [
+        "Change the prefix from WARN plus a space to !, leaving the limit at five. Predict both existing chains."
+      ],
+      "narration": "Change the prefix from WARN plus a space to !, leaving the limit at five. Predict both existing chains.\n\nPause here and make a concrete prediction or sketch a change. The hint is: The prefix has one character now.\n\nAfter the discussion, compare the reasoning. Prefix outside returns !ready. Limit outside returns !read, the first five characters of !ready now. The change does not make the operations commute.",
+      "hint": "The prefix has one character now.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Prefix outside returns !ready. Limit outside returns !read, the first five characters of !ready now. The change does not make the operations commute."
+      },
+      "topicIds": [
+        "C09.13"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-34"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → exercises.09.2",
+      "title": "Exercise 09.2: Trace unfamiliar code",
+      "keyPoints": [
+        "For Plain(\"abcdef\"), trace Prefix(Limit(Plain, 3), \"?\") and Limit(Prefix(Plain, \"?\"), 3). State the exact strings."
+      ],
+      "narration": "For Plain(\"abcdef\"), trace Prefix(Limit(Plain, 3), \"?\") and Limit(Prefix(Plain, \"?\"), 3). State the exact strings.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Evaluate the innermost Plain first.\n\nAfter the discussion, compare the reasoning. The first returns ?abc. The second returns ?ab. In each case the outer wrapper sees the complete inner result.",
+      "hint": "Evaluate the innermost Plain first.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The first returns ?abc. The second returns ?ab. In each case the outer wrapper sees the complete inner result."
+      },
+      "topicIds": [
+        "C09.14"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-35"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → exercises.09.3",
+      "title": "Exercise 09.3: Diagnose a bug",
+      "keyPoints": [
+        "A developer returns body.substr(limit_, 0) from Limit. What does it return for body=\"ready\" and limit_=2, and why is that wrong?"
+      ],
+      "narration": "A developer returns body.substr(limit_, 0) from Limit. What does it return for body=\"ready\" and limit_=2, and why is that wrong?\n\nPause here and make a concrete prediction or sketch a change. The hint is: The arguments are start position and requested count.\n\nAfter the discussion, compare the reasoning. It returns an empty string because the count is zero. The requirement was the first two characters, re. Use body.substr(0, limit_). With a start beyond body.size(), the wrong version can also throw out_of_range.",
+      "hint": "The arguments are start position and requested count.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "It returns an empty string because the count is zero. The requirement was the first two characters, re. Use body.substr(0, limit_). With a start beyond body.size(), the wrong version can also throw out_of_range."
+      },
+      "topicIds": [
+        "C09.15"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-36"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → exercises.09.4",
+      "title": "Exercise 09.4: Choose a design",
+      "keyPoints": [
+        "A command always performs exactly prefix then limit and is not passed as a Message. Choose decorators or direct string functions."
+      ],
+      "narration": "A command always performs exactly prefix then limit and is not passed as a Message. Choose decorators or direct string functions.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Is runtime object interchangeability required?\n\nAfter the discussion, compare the reasoning. Use direct functions or a single clearly named function. Decorator adds useful structure when features are independently configured as Message objects, but a fixed two-step operation does not need a heap-owned class chain.",
+      "hint": "Is runtime object interchangeability required?",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Use direct functions or a single clearly named function. Decorator adds useful structure when features are independently configured as Message objects, but a fixed two-step operation does not need a heap-owned class chain."
+      },
+      "topicIds": [
+        "C09.16"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-37"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → exercises.09.5",
+      "title": "Exercise 09.5: Extend without regressions",
+      "keyPoints": [
+        "Add a test that a limit of exactly five preserves Plain(\"ready\"), and test Prefix around an empty Plain with prefix WARN plus a space."
+      ],
+      "narration": "Add a test that a limit of exactly five preserves Plain(\"ready\"), and test Prefix around an empty Plain with prefix WARN plus a space.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Test the boundary and the transformation of empty input.\n\nAfter the discussion, compare the reasoning. The exact-size result is ready. The prefixed empty result is WARN with a trailing space. Empty body does not imply empty decorated output because the prefix itself is valid text.",
+      "hint": "Test the boundary and the transformation of empty input.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The exact-size result is ready. The prefixed empty result is WARN with a trailing space. Empty body does not imply empty decorated output because the prefix itself is valid text."
+      },
+      "topicIds": [
+        "C09.17"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-38"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → exercises.09.6",
+      "title": "Exercise 09.6: Justify a decision",
+      "keyPoints": [
+        "The UI requires every final message to be at most five characters. Which wrapper must be outermost, and what other policy decision should be documented?"
+      ],
+      "narration": "The UI requires every final message to be at most five characters. Which wrapper must be outermost, and what other policy decision should be documented?\n\nPause here and make a concrete prediction or sketch a change. The hint is: The final transformation controls the final bound.\n\nAfter the discussion, compare the reasoning. Limit must be outermost. Also document whether truncating an alert prefix is acceptable; the demonstrated order may leave only WARN and a space. A UI may need a different operation that reserves prefix space rather than blindly truncating the full string.",
+      "hint": "The final transformation controls the final bound.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Limit must be outermost. Also document whether truncating an alert prefix is acceptable; the demonstrated order may leave only WARN and a space. A UI may need a different operation that reserves prefix space rather than blindly truncating the full string."
+      },
+      "topicIds": [
+        "C09.18"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-39"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/exercises/ch09/main.cpp",
+      "title": "Extend the program without losing its tests",
+      "keyPoints": [
+        "Add Suffix, an owning Message decorator that appends supplied text. Reject a null inner object. Preserve original Prefix and Limit behavior and all original tests."
+      ],
+      "narration": "Add Suffix, an owning Message decorator that appends supplied text. Reject a null inner object. Preserve original Prefix and Limit behavior and all original tests.\n\nKeep the original checks as a baseline. The new behavior must also satisfy these checks: Suffix(Plain(\"ready\"), \"!\") returns ready!. Limit outside that suffix at five returns ready. Suffix outside Limit(Plain(\"ready now\"), 5) returns ready!. An empty suffix preserves ready and a null inner is rejected.\n\nThe starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/exercises/ch09/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "// LAB STARTER: see the chapter for extension requirements.\n#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nint main() {\n    auto first = std::make_unique<Prefix>(\n        std::make_unique<Limit>(std::make_unique<Plain>(\"ready now\"), 5),\n        \"WARN \");\n    auto second = std::make_unique<Limit>(\n        std::make_unique<Prefix>(std::make_unique<Plain>(\"ready now\"),\n                                 \"WARN \"), 5);\n    check(first->text() == \"WARN ready\");\n    check(second->text() == \"WARN \");\n    check(Plain(\"\").text().empty());\n    Limit zero(std::make_unique<Plain>(\"ready\"), 0);\n    check(zero.text().empty());\n    Limit wide(std::make_unique<Plain>(\"ready\"), 99);\n    check(wide.text() == \"ready\");\n    bool rejected = false;\n    try { Prefix bad(nullptr, \"WARN \"); }\n    catch (const std::invalid_argument&) { rejected = true; }\n    check(rejected);\n    std::cout << \"prefix outside: '\" << first->text() << \"'\\n\";\n    std::cout << \"limit outside: '\" << second->text() << \"'\\n\";\n    std::cout << \"empty and missing-inner checks passed\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "prefix outside: 'WARN ready'\nlimit outside: 'WARN '\nempty and missing-inner checks passed\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-40.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "checks": [
+        {
+          "prompt": "Suffix(Plain(\"ready\"), \"!\") returns ready!.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Limit outside that suffix at five returns ready.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Suffix outside Limit(Plain(\"ready now\"), 5) returns ready!.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "An empty suffix preserves ready and a null inner is rejected.",
+          "answer": "This is a required acceptance check for the extension."
+        }
+      ],
+      "question": {
+        "prompt": "What must the extension add?",
+        "answer": "Add Suffix, an owning Message decorator that appends supplied text. Reject a null inner object. Preserve original Prefix and Limit behavior and all original tests."
+      },
+      "topicIds": [
+        "C09.19"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-40"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/solutions/ch09/main.cpp",
+      "title": "Extension solution and design review",
+      "keyPoints": [
+        "Suffix(Plain(\"ready\"), \"!\") returns ready!.",
+        "Limit outside that suffix at five returns ready.",
+        "Suffix outside Limit(Plain(\"ready now\"), 5) returns ready!.",
+        "An empty suffix preserves ready and a null inner is rejected."
+      ],
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/solutions/ch09/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\n#include <type_traits>\n#include <string>\n#include <utility>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Message {\npublic:\n    Message() = default;\n    Message(const Message&) = delete;\n    Message& operator=(const Message&) = delete;\n    Message(Message&&) = delete;\n    Message& operator=(Message&&) = delete;\n    virtual ~Message() = default;\n    virtual std::string text() const = 0;\n};\nclass Plain final : public Message {\n    std::string value_;\npublic:\n    explicit Plain(std::string s) : value_(std::move(s)) {}\n    std::string text() const override { return value_; }\n};\nclass Prefix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string prefix_;\npublic:\n    Prefix(std::unique_ptr<Message> inner, std::string prefix)\n        : inner_(std::move(inner)), prefix_(std::move(prefix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Ask inward before adding our text.\n        const auto body = inner_->text();\n        const auto result = prefix_ + body;\n        return result;\n    } // End prefix rendering.\n};\nclass Limit final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::size_t limit_;\npublic:\n    Limit(std::unique_ptr<Message> inner, std::size_t n)\n        : inner_(std::move(inner)), limit_(n) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override {\n        // Limit the entire inner result.\n        const auto body = inner_->text();\n        auto cut = body.substr(0, limit_);\n        return cut;\n    } // End limit rendering.\n};\nclass Suffix final : public Message {\n    std::unique_ptr<Message> inner_;\n    std::string suffix_;\npublic:\n    Suffix(std::unique_ptr<Message> inner, std::string suffix)\n        : inner_(std::move(inner)), suffix_(std::move(suffix)) {\n        if (!inner_) throw std::invalid_argument(\"inner\");\n    }\n    std::string text() const override { return inner_->text() + suffix_; }\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<Prefix>);\nstatic_assert(!std::is_copy_constructible_v<Prefix>);\nstatic_assert(!std::is_move_constructible_v<Limit>);\nstatic_assert(!std::is_copy_constructible_v<Limit>);\nstatic_assert(!std::is_move_constructible_v<Suffix>);\nstatic_assert(!std::is_copy_constructible_v<Suffix>);\nint main() {\n    auto first = std::make_unique<Prefix>(\n        std::make_unique<Limit>(std::make_unique<Plain>(\"ready now\"), 5),\n        \"WARN \");\n    auto second = std::make_unique<Limit>(\n        std::make_unique<Prefix>(std::make_unique<Plain>(\"ready now\"),\n                                 \"WARN \"), 5);\n    check(first->text() == \"WARN ready\");\n    check(second->text() == \"WARN \");\n    check(Plain(\"\").text().empty());\n    Limit zero(std::make_unique<Plain>(\"ready\"), 0);\n    check(zero.text().empty());\n    Limit wide(std::make_unique<Plain>(\"ready\"), 99);\n    check(wide.text() == \"ready\");\n    bool rejected = false;\n    try { Prefix bad(nullptr, \"WARN \"); }\n    catch (const std::invalid_argument&) { rejected = true; }\n    check(rejected);\n    Suffix tail(std::make_unique<Plain>(\"ready\"), \"!\");\n    check(tail.text() == \"ready!\");\n    Limit cut(std::make_unique<Suffix>(\n        std::make_unique<Plain>(\"ready\"), \"!\"), 5);\n    check(cut.text() == \"ready\");\n    Suffix after(std::make_unique<Limit>(\n        std::make_unique<Plain>(\"ready now\"), 5), \"!\");\n    check(after.text() == \"ready!\");\n    Suffix blank(std::make_unique<Plain>(\"ready\"), \"\");\n    check(blank.text() == \"ready\");\n    bool missing = false;\n    try { Suffix bad(nullptr, \"!\"); }\n    catch (const std::invalid_argument&) { missing = true; }\n    check(missing);\n    std::cout << \"suffix=\" << tail.text() << '\\n';\n    std::cout << \"prefix outside: '\" << first->text() << \"'\\n\";\n    std::cout << \"limit outside: '\" << second->text() << \"'\\n\";\n    std::cout << \"empty and missing-inner checks passed\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "suffix=ready!\nprefix outside: 'WARN ready'\nlimit outside: 'WARN '\nempty and missing-inner checks passed\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch9/dp-ch09-41.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "narration": "The reference solution mirrors the ownership rule of Prefix but appends after the inner text. It verifies both orders with Limit, empty suffix behavior, and null rejection. A shared wrapper base would be reasonable after repeated ownership validation becomes a maintenance burden, but it is not required for correctness.\n\nMiddleware and formatting layers use the same principle: keep feature contracts small, make order explicit, and test combinations that may interact.",
+      "question": {
+        "prompt": "Why is this solution a reasonable extension, and could another design work?",
+        "answer": "The reference solution mirrors the ownership rule of Prefix but appends after the inner text. It verifies both orders with Limit, empty suffix behavior, and null rejection. A shared wrapper base would be reasonable after repeated ownership validation becomes a maintenance burden, but it is not required for correctness."
+      },
+      "section": "Practice and extension",
+      "id": "dp-ch09-41"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → C09.21 scenario",
+      "title": "Application case 1: defend your choice",
+      "keyPoints": [
+        "A message needs optional prefixes and length limits that can be nested in different orders. What fits?"
+      ],
+      "scenario": {
+        "prompt": "A message needs optional prefixes and length limits that can be nested in different orders. What fits?",
+        "options": [
+          "Adapter",
+          "Builder alone",
+          "Decorator",
+          "Visitor"
+        ],
+        "correctIndex": 2,
+        "explanation": "Each wrapper adds behavior through the same Message interface.",
+        "rationales": [
+          "The input interface already matches; the goal is added behavior.",
+          "Assembly may help create the chain, but decoration explains its runtime behavior.",
+          "Each wrapper adds behavior through the same Message interface.",
+          "The requirement concerns wrapping one component, not adding operations over a fixed type family."
+        ],
+        "id": "C09.21-s1"
+      },
+      "narration": "A message needs optional prefixes and length limits that can be nested in different orders. What fits?\n\nAdapter. The input interface already matches; the goal is added behavior.\n\nBuilder alone. Assembly may help create the chain, but decoration explains its runtime behavior.\n\nDecorator. Each wrapper adds behavior through the same Message interface.\n\nVisitor. The requirement concerns wrapping one component, not adding operations over a fixed type family.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Decorator. Each wrapper adds behavior through the same Message interface."
+      },
+      "topicIds": [
+        "C09.21"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-42"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch9.json → C09.22 scenario",
+      "title": "Application case 2: defend your choice",
+      "keyPoints": [
+        "You need the entire visible result, including the prefix, limited to five bytes. Which nesting fits?"
+      ],
+      "scenario": {
+        "prompt": "You need the entire visible result, including the prefix, limited to five bytes. Which nesting fits?",
+        "options": [
+          "Prefix(Limit(message))",
+          "Either order always gives the same result",
+          "No wrapper can return an owned string",
+          "Limit(Prefix(message))"
+        ],
+        "correctIndex": 3,
+        "explanation": "The outer limit sees and trims the complete prefixed result.",
+        "rationales": [
+          "The outer prefix adds bytes after the inner limit has run.",
+          "The wrappers perform different transformations, so order matters.",
+          "Returning an owned string is valid and avoids a dangling local reference.",
+          "The outer limit sees and trims the complete prefixed result."
+        ],
+        "id": "C09.22-s1"
+      },
+      "narration": "You need the entire visible result, including the prefix, limited to five bytes. Which nesting fits?\n\nPrefix(Limit(message)). The outer prefix adds bytes after the inner limit has run.\n\nEither order always gives the same result. The wrappers perform different transformations, so order matters.\n\nNo wrapper can return an owned string. Returning an owned string is valid and avoids a dangling local reference.\n\nLimit(Prefix(message)). The outer limit sees and trims the complete prefixed result.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Limit(Prefix(message)). The outer limit sees and trims the complete prefixed result."
+      },
+      "topicIds": [
+        "C09.22"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch09-43"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 9",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch09.json → summary",
+      "title": "Keep these rules when the program grows",
+      "keyPoints": [
+        "A decorator adds behavior while preserving a component interface.",
+        "Wrapper order is observable and often noncommutative.",
+        "An owning wrapper can manage the entire inner chain.",
+        "Return owned values instead of references to local results.",
+        "Use direct functions when a fixed pipeline is sufficient.",
+        "Move ownership handles while keeping non-null wrapper objects in place."
+      ],
+      "narration": "A decorator adds behavior while preserving a component interface. Wrapper order is observable and often noncommutative. An owning wrapper can manage the entire inner chain. Return owned values instead of references to local results. Use direct functions when a fixed pipeline is sufficient. Move ownership handles while keeping non-null wrapper objects in place.\n\nMiddleware and formatting layers use the same principle: keep feature contracts small, make order explicit, and test combinations that may interact.",
+      "question": {
+        "prompt": "Explain Decorator without reciting its class names.",
+        "answer": "Each wrapper owns exactly one Message and implements the same query. Ownership makes the assembled chain self-contained; explicit nesting makes order reviewable. A pair of string functions is better for one fixed transformation sequence. A vector of transformation functions fits a pipeline that does not otherwise need a Message object interface."
+      },
+      "topicIds": [
+        "C09.20"
+      ],
+      "section": "Recall and transfer",
+      "id": "dp-ch09-44"
+    },
+    {
+      "title": "Order and repetition are part of the API",
+      "eyebrow": "DESIGN REVIEW",
+      "kind": "concept",
+      "keyPoints": [
+        "Prefix and Limit do not commute.",
+        "Two prefixes usually produce two markers.",
+        "A limit is measured in the stated unit."
+      ],
+      "narration": "Two operations commute when swapping them preserves the result. Our prefix and limit do not, as the visible outputs demonstrate. Repetition is another question. An operation is idempotent when applying it again has the same effect as applying it once. Applying the same plain length limit again is idempotent for this text rule, but adding the prefix again adds another marker. These properties belong in the usage contract because a configuration system might accidentally repeat or reorder features. Also keep the unit precise: the current std::string operation counts bytes. A requirement phrased in displayed characters needs more design before it can safely reuse the same implementation.",
+      "actions": [
+        "Ask learners which of Prefix and Limit is idempotent under the chapter rules."
+      ],
+      "sourceRef": "manuscript/ch09.json → Syntax, cost, and boundary assumptions",
+      "question": {
+        "prompt": "What output change reveals that Prefix is not idempotent?",
+        "answer": "Applying WARN-space twice produces two prefixes instead of leaving the once-prefixed result unchanged."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch09-45"
+    },
+    {
+      "title": "Similar wrappers can have different purposes",
+      "eyebrow": "PATTERN COMPARISON",
+      "kind": "concept",
+      "keyPoints": [
+        "Decorator composes optional behavior.",
+        "Adapter translates an incompatible contract.",
+        "Proxy controls access to a represented service."
+      ],
+      "narration": "Wrapping another object appears in several patterns. To identify Decorator, ask whether the outer object preserves the component contract so that optional features can be nested. Adapter exists because two contracts disagree; translation is its central responsibility. Proxy represents another service and controls access, perhaps through permission checks or delayed construction. A diagram alone may not show the intent, and real designs can combine responsibilities. For this message program, the useful change is to add Suffix without rewriting Prefix, Limit, or the callers. If every screen forever uses one fixed sequence, direct string functions remain a simpler competing design.",
+      "actions": [
+        "Give a permission-checking service wrapper and ask what fact would distinguish Proxy from Decorator."
+      ],
+      "sourceRef": "manuscript/ch09.json → A wrapper with the same public operation",
+      "question": {
+        "prompt": "What evidence supports Decorator beyond a stored pointer to another object?",
+        "answer": "The wrapper implements the same component contract, delegates through it, and adds composable optional behavior."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch09-46"
+    },
+    {
+      "title": "Explain a new layer before writing it",
+      "eyebrow": "RETRIEVAL / MAINTENANCE PLAN",
+      "kind": "concept",
+      "keyPoints": [
+        "State what changes before or after delegation.",
+        "Preserve one non-null inner owner.",
+        "Test boundary inputs and important wrapper orders."
+      ],
+      "narration": "For your final explanation, propose a wrapper that replaces an empty message with the word unknown. First define whether empty means the inner result is empty or the original plain body was empty; the wrapper can directly observe only its immediate inner result. Then decide how it behaves inside and outside Limit with a zero limit. Those arrangements can disagree just as prefix and limit do. A good implementation plan states the common text contract, ownership rule, and observable transformation before showing code. This habit keeps new wrappers understandable and makes tests describe real behavior instead of merely checking that a class was constructed.",
+      "actions": [
+        "Have learners predict the empty-message wrapper inside and outside a zero Limit."
+      ],
+      "sourceRef": "manuscript/ch09.json → Order is visible behavior",
+      "question": {
+        "prompt": "Why must a new wrapper describe which intermediate text it examines?",
+        "answer": "It sees its immediate inner result, which may already have been changed by other wrappers; order changes that input."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch09-47"
+    }
+  ]
+}

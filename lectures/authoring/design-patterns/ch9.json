@@ -1,0 +1,301 @@
+{
+  "chapter": 9,
+  "title": "Decorator",
+  "opening": [
+    {
+      "title": "Two small display features already have an order",
+      "eyebrow": "DECORATOR / THE PROBLEM",
+      "kind": "concept",
+      "keyPoints": [
+        "Plain text begins as ready now.",
+        "A prefix adds WARN and a space.",
+        "A limit keeps at most five bytes of its input."
+      ],
+      "narration": "A status panel needs optional features around a basic message. One feature adds an alert prefix. Another keeps only the first five bytes of text. Some screens need both. Before naming a pattern, ask what the final screen should show, because prefixing and limiting can interact. If the limit runs first, the later prefix increases the visible length. If the prefix runs first, a later limit can cut the body away entirely. The chapter uses simple single-byte text, so these examples are easy to trace. A real Unicode layout requirement would need a separate definition of visible character boundaries.",
+      "actions": [
+        "Ask learners to write the two possible transformation orders before seeing code."
+      ],
+      "sourceRef": "manuscript/ch09.json → When two small features produce many variants",
+      "question": {
+        "prompt": "Why is the phrase prefix plus limit incomplete as a requirement?",
+        "answer": "It does not state the order, and the two orders can produce different visible results."
+      }
+    },
+    {
+      "title": "For one fixed policy, write the expression",
+      "eyebrow": "BASELINE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "Take the first five bytes of the body.",
+        "Then add the alert prefix.",
+        "A direct function needs no owned object chain."
+      ],
+      "narration": "This baseline has exactly one policy: trim the body first, then add the prefix. A single function makes that order visible. Substr starts at index zero and requests at most five bytes. The plus operation joins two strings, and the function returns the new string by value. The expected output includes quotes so the message boundary is visible. This approach is a good choice when every screen follows this same rule and no caller requires a Message object. We will introduce decorators only after independent runtime choices make a fixed expression too restrictive. Simpler code is still the correct outcome for a simpler requirement.",
+      "actions": [
+        "Run the baseline and count the final bytes including the space."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch09.json → When two small features produce many variants",
+      "question": {
+        "prompt": "Does this baseline promise that the final message is at most five bytes?",
+        "answer": "No. It limits the body first; the later prefix makes the final result longer."
+      },
+      "code": {
+        "filename": "dp_ch09_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\n\nstd::string status(const std::string& body) {\n    return \"WARN \" + body.substr(0, 5); // Trim the body, then prefix it.\n}\nint main() {\n    std::cout << \"message='\" << status(\"ready now\") << \"'\\n\";\n}\n",
+        "expectedStdout": "message='WARN ready'\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "The same features can violate the final limit",
+      "eyebrow": "CONTROLLED CHOICE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "Prefix after limit produces ten bytes.",
+        "Limit after prefix produces five bytes.",
+        "The surviving five bytes can be only the alert marker."
+      ],
+      "narration": "Now the requirement changes: the complete visible message must fit five bytes. Our baseline no longer meets it because it adds the prefix after the body was shortened. The demonstration prints both orders and their lengths. This is a safe, deterministic way to study the failure: nothing crashes, but one answer breaks the final-size rule. Moving the limit outside fixes that rule while raising a different product question: is an alert marker with no body useful? The design must state both constraints. A pattern can make order explicit, but it cannot decide which user-visible behavior is correct for the application.",
+      "actions": [
+        "Predict both quoted outputs, including the trailing space.",
+        "Discuss whether preserving a warning marker matters more than preserving body text."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch09.json → Order is visible behavior",
+      "question": {
+        "prompt": "Which expression satisfies a final five-byte limit, and what does it discard?",
+        "answer": "Limiting the already-prefixed string satisfies the bound; with WARN plus a space, it discards the entire body."
+      },
+      "code": {
+        "filename": "dp_ch09_order_failure.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\n\nint main() {\n    const std::string body = \"ready now\";\n    const std::string prefix = \"WARN \";\n    const auto prefix_last = prefix + body.substr(0, 5);\n    const auto limit_last = (prefix + body).substr(0, 5);\n    std::cout << \"prefix last='\" << prefix_last\n              << \"' size=\" << prefix_last.size() << '\\n';\n    std::cout << \"limit last='\" << limit_last\n              << \"' size=\" << limit_last.size() << '\\n';\n}\n",
+        "expectedStdout": "prefix last='WARN ready' size=10\nlimit last='WARN ' size=5\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Make each feature usable as a Message",
+      "eyebrow": "THE DECORATOR DECISION",
+      "kind": "concept",
+      "keyPoints": [
+        "Plain and wrappers all support text().",
+        "A wrapper holds one inner Message.",
+        "Another wrapper can therefore be the inner object."
+      ],
+      "narration": "When screens choose different combinations at runtime and clients expect Message objects, the fixed function is no longer the whole solution. A decorator implements the same public operation as the object it surrounds. Plain supplies the starting text. Prefix and Limit also implement Message, but each asks an inner Message for its result and then transforms that result. Because an inner Message can itself be another decorator, the arrangement can form a chain. This replaces a separate subclass for every combination with reusable features and explicit assembly. The important evidence is the preserved interface and delegated behavior, not merely the word wrapper in a class name.",
+      "actions": [
+        "Name the basic component, common contract, and two wrappers."
+      ],
+      "sourceRef": "manuscript/ch09.json → A wrapper with the same public operation",
+      "question": {
+        "prompt": "Why is inner_ typed as Message rather than Plain?",
+        "answer": "It must accept another decorator as well as a plain message so that features can nest."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Calls travel inward; text returns outward",
+      "eyebrow": "EXECUTION ORDER / TWO CHAINS",
+      "kind": "concept",
+      "keyPoints": [
+        "Prefix asks Limit, which asks Plain.",
+        "Each layer transforms the returned value.",
+        "The outermost transformation runs last."
+      ],
+      "narration": "The outer object receives the first call, but that does not mean its transformation happens first. Prefix calls its inner object before joining its prefix. If that inner object is Limit, Limit first calls Plain, obtains ready now, and returns ready. Prefix then returns WARN ready. Reversing the wrapper nesting changes which intermediate string reaches Limit. The outer Limit receives WARN ready now and keeps only WARN plus a space. Trace the call direction and the return-value direction separately. This is a useful debugging habit in middleware too, because actions before delegation and actions after delegation can have very different orders.",
+      "actions": [
+        "Trace calls inward using one color and returned strings outward using another."
+      ],
+      "sourceRef": "manuscript/ch09.json → Order is visible behavior",
+      "question": {
+        "prompt": "Which operation runs last on the returned text in Prefix(Limit(Plain))?",
+        "answer": "Prefix adds its text after Limit has already shortened the body."
+      },
+      "theory": {
+        "what": "Nested components delegate once, then transform the returned value.",
+        "where": "Prefix::text and Limit::text around Plain::text.",
+        "why": "Independent features can combine without one class per combination.",
+        "invariant": "Each wrapper applies its documented transformation at the stated point.",
+        "risk": "Reading construction order as transformation order predicts the wrong output."
+      }
+    },
+    {
+      "title": "Same interface, different responsibility",
+      "eyebrow": "TYPE RELATIONSHIP VERSUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Wrappers inherit Message to remain substitutable.",
+        "Each wrapper owns one inner Message.",
+        "The chain is a one-child structure, not a child collection."
+      ],
+      "narration": "A Prefix has two relationships with Message. It is usable as a Message because it publicly implements the interface. It also owns another Message through inner_. These relationships answer different questions. Inheritance says what calls the outer object can receive. Ownership says who keeps the inner object alive and destroys it. The diagram's inheritance triangle must not be read as an ownership arrow. Compared with Composite, this chapter's wrapper delegates through one inner component instead of combining a collection of children. Similar recursive shapes can therefore serve different intentions. Decorator adds a feature while keeping the component contract available for the next wrapper.",
+      "actions": [
+        "Identify one inheritance link and one owning link in the actual diagram."
+      ],
+      "sourceRef": "manuscript/ch09.json → A wrapper with the same public operation",
+      "question": {
+        "prompt": "How does the child relationship differ from the Work Group in Composite?",
+        "answer": "Each decorator owns one inner Message; a Composite Group owns a collection of Work children and combines their results."
+      },
+      "theory": {
+        "what": "A wrapper both implements and owns a connection to the component contract.",
+        "where": "Prefix and Limit derive from Message and hold unique_ptr<Message>.",
+        "why": "A wrapped combination must still be acceptable wherever Message is expected.",
+        "invariant": "Every wrapper has one valid inner component.",
+        "risk": "Fixing inner_ to Plain would prevent wrapper nesting."
+      }
+    },
+    {
+      "title": "Reject missing components during assembly",
+      "eyebrow": "CONSTRUCTION / CLEANUP",
+      "kind": "concept",
+      "keyPoints": [
+        "Move a unique owner into inner_.",
+        "Throw if inner_ is null.",
+        "Completed members clean up automatically on failure."
+      ],
+      "narration": "A wrapper cannot add behavior around nothing, so its constructor rejects a missing inner owner. The constructor receives a unique_ptr by value, then moves it into the member. That transfer records who is responsible for the inner object's lifetime. If validation throws, C++ destroys completed member objects, and the owning pointer cleans up its child automatically. In ordinary construction, nested make_unique calls build the chain from the inside outward. Destruction follows the ownership links inward when the outer owner disappears. Message needs a virtual destructor so deleting through the common base pointer reaches each actual derived object correctly.",
+      "actions": [
+        "Trace a null constructor attempt and identify what exists when it throws."
+      ],
+      "sourceRef": "manuscript/ch09.json → Follow ownership separately from the call stack",
+      "question": {
+        "prompt": "Why is checking for null once in the constructor valuable?",
+        "answer": "It establishes the invariant that every successfully constructed wrapper can delegate to an inner object."
+      },
+      "theory": {
+        "what": "Assembly transfers exclusive ownership and rejects an unusable chain.",
+        "where": "Prefix and Limit constructors.",
+        "why": "Repeated text calls should not encounter a missing required component.",
+        "invariant": "Every living usable wrapper holds a non-null owner.",
+        "risk": "Accepting null turns a later text call into invalid pointer access."
+      }
+    },
+    {
+      "title": "Move handles without moving service objects",
+      "eyebrow": "SPECIAL MEMBERS / COMPILE-TIME CHECKS",
+      "kind": "concept",
+      "keyPoints": [
+        "Message deletes object copy and move operations.",
+        "Owning unique_ptr handles remain movable.",
+        "static_assert verifies wrapper type properties."
+      ],
+      "narration": "The chapter makes a careful distinction between moving an owner and moving the object it owns. A default move of a wrapper's unique_ptr member could leave the source wrapper with a null inner pointer, breaking its class invariant. Message therefore deletes copy and move operations, and the wrappers inherit that restriction. Equals delete means an attempted use is rejected during compilation. The outer unique_ptr handle can still move to a new owner while the wrapper stays at the same object location with its inner chain intact. Static assertions verify these type properties at build time. This is a policy choice that keeps the set of valid wrapper states small.",
+      "actions": [
+        "Compare moving the outer unique_ptr variable with moving the Prefix object itself."
+      ],
+      "sourceRef": "manuscript/ch09.json → Follow ownership separately from the call stack",
+      "question": {
+        "prompt": "Why can moving a unique_ptr<Prefix> be safe while moving a Prefix object is disabled?",
+        "answer": "Moving the handle transfers ownership of the same intact object; moving the object could empty its required inner owner."
+      },
+      "theory": {
+        "what": "The program transfers ownership handles while preserving valid wrapper objects.",
+        "where": "Deleted Message special members and the wrapper static_assert checks.",
+        "why": "Moved-from service objects would otherwise need a separate supported state.",
+        "invariant": "A wrapper object retains its non-null component for its usable lifetime.",
+        "risk": "Adding an object move operation without a moved-from contract can break text()."
+      }
+    },
+    {
+      "title": "Returned strings are values with their own lives",
+      "eyebrow": "VALUES / LIMITS / EXTENSION",
+      "kind": "concept",
+      "keyPoints": [
+        "text() returns a string value, not a local reference.",
+        "substr uses a start position and count.",
+        "Suffix should be tested inside and outside Limit."
+      ],
+      "narration": "Each call creates temporary local strings while the longer-lived message chain remains in place. Returning a string value safely gives the result to the caller. Returning a reference to a local result would instead leave the caller referring to destroyed storage. Substr takes a starting position followed by a maximum count; reversing their purpose can produce an empty result or an out-of-range error. The lab's Suffix follows the same ownership contract while appending text after delegation. Test it on both sides of Limit, because a suffix may be removed by an outer limit or extend a result after an inner limit. Reusing the interface does not remove interaction tests.",
+      "actions": [
+        "Predict Suffix(Limit(Plain, 5), !) and Limit(Suffix(Plain, !), 5)."
+      ],
+      "sourceRef": "manuscript/ch09.json → Syntax, cost, and boundary assumptions",
+      "question": {
+        "prompt": "Why is return const std::string& unsafe when it refers to a local result?",
+        "answer": "The local string is destroyed when the method returns, so the reference dangles."
+      },
+      "comparisons": [
+        {
+          "label": "Return a string value",
+          "text": "The caller receives a valid result with its own value lifetime."
+        },
+        {
+          "label": "Return a local reference",
+          "text": "The referenced local object dies at the end of the call."
+        },
+        {
+          "label": "Fixed string pipeline",
+          "text": "Often simpler when no interchangeable Message objects are required."
+        }
+      ]
+    }
+  ],
+  "closing": [
+    {
+      "title": "Order and repetition are part of the API",
+      "eyebrow": "DESIGN REVIEW",
+      "kind": "concept",
+      "keyPoints": [
+        "Prefix and Limit do not commute.",
+        "Two prefixes usually produce two markers.",
+        "A limit is measured in the stated unit."
+      ],
+      "narration": "Two operations commute when swapping them preserves the result. Our prefix and limit do not, as the visible outputs demonstrate. Repetition is another question. An operation is idempotent when applying it again has the same effect as applying it once. Applying the same plain length limit again is idempotent for this text rule, but adding the prefix again adds another marker. These properties belong in the usage contract because a configuration system might accidentally repeat or reorder features. Also keep the unit precise: the current std::string operation counts bytes. A requirement phrased in displayed characters needs more design before it can safely reuse the same implementation.",
+      "actions": [
+        "Ask learners which of Prefix and Limit is idempotent under the chapter rules."
+      ],
+      "sourceRef": "manuscript/ch09.json → Syntax, cost, and boundary assumptions",
+      "question": {
+        "prompt": "What output change reveals that Prefix is not idempotent?",
+        "answer": "Applying WARN-space twice produces two prefixes instead of leaving the once-prefixed result unchanged."
+      }
+    },
+    {
+      "title": "Similar wrappers can have different purposes",
+      "eyebrow": "PATTERN COMPARISON",
+      "kind": "concept",
+      "keyPoints": [
+        "Decorator composes optional behavior.",
+        "Adapter translates an incompatible contract.",
+        "Proxy controls access to a represented service."
+      ],
+      "narration": "Wrapping another object appears in several patterns. To identify Decorator, ask whether the outer object preserves the component contract so that optional features can be nested. Adapter exists because two contracts disagree; translation is its central responsibility. Proxy represents another service and controls access, perhaps through permission checks or delayed construction. A diagram alone may not show the intent, and real designs can combine responsibilities. For this message program, the useful change is to add Suffix without rewriting Prefix, Limit, or the callers. If every screen forever uses one fixed sequence, direct string functions remain a simpler competing design.",
+      "actions": [
+        "Give a permission-checking service wrapper and ask what fact would distinguish Proxy from Decorator."
+      ],
+      "sourceRef": "manuscript/ch09.json → A wrapper with the same public operation",
+      "question": {
+        "prompt": "What evidence supports Decorator beyond a stored pointer to another object?",
+        "answer": "The wrapper implements the same component contract, delegates through it, and adds composable optional behavior."
+      }
+    },
+    {
+      "title": "Explain a new layer before writing it",
+      "eyebrow": "RETRIEVAL / MAINTENANCE PLAN",
+      "kind": "concept",
+      "keyPoints": [
+        "State what changes before or after delegation.",
+        "Preserve one non-null inner owner.",
+        "Test boundary inputs and important wrapper orders."
+      ],
+      "narration": "For your final explanation, propose a wrapper that replaces an empty message with the word unknown. First define whether empty means the inner result is empty or the original plain body was empty; the wrapper can directly observe only its immediate inner result. Then decide how it behaves inside and outside Limit with a zero limit. Those arrangements can disagree just as prefix and limit do. A good implementation plan states the common text contract, ownership rule, and observable transformation before showing code. This habit keeps new wrappers understandable and makes tests describe real behavior instead of merely checking that a class was constructed.",
+      "actions": [
+        "Have learners predict the empty-message wrapper inside and outside a zero Limit."
+      ],
+      "sourceRef": "manuscript/ch09.json → Order is visible behavior",
+      "question": {
+        "prompt": "Why must a new wrapper describe which intermediate text it examines?",
+        "answer": "It sees its immediate inner result, which may already have been changed by other wrappers; order changes that input."
+      }
+    }
+  ]
+}

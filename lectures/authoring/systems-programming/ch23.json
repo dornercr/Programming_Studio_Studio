@@ -1,0 +1,224 @@
+{
+  "chapter": 23,
+  "title": "Paging",
+  "opening": [
+    {
+      "title": "Pages organize storage; objects organize meaning",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "concept",
+      "keyPoints": [
+        "One page can contain many C++ objects",
+        "One object can span many pages",
+        "Page permissions do not establish object bounds"
+      ],
+      "narration": "A page is a fixed-size region of virtual address space. A C++ object is a language-level value with a type, lifetime, and bounds. These units need not line up. A large vector can span several pages, and a single page can hold several unrelated allocations. This matters when discussing safety: a hardware check may permit an address even though it lies beyond the array you are allowed to access. Conversely, crossing a page boundary is normal when the allocation and mappings cover both pages. We will use tiny page sizes in arithmetic demonstrations so every boundary is visible without pretending those sizes describe actual hardware.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch23.json → SP23.004: 23.1 Pages",
+      "question": {
+        "prompt": "Does crossing a page boundary necessarily mean an array access is invalid?",
+        "answer": "No. The array may span multiple valid mapped pages; object bounds and page boundaries are different."
+      }
+    },
+    {
+      "title": "A three-byte span can need two mappings",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "code",
+      "keyPoints": [
+        "Model page size is eight bytes",
+        "The offset wraps at a page boundary",
+        "The next page may use a distant frame"
+      ],
+      "narration": "The modeled span begins at virtual address seven and covers three bytes. With eight-byte pages, seven is page zero at offset seven. Eight is page one at offset zero, and nine is page one at offset one. We map page zero to frame three and page one to frame nine, producing physical addresses thirty-one, seventy-two, and seventy-three. The large jump comes from the frame mapping, not from skipped virtual bytes. These are integer calculations in an explicit model, not accesses to real physical memory. The output shows why checking only the first byte of a multi-byte operation cannot establish permissions for the whole span.",
+      "actions": [
+        "Predict every output line, run the program, then explain each value from the operations in main."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch23.json → SP23.010: 23.4 Page offset",
+      "question": {
+        "prompt": "Why are virtual addresses seven and eight adjacent while modeled physical addresses thirty-one and seventy-two are not?",
+        "answer": "They cross into different virtual pages whose selected physical frames are not adjacent."
+      },
+      "code": {
+        "filename": "sys_ch23_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\nint main() {\n    constexpr unsigned page_size = 8;\n    const std::array<unsigned,2> frames{3,9};\n    // Integer translation model: no physical memory is accessed.\n    for (unsigned address : {7u,8u,9u}) {\n        const unsigned page = address/page_size;\n        const unsigned offset = address%page_size;\n        std::cout << address << \": page=\" << page << \" offset=\" << offset\n                  << \" physical=\" << frames.at(page)*page_size+offset << '\\n';\n    }\n}\n",
+        "expectedStdout": "7: page=0 offset=7 physical=31\n8: page=1 offset=0 physical=72\n9: page=1 offset=1 physical=73\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Eight-byte page arithmetic model; does not access physical memory."
+      }
+    },
+    {
+      "title": "A frame is the physical partner of a page",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "concept",
+      "keyPoints": [
+        "Virtual page number selects a mapping",
+        "Frame number selects backing storage",
+        "Translation preserves the offset"
+      ],
+      "narration": "If page five maps to frame two, the number five does not become part of the offset. The mapping replaces the page-number portion while retaining the byte’s position within the page. For a frame size of four thousand ninety-six bytes, frame two begins at eight thousand one hundred ninety-two. Adding offset nine gives eight thousand two hundred one. Adjacent virtual pages can select distant frames while still presenting a contiguous virtual array. That flexibility supports allocation and isolation. A device that requires physically contiguous storage needs a stronger platform mechanism; an ordinary contiguous C++ container only promises contiguity in its own address space.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch23.json → SP23.006: 23.2 Frames",
+      "question": {
+        "prompt": "What does a contiguous vector fail to promise about its backing frames?",
+        "answer": "It does not guarantee physical contiguity or a device-visible contiguous address range."
+      }
+    },
+    {
+      "title": "Count a partial last page without overflowing first",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "code",
+      "keyPoints": [
+        "Floor division alone misses a partial page",
+        "Use quotient plus a nonzero-remainder test",
+        "Zero bytes require zero pages in this model"
+      ],
+      "narration": "The model uses eight-byte pages and sizes zero, one, eight, and nine. Dividing by eight alone gives zero, zero, one, and one, which undercounts one byte and nine bytes. The corrected calculation adds one when a remainder exists, giving zero, one, one, and two. The plus-one is applied to the quotient rather than forming size plus seven first. That avoids overflow in a common rounding-up expression for very large sizes. This example counts storage for a region beginning at a page boundary; an unaligned start would also affect the number of pages touched. State that assumption before applying the formula to an arbitrary pointer range.",
+      "actions": [
+        "Predict every output line, run the program, then explain each value from the operations in main."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch23.json → SP23.020: Worked example — Counting pages",
+      "question": {
+        "prompt": "Why is (bytes + page_size - 1) / page_size risky for unrestricted unsigned bytes?",
+        "answer": "The addition can wrap before division; quotient plus a remainder test avoids that preliminary overflow."
+      },
+      "code": {
+        "filename": "sys_ch23_page_count.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\nstd::size_t pages(std::size_t bytes) {\n    constexpr std::size_t size = 8;\n    return bytes/size + (bytes%size != 0);\n}\nint main() {\n    // Region begins at a page boundary in this arithmetic model.\n    for (std::size_t bytes : {0u,1u,8u,9u})\n        std::cout << \"bytes=\" << bytes << \" floor=\" << bytes/8\n                  << \" pages=\" << pages(bytes) << '\\n';\n}\n",
+        "expectedStdout": "bytes=0 floor=0 pages=0\nbytes=1 floor=0 pages=1\nbytes=8 floor=1 pages=1\nbytes=9 floor=1 pages=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Storage-count arithmetic for page-aligned regions with eight-byte model pages."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "The low bits describe the byte within the page",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "concept",
+      "keyPoints": [
+        "4096 bytes equals two to the twelfth power",
+        "Twelve low bits form the offset",
+        "Bit masks depend on a power-of-two assumption"
+      ],
+      "narration": "For four-kibibyte pages, the offset ranges from zero through four thousand ninety-five. Twelve bits can represent exactly that many choices. In an unsigned integer model, address modulo four thousand ninety-six agrees with masking by hexadecimal FFF, and dividing agrees with shifting right twelve bits. These equivalences depend on the stated power-of-two page size. A generic arithmetic model with a positive size of ten would still support division and remainder, but the same mask would be wrong. In source maintenance, keep geometry in one named place and test both the final byte of a page and the first byte of the next page.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch23.json → SP23.010: 23.4 Page offset",
+      "question": {
+        "prompt": "What are the page number and offset of address 4096 with 4096-byte pages?",
+        "answer": "Page one and offset zero; this is the first byte of the next page."
+      }
+    },
+    {
+      "title": "Page size is a policy tradeoff, not a free upgrade",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "concept",
+      "keyPoints": [
+        "Larger pages cover more bytes per translation",
+        "Sparse use can waste backing storage",
+        "Runtime assumptions must match the platform"
+      ],
+      "narration": "A translation entry covers more bytes when the page size grows. That can reduce translation pressure for a large densely used region. But a larger page can also bring in or reserve storage that a sparse workload barely touches. Allocation, migration, and protection granularity change too. The chapter uses four-kibibyte pages for calculation, not as a universal constant for every machine and mapping. If a program needs the operating system’s actual page size, obtain it through the relevant platform interface. A classroom bit diagram is useful only when its page size and address width are written beside it.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch23.json → SP23.008: 23.3 Page size",
+      "question": {
+        "prompt": "Why might huge pages be a poor fit for many tiny sparsely touched regions?",
+        "answer": "Their larger allocation and mapping granularity can waste storage or complicate management despite increased translation coverage."
+      }
+    },
+    {
+      "title": "A missing mapping is a distinct result",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "concept",
+      "keyPoints": [
+        "Lookup may find no page entry",
+        "Do not treat frame zero as missing",
+        "An optional separates absence from a valid address"
+      ],
+      "narration": "Frame zero is a legitimate number in a simplified translation model. If zero is also used as a lookup-failed marker, a valid mapping can be mistaken for failure. The source lab uses optional to distinguish no translation from a translated numeric address. A caller tests presence before dereferencing the optional. This is ordinary model-level error reporting, not a simulated hardware fault handler. A real operating system may recover a legitimate absent mapping through demand paging or reject an invalid request. The translation helper intentionally does less: it returns no value when its table cannot supply a safe result.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch23.json → SP23.016: Worked example — A checked translation model",
+      "question": {
+        "prompt": "Why is returning numeric zero for every failed lookup ambiguous?",
+        "answer": "Zero may also be a valid translated address; absence needs a separate representation."
+      }
+    },
+    {
+      "title": "Check multiplication before constructing an address",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "concept",
+      "keyPoints": [
+        "Frame × size + offset must fit the result type",
+        "Use maximum minus offset before division",
+        "Type correctness does not prove arithmetic range"
+      ],
+      "narration": "An unsigned type has a largest representable value. Multiplying an arbitrary frame number by page size can wrap, producing a small number that looks like a valid address. The lab checks whether frame exceeds maximum minus offset, divided by page size, before performing the multiplication. Its page size is nonzero and the offset is bounded, so the guard itself is meaningful. This is a proof obligation in the integer model, not a claim that arbitrary frame numbers are legal hardware mappings. A compiler can accept overflowing unsigned arithmetic because wraparound is defined; tests still need to reject a wrapped result when it violates the translation contract.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch23.json → SYS23.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why is detecting overflow after multiplying too late for this helper’s contract?",
+        "answer": "The wrapped intermediate has already lost the intended mathematical value; check the permitted range before forming it."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "A multi-page request needs a range contract",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate length and starting offset",
+        "Check every page involved",
+        "Keep page and object bounds separate"
+      ],
+      "narration": "Consider copying twelve bytes beginning four bytes before a page boundary. The first four bytes use one translation; the remaining eight use another. A successful first-byte check proves neither that the second page exists nor that the whole destination object has enough space. A robust range operation checks its length arithmetic, object bounds, and relevant mapping permissions at the correct layer. In normal application code, prefer established buffer APIs and lengths rather than inventing a userspace page-permission check as a substitute for object safety. Our tiny span trace is useful because it makes the otherwise hidden boundary crossing explicit.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch23.json → SP23.022: Guided lab and review",
+      "question": {
+        "prompt": "What fact is missing when only the starting address of a twelve-byte copy is validated?",
+        "answer": "The validity and permissions of all later bytes, including any second page, and the destination object’s full bounds."
+      }
+    },
+    {
+      "title": "Translate the assumption before translating the number",
+      "eyebrow": "SYSTEMS / CHAPTER 23",
+      "kind": "concept",
+      "keyPoints": [
+        "Write address width and page size first",
+        "Identify mapped versus unmapped pages",
+        "Verify endpoint and overflow cases"
+      ],
+      "narration": "A good solution to a paging question starts with its assumptions. State the page size, address width, mapping table, and permitted operations. Then divide the virtual address into page and offset, locate the frame, and combine the frame base with the unchanged offset only after checking range. This sequence explains why a number is meaningful, not just how to calculate it. Extend the source lab with the last byte of a mapped page, the first byte of an unmapped page, and a frame too large to multiply safely. Those tests protect the representation boundary when table data or integer widths change later.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch23.json → SP23.024: Chapter Synthesis",
+      "question": {
+        "prompt": "Which paired tests best expose an off-by-one page split?",
+        "answer": "Translate page_size minus one and page_size, verifying the last offset in one page and offset zero in the next."
+      }
+    }
+  ]
+}

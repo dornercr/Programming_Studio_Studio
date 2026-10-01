@@ -1,0 +1,258 @@
+{
+  "chapter": 18,
+  "title": "Observer — registration, lifetime, and delivery contracts",
+  "opening": [
+    {
+      "title": "The audience changes while the producer stays useful",
+      "eyebrow": "OBSERVER / THE PROBLEM",
+      "kind": "concept",
+      "keyPoints": [
+        "A feed receives readings from 0 through 100",
+        "Independent views ask to receive events",
+        "Closed views must not leave callable dead objects"
+      ],
+      "narration": "A feed receives a reading of four. A total display needs it now, and a log or alert view may need the next reading too. Those views can open and close independently. Hard-coding every view into the feed makes the producer change whenever its audience changes. Polling can also be a poor fit when every event matters. Observer gives interested objects a way to register for updates through a shared contract. That solves the connection problem, but it does not choose ownership, duplicate handling, or failure behavior for us. In this lecture we will treat those delivery rules as part of the design, not as details hidden behind a notify method.",
+      "actions": [
+        "Name an audience that changes independently of a reading producer."
+      ],
+      "sourceRef": "manuscript/ch18.json → The problem: several views need the same new reading",
+      "question": {
+        "prompt": "What should adding a new listener type avoid changing?",
+        "answer": "The producer’s knowledge of concrete listener classes. A new type should receive events through the existing update contract."
+      }
+    },
+    {
+      "title": "Direct updates work for a fixed audience",
+      "eyebrow": "FIRST RUNNABLE DESIGN",
+      "kind": "code",
+      "keyPoints": [
+        "Two known views can be ordinary local variables",
+        "Validate the input before either update",
+        "No registration machinery is needed for a fixed lifetime"
+      ],
+      "narration": "Our baseline has one total and one latest-reading display represented by integers. The publish function checks the input range, then updates both by reference. This is a reasonable implementation when the audience is fixed and both values remain alive during every call. After readings four and three, the total is seven and the latest value is three. The code contains no subscription list because its requirement does not need one. The limitation appears when views become independent objects with separate lifetimes and different update behavior. At that point the feed should talk through a shared interface rather than acquire another named argument for every new screen component.",
+      "actions": [
+        "Predict both lines and Run."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch18.json → The problem: several views need the same new reading",
+      "question": {
+        "prompt": "What output distinguishes an accumulating view from a latest-value view?",
+        "answer": "The total prints seven after four and three; the latest-value view prints only three."
+      },
+      "code": {
+        "filename": "dp_ch18_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\nvoid publish(int reading, int& total, int& latest) {\n    if (reading < 0 || reading > 100) {\n        throw std::out_of_range(\"reading range\");\n    }\n    total += reading;\n    latest = reading;\n}\nint main() {\n    int total = 0;\n    int latest = 0;\n    publish(4, total, latest);\n    publish(3, total, latest);\n    std::cout << \"total: \" << total << '\\n';\n    std::cout << \"latest: \" << latest << '\\n';\n}\n",
+        "expectedStdout": "total: 7\nlatest: 3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Sending events is a contract, not just a loop",
+      "eyebrow": "REQUIREMENTS BEFORE POINTERS",
+      "kind": "concept",
+      "keyPoints": [
+        "Decide duplicate registration behavior",
+        "Decide mutation and nested-delivery rules",
+        "Decide what callback failure leaves behind"
+      ],
+      "narration": "Before selecting a smart pointer, write three event stories. The same view registers twice: does it receive one event or two? A callback opens another view: can the registration list change during traversal? A callback throws after changing its own state: do later listeners still run? The chapter answers one, no, and no. It suppresses duplicate live identities, rejects subscription mutation during publish, and stops on the first callback exception. These are deliberate choices, not rules imposed by the Observer name. Writing them first gives tests meaningful targets. A different event library may make different choices and still implement Observer correctly, provided its observable contract is clear.",
+      "actions": [
+        "Collect predictions for the three event stories, then state the chapter policy."
+      ],
+      "sourceRef": "manuscript/ch18.json → Registration rules prevent surprises",
+      "question": {
+        "prompt": "Does the pattern name decide whether a throwing listener prevents later updates?",
+        "answer": "No. Fail-fast or continue-and-collect are separate delivery policies that must be documented and tested."
+      }
+    },
+    {
+      "title": "An exception does not undo earlier listener work",
+      "eyebrow": "SAFE FAILURE DEMONSTRATION",
+      "kind": "code",
+      "keyPoints": [
+        "The first listener changes its state, then throws",
+        "Delivery stops before the second listener",
+        "Catching the error does not reverse the first addition"
+      ],
+      "narration": "This short program models two registered actions using callable objects so we can focus on delivery order before lifetime machinery. The first action adds five to first and throws. The loop exits through the catch, so the second action never receives the event. The outputs are therefore first five and second zero. Both facts matter: the failing listener was not unchanged, and the later listener was not called. This is fail-fast delivery with partial effects. A catch block is not a rollback operation. The chapter's Total behaves similarly when its optional after hook throws, and Feed promises only to reset its temporary busy flag so another publication can begin later.",
+      "actions": [
+        "Predict which callback runs and which state changes survive before Run."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch18.json → Failure during delivery is not an all-or-nothing update",
+      "question": {
+        "prompt": "After catching the callback error, should first be zero because publish failed?",
+        "answer": "No. The addition already happened. This delivery policy does not roll back listener state."
+      },
+      "code": {
+        "filename": "dp_ch18_partial_delivery.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <stdexcept>\n#include <vector>\nint main() {\n    int first = 0;\n    int second = 0;\n    std::vector<std::function<void(int)>> listeners;\n    listeners.push_back([&](int value) {\n        first += value;\n        throw std::runtime_error(\"view failed\");\n    });\n    listeners.push_back([&](int value) { second += value; });\n    try {\n        for (const auto& update : listeners) { update(5); }\n    } catch (const std::runtime_error&) {\n        std::cout << \"delivery stopped\\n\";\n    }\n    std::cout << \"first: \" << first << '\\n';\n    std::cout << \"second: \" << second << '\\n';\n}\n",
+        "expectedStdout": "delivery stopped\nfirst: 5\nsecond: 0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Registration observes; a temporary owner protects the call",
+      "eyebrow": "OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Feed stores weak_ptr registrations",
+        "The client retains shared_ptr ownership",
+        "lock obtains a temporary owner only if the listener lives"
+      ],
+      "narration": "A weak pointer records a relationship to an object managed by shared ownership without keeping that object alive. Feed therefore does not force a closed view to survive merely because it once subscribed. Before calling update, publish invokes lock on the weak registration. If an owner still exists, lock returns a shared pointer that keeps the listener alive through this callback. If the object has expired, it returns an empty pointer and the feed skips the entry. The if statement both creates live and tests it; live remains in scope inside the branch. This protects the listener during its call. It does not keep Feed itself alive or make arbitrary captured references safe.",
+      "actions": [
+        "Trace the strong owner in main, the weak registration, and the temporary live owner."
+      ],
+      "sourceRef": "manuscript/ch18.json → Separate registration from ownership",
+      "question": {
+        "prompt": "Why is checking expiration and then calling a separate raw pointer weaker than using the shared pointer returned by lock?",
+        "answer": "The temporary shared pointer provides ownership through the call. A separate raw pointer does not itself establish that lifetime guarantee."
+      }
+    },
+    {
+      "title": "Compile the interface; select the listener at runtime",
+      "eyebrow": "DISPATCH AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "Listener declares virtual update(int)",
+        "Total supplies update with override",
+        "Duplicate suppression compares live object identity"
+      ],
+      "narration": "Listener defines the one operation Feed needs. virtual allows update to select the concrete implementation during execution, even though Feed holds a pointer through the Listener interface. Total uses override so the compiler checks the signature matches the intended base operation. Those build-time checks do not prove that each listener receives exactly one update. That guarantee also needs registration logic: subscribe rejects an empty pointer and returns when the same live object is already registered. Two distinct Total objects are two listeners even if their sums happen to match. Identity means which object it is, not whether its current fields contain equal values.",
+      "actions": [
+        "Distinguish identity equality from equal display state."
+      ],
+      "sourceRef": "manuscript/ch18.json → Separate registration from ownership",
+      "question": {
+        "prompt": "Are two separate Total objects with sum zero duplicate listeners?",
+        "answer": "No. They are distinct object identities and should each receive an event if both are registered and alive."
+      }
+    },
+    {
+      "title": "Reject list mutation before touching the list",
+      "eyebrow": "ITERATION CONTRACT",
+      "kind": "concept",
+      "keyPoints": [
+        "No subscribe or unsubscribe during publish",
+        "The guard runs even for a would-be duplicate",
+        "Expired entries are skipped and may be cleaned later"
+      ],
+      "narration": "The callback is arbitrary user code, so it might try to change subscriptions. The chapter chooses a simple rule: reject that operation while publishing. subscribe checks notifying_ before duplicate detection, which means subscribing the current listener again is still rejected during its callback. The extension gives unsubscribe the same rule. This keeps vector traversal stable and avoids a question about whether a newly added listener receives the current event. A snapshot-based dispatcher can allow other policies, but it has different lifetime and event-membership costs. Expired entries in the primary program are simply skipped. A long-running feed needs a cleanup plan so dead registrations do not accumulate forever.",
+      "actions": [
+        "Contrast the chapter Feed policy with a clearly labeled snapshot-delivery alternative."
+      ],
+      "sourceRef": "manuscript/ch18.json → Registration rules prevent surprises",
+      "question": {
+        "prompt": "Why is subscribe(existing_listener) rejected inside a callback even though it might not add anything?",
+        "answer": "The contract rejects subscription operations during notification before duplicate detection. It keeps callback mutation behavior uniform and explicit."
+      }
+    },
+    {
+      "title": "A destructor can own the duty to clear a flag",
+      "eyebrow": "REENTRANCY AND CLEANUP",
+      "kind": "concept",
+      "keyPoints": [
+        "A nested publish enters before the first returns",
+        "Feed rejects nested publication",
+        "Reset clears notifying_ on normal and exceptional exits"
+      ],
+      "narration": "Reentrancy means entering publish again while an earlier publish is still active. A callback can do that on the same thread; no second thread is needed. The chapter rejects the nested call to keep event order simple. Once valid publication starts, a local Reset object borrows the busy flag. Its destructor clears that flag when the scope exits, including while an exception unwinds the call stack. This is resource acquisition is initialization used for a cleanup duty rather than heap memory. Clearing the flag only at the last line would fail if a callback threw before reaching it. The guard restores the ability to publish later; it does not roll back listeners' earlier effects.",
+      "actions": [
+        "Trace a callback exception through the Reset destructor to the caller."
+      ],
+      "sourceRef": "manuscript/ch18.json → Reentrancy is a second call before the first has finished",
+      "question": {
+        "prompt": "Does resetting notifying_ undo the addition made by a throwing Total?",
+        "answer": "No. It restores the feed’s temporary execution state, not the subscriber’s data."
+      }
+    },
+    {
+      "title": "Callback captures carry lifetime promises too",
+      "eyebrow": "BORROWED STATE",
+      "kind": "concept",
+      "keyPoints": [
+        "[&] captures needed local state by reference",
+        "Stored callbacks must not outlive what they borrow",
+        "weak_ptr does not synchronize sums or subscription storage"
+      ],
+      "narration": "The test hook after is a stored callable. Its lambda capture written with an ampersand borrows the local objects used inside the body. That is safe in the chapter because those objects remain alive whenever the hook is called. Retaining the same hook after a borrowed local died would break a different lifetime rule than the listener registration rule. Capturing a shared pointer can keep an object alive, but storing that callback inside the same owned object can create a cycle. Also separate lifetime from concurrency: a successful weak lock does not lock Total::sum, the vector, or the busy flag. The sample is single-threaded and has no promise of concurrent delivery safety.",
+      "actions": [
+        "Ask learners to list every object borrowed by the chapter’s test callback."
+      ],
+      "sourceRef": "manuscript/ch18.json → Keep callback captures inside a known lifetime",
+      "question": {
+        "prompt": "What does a successful weak lock prove, and what does it not prove?",
+        "answer": "It keeps that managed listener alive while the returned shared pointer exists. It does not synchronize mutable state or validate unrelated callback captures."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose delivery policy for the application",
+      "eyebrow": "DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Fail-fast exposes the first error immediately",
+        "Continue-and-collect can keep independent views current",
+        "Atomic delivery needs more than Observer"
+      ],
+      "narration": "For dependent listeners, stopping after the first failure may be the clearest policy. For independent dashboard views, continuing and collecting errors may keep more of the screen current. Both require tests that include a throwing listener followed by a healthy listener, because normal-path totals cannot distinguish them. Atomic delivery is stronger: either every effect happens or none do. Arbitrary callbacks do not provide a shared rollback mechanism, so Observer alone cannot honestly make that promise. Likewise, weak registrations are one ownership choice, not the pattern's definition. Raw borrowed pointers can work with a strict external lifetime and removal protocol, while strong registrations intentionally retain their listeners.",
+      "actions": [
+        "Require a policy choice and reason before proposing changes to the loop."
+      ],
+      "sourceRef": "manuscript/ch18.json → Failure during delivery is not an all-or-nothing update",
+      "question": {
+        "prompt": "What single test distinguishes fail-fast from continue-and-collect delivery?",
+        "answer": "Register a throwing listener before a healthy one and publish once. The later listener is skipped by fail-fast and called by continue-and-collect."
+      }
+    },
+    {
+      "title": "Test the difficult exit, then the next entry",
+      "eyebrow": "DIAGNOSIS CHECK",
+      "kind": "concept",
+      "keyPoints": [
+        "Failure after a partial update must remain visible",
+        "The busy flag must clear after failure",
+        "The next ordinary publish must work"
+      ],
+      "narration": "A good regression test does not stop after confirming that a callback exception was caught. It clears the throwing hook and publishes again. In the chapter, the total becomes nine before the callback fails, then ten after a later reading of one. If the later call reports nested publish, cleanup was skipped and the busy flag stayed true. If the total returns to seven, someone added rollback behavior that the contract did not define. If a listener receives two updates after duplicate registration, inspect identity suppression. These checks make the event system's promises visible. They also separate delivery recovery from state recovery: the feed may resume even though a prior event reached only part of its audience.",
+      "actions": [
+        "Ask learners to predict nine and then ten, explaining each addition."
+      ],
+      "sourceRef": "manuscript/ch18.json → Failure during delivery is not an all-or-nothing update",
+      "question": {
+        "prompt": "Why test another publish after the throwing callback?",
+        "answer": "It proves the cleanup guard restored the feed’s temporary busy state; merely catching the original exception does not show that."
+      }
+    },
+    {
+      "title": "Remember Observer as a relationship plus a contract",
+      "eyebrow": "RECALL AND TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "A publisher serves a changing registered audience",
+        "A shared update operation hides concrete listener types",
+        "Lifetime, order, mutation, and failure rules complete the design"
+      ],
+      "narration": "Explain Observer in one small story: an object asks to hear events, the publisher remembers that interest, and future events call the listener through a shared update operation. Then add the chapter's exact contract. Live duplicates collapse to one registration, expired listeners are skipped, callbacks run in registration order, subscription changes and nested publish are rejected, and the first thrown error stops delivery without rollback. That second explanation is what lets someone maintain the implementation safely. In a real study application, progress widgets, counters, and alerts may all observe an event. Decide whether a missed update can be recovered from authoritative state or requires replay, because this example keeps no event history for subscribers.",
+      "actions": [
+        "Have learners teach the delivery contract without reading the code."
+      ],
+      "sourceRef": "manuscript/ch18.json → The problem: several views need the same new reading",
+      "question": {
+        "prompt": "How would you distinguish this Feed from a Mediator?",
+        "answer": "Feed distributes readings to registered listeners. A mediator decides a collaboration policy among components; a listener could use delivered events to perform that coordinating role."
+      }
+    }
+  ]
+}

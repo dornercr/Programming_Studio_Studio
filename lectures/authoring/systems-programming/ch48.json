@@ -1,0 +1,232 @@
+{
+  "chapter": 48,
+  "title": "Condition Variables: durable predicates and safe waiting",
+  "opening": [
+    {
+      "title": "Wait for a fact, not for a remembered notification",
+      "eyebrow": "WAIT FOR A FACT, NOT FOR A REMEMBERED NOTIFICATION",
+      "kind": "concept",
+      "keyPoints": [
+        "The predicate is durable state",
+        "The condition variable helps threads sleep",
+        "A wakeup only invites another check"
+      ],
+      "narration": "A consumer should wait because the queue is empty, not because it has not personally witnessed a notification. A predicate is a condition computed from shared state, such as queue contains an item or shutdown is requested. The condition variable helps a thread sleep until checking again may be useful. It is not the storage for that fact and does not preserve one future wakeup for every notify call. This distinction handles a producer that finishes before the consumer arrives: the item remains in the queue, so the later predicate check succeeds without needing another notification. Start every waiting design by writing that predicate in plain language.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch48.json \u2192 SP48.001",
+      "question": {
+        "prompt": "What should a consumer trust after waking: notification history or protected state?",
+        "answer": "Protected state. The consumer must check whether its actual predicate is true while holding the appropriate mutex."
+      }
+    },
+    {
+      "title": "The check and the decision to sleep must be coordinated",
+      "eyebrow": "THE CHECK AND THE DECISION TO SLEEP MUST BE COORDINATED",
+      "kind": "concept",
+      "keyPoints": [
+        "Hold the mutex while checking",
+        "wait releases and begins waiting together",
+        "Reacquire before examining shared state again"
+      ],
+      "narration": "If a thread checks empty, releases its mutex, and then separately decides to sleep, a producer may insert and notify in the gap. The consumer could then sleep after the only notification. The condition-variable wait operation coordinates releasing the lock and entering the waiting state. When it returns, it has reacquired the mutex before the caller continues. That mechanism works with the rule that all predicate updates use the same mutex. An atomic flag does not automatically repair a protocol that separates these steps incorrectly. The source of correctness is the combined state, mutex, and wait relationship, not merely the presence of a condition_variable object.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch48.json \u2192 SP48.008",
+      "question": {
+        "prompt": "Why must predicate updates use the same mutex discipline as the waiter?",
+        "answer": "The update and the waiter\u2019s check-to-sleep decision must be coordinated; otherwise a notification can fall into an unprotected gap."
+      }
+    },
+    {
+      "title": "A notification without a true predicate buys nothing",
+      "eyebrow": "A NOTIFICATION WITHOUT A TRUE PREDICATE BUYS NOTHING",
+      "kind": "code",
+      "keyPoints": [
+        "Use a zero-duration bounded check",
+        "notify_one does not set ready",
+        "A true predicate succeeds even without a new notification"
+      ],
+      "narration": "This demonstration uses wait_for with a zero duration so it cannot hang waiting for another event. First it calls notify_one while ready is still false. The predicate check returns false, printed as notification only=false. Then main sets ready true under the same lock and checks again. This time it prints state ready=true without a second notification. The program is intentionally single-threaded and illustrates condition-variable semantics, not scheduling or elapsed-time measurement. A zero-duration timeout does not prove a real workload should poll. In an actual worker, use an appropriate blocking wait and retain the same predicate discipline.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch48.json \u2192 SP48.018",
+      "question": {
+        "prompt": "Why does the second wait succeed without another notify call?",
+        "answer": "Its predicate is already true, so the predicate overload does not need to sleep for a future notification."
+      },
+      "code": {
+        "filename": "sys_ch48_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <chrono>\n#include <condition_variable>\n#include <iostream>\n#include <mutex>\nint main() {\n    std::mutex mutex;\n    std::condition_variable changed;\n    bool ready = false;\n    changed.notify_one(); // This does not set ready or store a wakeup token.\n    std::unique_lock lock(mutex);\n    const bool notification_only = changed.wait_for(\n        lock, std::chrono::milliseconds(0), [&] { return ready; });\n    ready = true;\n    const bool state_ready = changed.wait_for(\n        lock, std::chrono::milliseconds(0), [&] { return ready; });\n    std::cout << std::boolalpha << \"notification only=\" << notification_only << '\\n';\n    std::cout << \"state ready=\" << state_ready << '\\n';\n}\n",
+        "expectedStdout": "notification only=false\nstate ready=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Wake everyone whose shutdown predicate is satisfied",
+      "eyebrow": "WAKE EVERYONE WHOSE SHUTDOWN PREDICATE IS SATISFIED",
+      "kind": "code",
+      "keyPoints": [
+        "Two workers share the closure condition",
+        "close changes protected state once",
+        "notify_all lets existing waiters reconsider"
+      ],
+      "narration": "Both workers wait for closed to become true. Main sets that flag while holding the mutex, unlocks, and notifies all. Each worker then records completion in its own result slot, and main joins before adding the slots. The output finished=2 is fixed. We do not claim that both workers were already asleep: either may start late and see the durable true predicate immediately. That is precisely why the protocol is robust. Closure is a state change that concerns every worker, so notify_all is appropriate. Replacing it with one notification could leave another already-blocked worker asleep with no future event to wake it.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch48.json \u2192 SP48.012",
+      "question": {
+        "prompt": "Why must correctness hold even if a worker starts after notify_all?",
+        "answer": "Notifications are not retained, but the protected closed predicate remains true, so a late worker must proceed without sleeping."
+      },
+      "code": {
+        "filename": "sys_ch48_shutdown.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <condition_variable>\n#include <iostream>\n#include <mutex>\n#include <thread>\nint main() {\n    std::mutex mutex;\n    std::condition_variable changed;\n    bool closed = false;\n    std::array<int,2> finished{};\n    const auto wait_for_close = [&](int id) {\n        std::unique_lock lock(mutex);\n        changed.wait(lock, [&] { return closed; });\n        finished[id] = 1;\n    };\n    std::jthread a(wait_for_close,0), b(wait_for_close,1);\n    { std::lock_guard lock(mutex); closed = true; }\n    changed.notify_all();\n    a.join(); b.join();\n    std::cout << \"finished=\" << finished[0]+finished[1] << '\\n';\n}\n",
+        "expectedStdout": "finished=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Waking does not reserve the item",
+      "eyebrow": "WAKING DOES NOT RESERVE THE ITEM",
+      "kind": "concept",
+      "keyPoints": [
+        "Another consumer can acquire the lock first",
+        "Spurious wakeups also require rechecking",
+        "The predicate overload expresses the loop"
+      ],
+      "narration": "Suppose two consumers wait for one queued item. Both might be awakened, but only one can remove that item. When the other later acquires the mutex, the queue may be empty again. A wakeup did not reserve ownership of the item for that thread. Implement waiting as a loop that checks the predicate under the mutex; the predicate overload expresses that loop directly. It also handles spurious wakeups, which can occur without the expected state change. The guarantee after a successful predicate wait is that the condition is true while this caller holds the lock, so it can perform the protected removal before anyone else changes the state.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch48.json \u2192 SP48.014",
+      "question": {
+        "prompt": "Why is if(empty) wait(lock) weaker than the predicate loop?",
+        "answer": "The condition may still be false after waking because of a spurious wakeup or another consumer taking the item first."
+      }
+    },
+    {
+      "title": "Match notify_one to interchangeable consumers",
+      "eyebrow": "MATCH NOTIFY_ONE TO INTERCHANGEABLE CONSUMERS",
+      "kind": "concept",
+      "keyPoints": [
+        "One new item can serve one consumer",
+        "Different predicates can require different wake policies",
+        "Avoid waking only the wrong class of waiter"
+      ],
+      "narration": "notify_one is useful when one new unit of work can satisfy one of several equivalent consumers. It avoids waking everyone merely to make most return to sleep. But consider one waiter needing count greater than zero and another needing a special batch boundary. Waking an arbitrary waiter may not enable the participant that can actually progress. Separate condition variables for distinct waiter classes or a broader notification can make the policy correct. Choose the notification from the state transition and predicates, not from a blanket preference for fewer wakeups. Optimization comes after proving that every enabled operation has a way to proceed.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch48.json \u2192 SP48.010",
+      "question": {
+        "prompt": "When can notify_one fail to provide progress despite a useful state change?",
+        "answer": "When it may wake a waiter whose different predicate is still false while the waiter that could proceed remains asleep."
+      }
+    },
+    {
+      "title": "notify_all has a cost and a purpose",
+      "eyebrow": "NOTIFY_ALL HAS A COST AND A PURPOSE",
+      "kind": "concept",
+      "keyPoints": [
+        "Closure can enable many exits",
+        "Woken threads still compete for one mutex",
+        "Do not trade correctness for fewer wakeups"
+      ],
+      "narration": "When a shared closed flag becomes true, every waiting worker may need to stop. notify_all makes those waiters eligible to recheck. They still acquire the mutex one at a time, so waking many threads can create contention, sometimes called a thundering herd. That performance cost does not justify leaving required waiters blocked forever. First ensure the state machine has a complete termination path. Then measure whether finer waiter groups or a different queue design reduce unnecessary wakeups. In our shutdown demonstration, two workers are a tiny fixed set, and the simple broadcast clearly matches the meaning of closure.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch48.json \u2192 SP48.012",
+      "question": {
+        "prompt": "What does notify_all not grant to every worker at once?",
+        "answer": "It does not give simultaneous mutex ownership or guarantee a resource remains available; each worker must reacquire and check its predicate."
+      }
+    },
+    {
+      "title": "Keep the predicate\u2019s owners alive through every wait",
+      "eyebrow": "KEEP THE PREDICATE\u2019S OWNERS ALIVE THROUGH EVERY WAIT",
+      "kind": "concept",
+      "keyPoints": [
+        "The mutex and condition variable outlive workers",
+        "Shutdown is not the same operation as joining",
+        "Do not destroy storage while waiters still use it"
+      ],
+      "narration": "A waiting thread retains a relationship to the mutex, condition variable, and predicate storage. Destroying any of those objects before the worker finishes invalidates the protocol even if the shutdown flag has been set. In our example, all shared objects are declared before the thread owners and both threads are joined before main returns. More complex components should make this order explicit: publish closure, notify affected groups, wait for users to finish, then destroy the queue and its synchronization objects. A close method can request termination without guaranteeing that callers have stopped. Keeping those lifecycle events separate prevents a common use-after-destruction bug.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch48.json \u2192 SP48.008",
+      "question": {
+        "prompt": "Why is setting closed=true insufficient permission to destroy the condition variable immediately?",
+        "answer": "Workers may still be blocked in or returning from wait and using the mutex and predicate; they must finish before those objects are destroyed."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "A timeout answers a waiting question, not a state proof",
+      "eyebrow": "A TIMEOUT ANSWERS A WAITING QUESTION, NOT A STATE PROOF",
+      "kind": "concept",
+      "keyPoints": [
+        "Recheck the predicate after timeout behavior",
+        "Use a deadline for bounded multi-wait operations",
+        "Define what the caller owns on cancellation"
+      ],
+      "narration": "A timeout can let a caller stop waiting, but it does not prove that no producer will complete immediately afterward. The operation must define whether timed-out work is cancelled, still queued, or still owned by its original caller. Repeatedly waiting for the full relative duration after each wake can also extend a supposed overall timeout; a fixed deadline better represents one bounded operation. Our zero-duration demonstration deliberately avoids timing claims and only checks predicate semantics. In a real queue, combine timeouts with the same protected state machine used for ordinary success and closure, then test the boundary where completion and timeout compete.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch48.json \u2192 SP48.004",
+      "question": {
+        "prompt": "Does a timeout automatically cancel the producer\u2019s work?",
+        "answer": "No. Cancellation and ownership after timeout require an explicit protocol; the wait result alone only describes the waiting operation."
+      }
+    },
+    {
+      "title": "Retell the protocol without the word notification first",
+      "eyebrow": "RETELL THE PROTOCOL WITHOUT THE WORD NOTIFICATION FIRST",
+      "kind": "concept",
+      "keyPoints": [
+        "State the predicate and who changes it",
+        "Name the mutex and wait operation",
+        "Then choose who must be awakened"
+      ],
+      "narration": "To explain a condition-variable design, first state the fact being awaited. Then identify the data that represents that fact and the mutex used by every reader and writer. Explain how the waiter releases the mutex and sleeps as one coordinated operation, and why it loops after reacquiring. Only then discuss notify_one or notify_all. This order keeps the durable state at the center of the design. Test publication before waiting, waiting before publication, competing consumers, closure, and object destruction after joins. If the explanation begins and ends with a notify call, it probably omits the rule that actually makes the program correct.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch48.json \u2192 SP48.026",
+      "question": {
+        "prompt": "What is the minimum useful explanation of a wait protocol?",
+        "answer": "A protected predicate, its update rule, a coordinated release-and-wait loop, an appropriate wake policy, and a lifetime/termination plan."
+      }
+    }
+  ]
+}

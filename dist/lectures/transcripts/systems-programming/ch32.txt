@@ -1,0 +1,706 @@
+Systems Programming and Machine Organization
+Chapter 32: Cache Performance — from access costs to measured work
+Dr. Charles Dorner
+
+1. A fast hit can hide an expensive average
+Problem and first experiment
+
+SAY
+Suppose most accesses finish quickly but one in ten follows a much slower path. Reporting only the hit time hides the work that slow path creates. Average memory-access time, often shortened to AMAT, weights each extra cost by how often it occurs. This is accounting under assumptions, not a full CPU simulator. If the miss penalty already includes the initial lookup, adding that lookup again counts it twice. Before using any equation, draw which operations every access pays and which operations only a miss pays. That simple branch picture prevents more mistakes than memorizing symbols without their meaning.
+
+DO
+Sketch the hit path and miss path with costs beside each.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.004 · 32.1 Average memory-access time
+
+------------------------------------------------------------
+
+2. Read a two-level formula as conditional work
+Problem and first experiment
+
+SAY
+The demo uses a one-nanosecond L1 lookup, a ten-percent L1 miss rate, a six-nanosecond L2 access, a twenty-five-percent local L2 miss rate, and an eighty-nanosecond additional memory penalty. One L1 miss costs six plus one quarter of eighty, or twenty-six nanoseconds on average. Only one tenth of requests pays that extra cost, so the total is one plus two point six, giving three point six. The program prints 3.60 using fixed formatting. These numbers are invented model inputs. They do not come from timing this program, and its arithmetic does not include overlapping requests or bandwidth limits.
+
+DO
+Predict the intermediate twenty-six before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch32.json → SP32.004 · 32.1 Average memory-access time
+
+------------------------------------------------------------
+
+3. An access improvement is not the same program speedup
+Problem and first experiment
+
+SAY
+Imagine a program spending half its time in an affected memory phase and half elsewhere. Even halving that phase leaves one quarter plus one half of the original total, or three quarters. The whole program becomes four thirds as fast, not twice as fast. The source's AMAT comparison makes the same distinction with its own values. Also remember that a weighted access cost is not automatically the exposed stall time of an out-of-order processor. Independent misses may overlap, while a chain of dependent loads cannot all begin early. Use the model to form a hypothesis and then measure the relevant phase and complete application separately.
+
+DO
+Ask learners to draw two equal runtime regions before changing one.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.018 · Worked example — A two-level AMAT calculation
+
+------------------------------------------------------------
+
+4. Batching saves setup but can add waiting
+Problem and first experiment
+
+SAY
+The second model charges five units to start a batch and two units per record. Ten one-record batches therefore cost fifty plus twenty, or seventy units. With a maximum batch size of four, the batch sizes are four, four, and two. Three setup charges plus the same twenty units of record work give thirty-five units. The final short batch matters; integer division alone would incorrectly count only two batches. This model deliberately measures no clock. It isolates why shared setup can help. A real service must also account for records waiting for a batch, cancellation, memory use, and a batch becoming too large for cache.
+
+DO
+Predict both totals and identify the unchanged useful work.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch32.json → SP32.008 · 32.3 Batching
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A model cache takes 1 ns for the hit lookup. Five percent of accesses incur an additional 40 ns miss penalty.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Compute h1 + m1×(h2 + m2×memory). Miss rates must lie in [0,1]; times must be nonnegative. Assume serial costs and incremental penalties.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Using 1 + 5 * 40 treats five percent as five. Counting the hit time inside the penalty and again outside also double-counts it.
+
+A related failure in the generalized operation is concrete: Use h1+m1*h2+m2*memory. It treats the L2 local miss rate as a fraction of all original accesses.
+
+The repair changes the operation at the point where the rule can be enforced: Nest the L2 cost inside the L1 miss probability. Write the denominator of every rate before substituting numbers.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Only L1 misses reach L2, and only the fraction m2 of those pay the memory penalty. Multiplying the rates preserves their denominators. The h1 and h2 terms are incremental lookup costs in this model; adding a miss penalty that already contains them would count time twice. Real overlapping accesses require a different performance interpretation.
+
+A plausible alternative: Use this model to reason about tradeoffs, then measure end-to-end effects rather than assuming every saved miss has the same impact.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.03
+
+------------------------------------------------------------
+
+8. Chapter 32 — Cache Performance
+Systems mechanisms and source lecture
+
+SAY
+Cache-aware optimization begins with a cost model and ends with measurement. A model exposes which events matter; measurement determines whether those events dominate on the target machine. A change that reduces misses can still lose overall if it adds excessive computation, synchronization, or data movement elsewhere.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.001, SP32.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+32.1 Average memory-access time 32.2 Prefetching 32.3 Batching 32.4 Write coalescing ...plus 7 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.003
+
+------------------------------------------------------------
+
+10. Average memory-access time
+Systems mechanisms and source lecture
+
+SAY
+A simple one-level model is: The word additional is important. If the penalty already includes the hit lookup, adding hit time again double-counts it. For two levels, a common serial model is L1 hit time + L1 miss rate * (L2 access time + L2 local miss rate * memory penalty) . This model excludes overlap, out-of-order execution, bandwidth saturation, prefetching, and dependencies among requests. It is useful for accounting and comparisons, not a complete predictor of whole-program runtime.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.004, SP32.005
+
+------------------------------------------------------------
+
+11. Prefetching
+Systems mechanisms and source lecture
+
+SAY
+Prefetching requests data before demand needs it. Hardware may recognize access patterns; software can sometimes provide explicit hints. Effective prefetching hides latency when requests arrive early enough and the data remains useful until consumption. Prefetching too early can evict useful data. Prefetching too much wastes bandwidth and cache capacity. It also cannot remove a true dependency that prevents the future address from being known. Start with an access pattern that naturally exposes locality before adding architecture-specific hints.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.006, SP32.007
+
+------------------------------------------------------------
+
+12. Batching
+Systems mechanisms and source lecture
+
+SAY
+Batching groups work so that setup and transfer costs are shared. Processing several records together can reuse metadata, amortize system calls, and expose independent memory operations. It can also increase latency for an individual record waiting for the batch to fill. Bound batch size by both resource capacity and service requirements. An unbounded batch can grow the working set beyond cache, delay cancellation, and exhaust memory. A useful batch is large enough to amortize overhead but small enough to preserve locality and responsiveness.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.008, SP32.009
+
+------------------------------------------------------------
+
+13. Write coalescing
+Systems mechanisms and source lecture
+
+SAY
+Write coalescing combines nearby or repeated updates into fewer larger transfers. Updating several fields while a line is already present can avoid repeatedly acquiring and evicting it. Buffered file output similarly groups small writes before crossing the kernel boundary. Coalescing changes visibility and durability timing when buffering is involved. A program must still honor synchronization and persistence requirements. Do not delay a required publication or commit merely because a larger batch would be faster.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.010, SP32.011
+
+------------------------------------------------------------
+
+14. Cache-friendly data structures
+Systems mechanisms and source lecture
+
+SAY
+A cache-friendly structure places information used together close together and avoids loading large amounts of irrelevant state. Arrays often provide compact traversal. Pointer-rich structures provide flexible updates but can add indirection, allocation overhead, and unpredictable access. An array of structures is convenient when most fields of each record are used together. A structure of arrays can be better when a loop uses only one field across many records. Neither layout is universally superior. Let the hot operations determine which bytes should travel together.
+
+In plain English: A cache is like keeping the things you use most often on your desk instead of walking to a storage room every time.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.012, SP32.013
+
+------------------------------------------------------------
+
+15. Cache-friendly loops
+Systems mechanisms and source lecture
+
+SAY
+Cache-friendly loops traverse data in an order that preserves spatial and temporal reuse. Loop interchange can align traversal with physical layout. Blocking limits the active region. Hoisting invariant work reduces repeated computation and sometimes repeated loads. Transformations must preserve dependencies and language semantics. Reordering floating-point reductions can change results; reordering updates can break an algorithm with cross-iteration dependencies. Establish correctness constraints before treating the iteration space as freely rearrangeable.
+
+In plain English: A cache is like keeping the things you use most often on your desk instead of walking to a storage room every time.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.014, SP32.015
+
+------------------------------------------------------------
+
+16. Locality optimization
+Systems mechanisms and source lecture
+
+SAY
+Locality optimization is a sequence: identify the hot phase, estimate its active data, inspect access order, propose a change, verify results, and measure under controlled conditions. Keep a baseline so that an appealing theory can be rejected when the data does not support it. Avoid changing several unrelated factors at once. Replacing a linked structure, changing allocation strategy, and altering the algorithm simultaneously makes it difficult to determine which change helped. A sequence of tested transformations produces more reliable conclusions and easier rollback.
+
+In plain English: First make the program correct, then measure where time is really being spent before trying to make it faster.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.016, SP32.017
+
+------------------------------------------------------------
+
+17. A two-level AMAT calculation
+Systems mechanisms and source lecture
+
+SAY
+Assume an L1 hit time of 1 ns, an L1 miss rate of 5%, an L2 access time of 8 ns on L1 misses, an L2 local miss rate of 20%, and an additional memory penalty of 80 ns after an L2 miss. These are illustrative values , not measurements of a named processor. Now suppose a layout change reduces the L1 miss rate to 3% without changing other parameters. The modeled AMAT becomes 1 + 0.03 × 24 = 1.72 ns , a reduction of about 21.8% in this modeled access cost. It would be incorrect to promise a 21.8% whole-program speedup. If these accesses account for only half the original execution time and all other time remains unchanged, the new normalized time is 0.5 + 0.5*(1.72/2.2) , approximately 0.891. The implied speedup is about 1.122, or 12.2%, under those additional assumptions. Chapter 56 generalizes this reasoning with Amdahl’s law.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.018, SP32.019
+
+------------------------------------------------------------
+
+18. Average memory-access time
+Systems mechanisms and source lecture
+
+SAY
+If L1 hit time is 1 ns, miss rate is 5%, and miss penalty is 40 ns, a simple AMAT model is 1 + 0.05 × 40 = 3 ns . Reducing miss rate to 2% yields 1 + 0.02 × 40 = 1.8 ns . A small miss-rate change matters because the penalty is large relative to hit time.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.020, SP32.021
+
+------------------------------------------------------------
+
+19. Loop interchange for locality
+Systems mechanisms and source lecture
+
+SAY
+For a row-major 2D array, iterating columns inside rows accesses adjacent elements; iterating rows inside columns jumps by an entire row between accesses. Exchanging the loops can turn strided access into sequential access while preserving the mathematical operation when dependencies allow it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.022, SP32.023
+
+------------------------------------------------------------
+
+20. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 32. Keep the original 5% L1 miss rate but reduce the L2 local miss rate to 10%. Calculate the new AMAT. Compare it with the layout-change scenario and explain why implementation cost still matters. Review 1. Why can a larger batch make latency worse? Review 2. Why is a miss-rate reduction not automatically the same percentage reduction in runtime?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.024, SP32.025
+
+------------------------------------------------------------
+
+21. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is cache performance. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.026
+
+------------------------------------------------------------
+
+22. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Files.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.027
+
+------------------------------------------------------------
+
+23. Let the hot operation choose which bytes travel together
+Reason about the implementation
+
+SAY
+Suppose a loop reads only the temperature from every record, while each record also stores a large text label. Keeping temperatures together can let the loop fetch more useful temperatures per cache line. That is the idea behind a structure of arrays. If another hot operation needs temperature, identifier, and status together for one record, an array of structures may be more natural. Neither layout wins independently of the work. Changing layout also changes indexing and ownership relationships, so preserve the association between fields. Measure the actual hot loop with realistic records rather than deciding from a diagram that every separated array is automatically faster.
+
+DO
+Name the fields actually read by one chosen loop.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.012 · 32.5 Cache-friendly data structures
+
+------------------------------------------------------------
+
+24. Loop order is constrained by meaning
+Reason about the implementation
+
+SAY
+A row-major array stores consecutive columns of a row beside one another. Visiting those columns before moving to the next row usually exposes spatial locality. But loop interchange is a semantic change unless the operations are independent enough to reorder. A calculation that uses a value written in the previous iteration can break when traversal reverses. Floating-point addition also rounds, so changing reduction order can change the result even if algebra says the terms are equivalent. First establish which dependencies and numerical tolerances the program permits. Then choose a traversal or tile size, compare results, and measure the new access pattern under controlled conditions.
+
+DO
+Contrast an independent element transform with a running-prefix calculation.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.014 · 32.6 Cache-friendly loops
+
+------------------------------------------------------------
+
+25. Prefetch requests can compete with useful work
+Reason about the implementation
+
+SAY
+Prefetching tries to bring data closer before the program needs it. For a predictable forward scan, future addresses may be known early enough to help. For a linked chain, the next address may depend on the current load, limiting how far ahead the program can look. Requesting data too early can let other activity evict it before use. Requesting too much can displace useful data and consume transfer capacity. That is why a clear sequential access pattern is often a better first change than adding platform-specific hints. When evaluating a prefetch change, check both missed demand accesses and the extra traffic created by guesses that were never used.
+
+DO
+Ask what information is needed to name the next future address.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.006 · 32.2 Prefetching
+
+------------------------------------------------------------
+
+26. Coalescing changes when effects become visible
+Reason about the implementation
+
+SAY
+If several nearby fields will be updated, doing them while the relevant line is resident may avoid repeatedly fetching and evicting it. Buffered output applies a related idea by grouping small writes. But combining work changes timing: data retained in a buffer has not necessarily reached another reader or durable storage. A program that must publish a completed record cannot postpone the required synchronization indefinitely to build a larger batch. State which boundary matters: another thread seeing data, the kernel receiving bytes, or a recovery protocol preserving an update. Performance techniques are useful only while those externally visible promises remain true.
+
+DO
+Identify one boundary in the application that may not be delayed.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.010 · 32.4 Write coalescing
+
+------------------------------------------------------------
+
+27. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A model cache takes 1 ns for the hit lookup. Five percent of accesses incur an additional 40 ns miss penalty.
+
+Pay the lookup. 1 ns for each access in this model. The base lookup cost is counted once.
+
+Weight extra work. 0.05 * 40 = 2 ns on average. Only misses pay the additional penalty.
+
+Add the components. AMAT = 3 ns. AMAT means average memory-access time under the stated serial cost model.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch32/main.cpp
+
+------------------------------------------------------------
+
+28. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Pay the lookup. 1 ns for each access in this model. The base lookup cost is counted once.
+
+Weight extra work. 0.05 * 40 = 2 ns on average. Only misses pay the additional penalty.
+
+Add the components. AMAT = 3 ns. AMAT means average memory-access time under the stated serial cost model.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch32/main.cpp
+
+------------------------------------------------------------
+
+29. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Only L1 misses reach L2, and only the fraction m2 of those pay the memory penalty. Multiplying the rates preserves their denominators. The h1 and h2 terms are incremental lookup costs in this model; adding a miss penalty that already contains them would count time twice. Real overlapping accesses require a different performance interpretation.
+
+Nest the L2 cost inside the L1 miss probability. Write the denominator of every rate before substituting numbers.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch32/main.cpp:1-11
+
+------------------------------------------------------------
+
+30. Weight the miss penalty by how often it occurs
+Code, diagrams, and debugging
+
+SAY
+Weight the miss penalty by how often it occurs. Average memory access time pays hit_time on every access and the additional miss penalty only on the miss fraction. Here 1 + 0.05×40 gives 3 nanoseconds.
+
+A model cache takes 1 ns for the hit lookup. Five percent of accesses incur an additional 40 ns miss penalty.
+
+The base lookup cost is counted once. Only misses pay the additional penalty. AMAT means average memory-access time under the stated serial cost model.
+
+Average memory access time pays hit_time on every access and the additional miss penalty only on the miss fraction. Here 1 + 0.05×40 gives 3 nanoseconds.
+
+The output includes units. This is an average-cost model; it is not a measured latency distribution or a guarantee for any one access.
+
+The miss rate uses all modeled accesses as its denominator. The penalty is additional to the already-counted hit cost, with all time units matching.
+
+Using 1 + 5 * 40 treats five percent as five. Counting the hit time inside the penalty and again outside also double-counts it. In the extended lab: Use h1+m1*h2+m2*memory. It treats the L2 local miss rate as a fraction of all original accesses.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch32/main.cpp:8-9
+
+------------------------------------------------------------
+
+31. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Use h1+m1*h2+m2*memory. It treats the L2 local miss rate as a fraction of all original accesses.
+
+Nest the L2 cost inside the L1 miss probability. Write the denominator of every rate before substituting numbers.
+
+The reference solution makes the contract executable with assertions. Only L1 misses reach L2, and only the fraction m2 of those pay the memory penalty. Multiplying the rates preserves their denominators. The h1 and h2 terms are incremental lookup costs in this model; adding a miss penalty that already contains them would count time twice. Real overlapping accesses require a different performance interpretation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.06
+
+------------------------------------------------------------
+
+32. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch32/starter.cpp. Implement the first acceptance case for use local miss rates in a two-level cost model. State the function inputs and result before adding code. First case: h1=1,m1=.1,h2=5,m2=.2,memory=50 gives 2.5.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.07
+
+------------------------------------------------------------
+
+33. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch32/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.08
+
+------------------------------------------------------------
+
+34. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Use h1+m1*h2+m2*memory. It treats the L2 local miss rate as a fraction of all original accesses. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.09
+
+------------------------------------------------------------
+
+35. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+If miss rate falls to 2.5%, does the average time halve? Compare the selected design with this plausible alternative: Use this model to reason about tradeoffs, then measure end-to-end effects rather than assuming every saved miss has the same impact.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.10
+
+------------------------------------------------------------
+
+36. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch32/starter.cpp. Compute h1 + m1×(h2 + m2×memory). Miss rates must lie in [0,1]; times must be nonnegative. Assume serial costs and incremental penalties. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch32/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.11
+
+------------------------------------------------------------
+
+37. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Use local miss rates in a two-level cost model belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.12
+
+------------------------------------------------------------
+
+38. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Compute h1 + m1×(h2 + m2×memory). Miss rates must lie in [0,1]; times must be nonnegative. Assume serial costs and incremental penalties.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch32/starter.cpp
+
+------------------------------------------------------------
+
+39. Review the extension solution
+Practice and extension
+
+SAY
+Only L1 misses reach L2, and only the fraction m2 of those pay the memory penalty. Multiplying the rates preserves their denominators. The h1 and h2 terms are incremental lookup costs in this model; adding a miss penalty that already contains them would count time twice. Real overlapping accesses require a different performance interpretation. Repair principle: Nest the L2 cost inside the L1 miss probability. Write the denominator of every rate before substituting numbers.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Nest the L2 cost inside the L1 miss probability. Write the denominator of every rate before substituting numbers.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch32/solution.cpp
+
+------------------------------------------------------------
+
+40. Application case: Cache Performance
+Practice and extension
+
+SAY
+Hit time is 2 ns, miss rate 5%, and additional miss penalty 40 ns.
+
+What is simple AMAT?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.CASE
+
+------------------------------------------------------------
+
+41. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Only L1 misses reach L2, and only the fraction m2 of those pay the memory penalty. Multiplying the rates preserves their denominators. The h1 and h2 terms are incremental lookup costs in this model; adding a miss penalty that already contains them would count time twice. Real overlapping accesses require a different performance interpretation.
+
+Choose a simpler approach when its narrower contract is enough. Use this model to reason about tradeoffs, then measure end-to-end effects rather than assuming every saved miss has the same impact.
+
+When this system changes, retain a check that exposes the known failure: Use h1+m1*h2+m2*memory. It treats the L2 local miss rate as a fraction of all original accesses. Nest the L2 cost inside the L1 miss probability. Write the denominator of every rate before substituting numbers.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch32.json → SYS32.14
+
+------------------------------------------------------------
+
+42. Change one explanation at a time
+Recall and transfer
+
+SAY
+A tempting optimization rewrites the container, changes allocation, adds prefetching, and reorganizes the algorithm at once. If it helps, nobody knows which explanation was right; if it fails, rollback is harder. Start with one hot phase and one proposed cause. For example, change only traversal order while holding input, compiler settings, and result checks fixed. Repeat measurements under stated warm or cold conditions and preserve the original result comparison. The arithmetic demos are useful for prediction, but actual performance evidence comes from measurements of the intended workload. A maintainable optimization has a clear reason, a correctness test, and a way to detect when changed workloads stop benefiting.
+
+DO
+Ask for one isolated experiment rather than a broad rewrite.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.016 · 32.7 Locality optimization
+
+------------------------------------------------------------
+
+43. Recall cost, useful bytes, and evidence together
+Recall and transfer
+
+SAY
+Summarize this chapter with three questions. What cost happens on every request, and what happens only on a miss? Which bytes does the hot operation actually need together? What measurement would test the proposed improvement without changing the answer? These questions connect the equations to real maintenance. A lower miss rate may still lose if bookkeeping grows, a larger batch may miss a response deadline, and a reordered reduction may violate numerical requirements. The goal is not the smallest number in a model alone. It is faster useful work under the program's contract, supported by evidence that another developer can repeat.
+
+DO
+Have learners defend an optimization with one requirement and one experiment.
+
+SOURCE
+content/systems-programming/ch32.json → SP32.016 · 32.7 Locality optimization

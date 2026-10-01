@@ -1,0 +1,824 @@
+Design Patterns in C++
+Chapter 1: Factory Method: vary construction without copying the job
+Dr. Charles Dorner
+
+1. A second format should not mean a second workflow
+Problem and first design
+
+SAY
+Imagine maintaining an archive job that accepts a label and gives back a receipt. Today the receipt says stored text:sample. Tomorrow another integration wants stored [sample]. The new requirement changes how the label is formatted. It does not change which labels are allowed. If we copy the job, we now have two places to fix every rule. Our target is a common workflow with one clearly marked point where construction may vary. In this chapter, stored is only text in the returned string. The program does not write a file. Keeping that limit clear prevents us from promising a storage guarantee the code never makes.
+
+DO
+Ask students to separate the stable rules from the new requirement.
+Read both receipt strings aloud and identify the shared prefix.
+
+SOURCE
+manuscript/ch01.json → The archive workflow already knows too much
+
+------------------------------------------------------------
+
+2. Write the contract before choosing the pattern
+Problem and first design
+
+SAY
+A contract is a set of promises between parts of a program. Here the caller supplies a nonempty string containing no more than twenty bytes. The job promises to reject a bad label and to use the chosen record for a good one. Notice the word bytes. std::string::size counts stored characters of type char, which are bytes in this example; it does not count human letters in every text encoding. A twenty-byte boundary test and a twenty-one-byte rejection test give us useful evidence. We also need an empty-input test. Successful output alone cannot show that validation happens before construction, so we must trace that order in the code.
+
+DO
+Predict the accepted results at lengths 0, 1, 20, and 21.
+Point out that the chapter counts bytes, not user-perceived letters.
+
+SOURCE
+manuscript/ch01.json → Compilation fixes the request; execution chooses the maker
+
+------------------------------------------------------------
+
+3. The first version is a good small function
+Problem and first design
+
+SAY
+Read this small version before looking for a design pattern. The function receives the caller's string through a reference, which is another name for the same string. const means this function cannot change that string through the parameter. The if statement tests the allowed range. throw ends the normal path and sends an error to the matching catch block. For notes, the function returns a newly built string. For empty input, the catch prints empty rejected. Nothing here requires inheritance, a pointer, or a factory. This is the right level of machinery while one fixed format meets the requirement. We need a reason to grow beyond it.
+
+DO
+Predict both output lines, then run the program.
+Identify the line that creates the returned receipt.
+
+SOURCE
+Lecture demonstration for manuscript/ch01.json → The archive workflow already knows too much
+
+------------------------------------------------------------
+
+4. Copying the workflow copies the risk
+Problem and first design
+
+SAY
+This program models a common repair gone wrong. Someone copied the text workflow to add brackets and forgot one half of its validation. The compiler accepts both functions because all the expressions have valid types. When we run them on the same twenty-one-byte label, the text path rejects it and the bracket path accepts it. The bracket receipt has thirty bytes: seven for stored and its following space, two brackets, and twenty-one label bytes. This is a real behavioral disagreement, not a syntax error. Centralizing validation would stop this particular drift. Factory Method will centralize the surrounding job while letting an existing job family vary the object it constructs.
+
+DO
+Predict all three lines before Run.
+Ask which shared rule would prevent the two paths from disagreeing.
+
+SOURCE
+Lecture demonstration for manuscript/ch01.json → The change should affect construction, not the workflow
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+An archive job creates its own record format. ArchiveJob owns a useful stable workflow and exposes one protected virtual creation hook. Concrete jobs select products; the workflow sees only Record.
+
+Accept label lengths from 1 through 20 bytes. Preserve the common stored prefix and validation across product formats. Release each created product on success and on exceptions.
+
+run validates before it calls make. A successful make returns a non-null owning handle. The receipt preserves the entire accepted label in the selected format. These are the rules that define a correct extension, even if it has the right C++ types. A simple factory function plus an ordinary workflow is smaller for a closed list of formats. Injecting a factory callable avoids creator inheritance when object creation varies independently of job type.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json
+
+------------------------------------------------------------
+
+6. The archive workflow already knows too much
+Requirements and mechanism
+
+SAY
+An archive tool accepts a nonempty text label of at most 20 bytes. It produces a demonstration receipt, either stored text:sample or stored [sample]. No file is written: stored is a message describing the workflow result. This boundary keeps the example deterministic and avoids pretending that a string return is a durable archive transaction.
+
+The first version constructs TextRecord directly inside the job. That is the simplest sensible design for one format. Validation and the receipt prefix belong to the job. Formatting belongs to the record. These are already separate duties, but the job still names the one concrete record it can create.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → The archive workflow already knows too much
+
+------------------------------------------------------------
+
+7. The change should affect construction, not the workflow
+Requirements and mechanism
+
+SAY
+A second integration needs bracketed records. Copying the whole job would copy validation and the stored prefix too. Adding a format switch works for a small closed choice set, but an extensible job family already uses derived types for integration-specific behavior. We want the common job to request a record without deciding its concrete class.
+
+A product is simply an object made for another part of the program to use. A creator is the object that asks for or makes that product. The Factory Method pattern gives the creator a virtual creation operation. A derived creator decides which concrete product to return. Here ArchiveJob is the creator, Record is the product interface, and make is the creation hook. run still performs useful work; it is not merely a renamed constructor.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → The change should affect construction, not the workflow
+
+------------------------------------------------------------
+
+8. Two connected type families, one clear handoff
+Requirements and mechanism
+
+SAY
+TextJob and BracketJob derive from ArchiveJob. TextRecord and BracketRecord derive from Record. These are separate relationships. A TextJob is a kind of ArchiveJob; it is not a kind of TextRecord. The job creates the record and then uses it through the Record interface. Confusing those relationships leads to misleading class diagrams and often to bad code.
+
+The protected make declaration returns unique_ptr<Record>. Each override keeps that return type and constructs its concrete class with make_unique. A unique_ptr<TextRecord> can transfer into unique_ptr<Record> when the pointer conversion and deleter requirements are met. This is ownership conversion, not virtual return-type covariance. C++ covariant overrides apply to certain raw pointer and reference return types, not to arbitrary smart-pointer templates.
+
+run receives the owning handle in a local variable. It checks the non-null postcondition, calls format, builds its result string, and leaves scope. The local handle then destroys the product. Returning the string does not extend the product lifetime because the string owns its own characters. If format throws, cleanup still releases the record. The virtual Record destructor is essential for complete destruction through a base owning handle.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → Two connected type families, one clear handoff
+
+------------------------------------------------------------
+
+9. Compilation fixes the request; execution chooses the maker
+Requirements and mechanism
+
+SAY
+The compiler checks that ArchiveJob declares make and that each override matches it. At execution, the object on which run was called determines which make override runs. Calling run through const ArchiveJob& selected still reaches BracketJob::make when selected refers to the bracket job. A reference changes what operations the caller can name; it does not erase the actual object type.
+
+The call to make happens after label validation. An empty or oversized label therefore creates no product. Once a product exists, its format method is another virtual call. The sequence is shared validation, virtual creation, virtual formatting, then shared receipt assembly. Factory Method is often one specialized step inside a Template Method-style workflow, but the terms describe different decisions: one concerns object creation; the other concerns algorithm order.
+
+A null result is a broken creator contract, so the job throws logic_error. EmptyJob exists only to verify that guard. An allocation failure can also occur inside make_unique and propagate as an exception; no successfully constructed handle exists to leak. For a real file-backed product, document whether creation opens a file, delays opening, or can reuse a resource. The pattern alone says nothing about those effects.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → Compilation fixes the request; execution chooses the maker
+
+------------------------------------------------------------
+
+10. What does not make a Factory Method
+Requirements and mechanism
+
+SAY
+A free function make_record(format) with a switch is commonly called a simple factory. It centralizes construction and may be exactly what a program needs. It is not this pattern’s defining mechanism because no inherited workflow calls an overridable creation hook. A static member named create is not automatically Factory Method either. Names do not decide a design pattern; relationships and control flow do.
+
+If the caller can supply a ready-made Record, dependency injection is often simpler than subclassing ArchiveJob. If the workflow needs a fresh record for every run, it can accept a callable factory. Factory Method fits best when creator inheritance already has a clear role and subclasses should choose products. Avoid introducing two class hierarchies solely to hide one constructor.
+
+New product behavior still needs interface-level tests. A new format that silently truncates labels could satisfy the C++ signature and still violate requirements. Likewise, switching the product does not make the stored prefix truthful about persistent storage. Keep the workflow’s externally promised behavior explicit, and test it through the base creator interface so extensions exercise the same path clients will use.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → What does not make a Factory Method
+
+------------------------------------------------------------
+
+11. The hook changes construction, not algorithm order
+Mechanism in C++
+
+SAY
+A hook is a place where a shared operation asks for behavior that can vary. ArchiveJob has a protected virtual make hook. Protected keeps ordinary clients from calling that hook directly through ArchiveJob; run is their useful public operation. Virtual lets the actual job object choose the implementation during execution. run first validates, then calls make, then checks the returned owner, then calls format and assembles the receipt. A derived job does not copy those steps. It only supplies the record. This arrangement is Factory Method. The key is the inherited useful workflow calling an overridable creation operation, not the spelling of make and not the mere presence of new objects.
+
+DO
+Trace the four major steps in run.
+Have a learner name the single decision delegated to the subclass.
+
+SOURCE
+manuscript/ch01.json → The change should affect construction, not the workflow
+
+------------------------------------------------------------
+
+12. Two hierarchies have different jobs
+Mechanism in C++
+
+SAY
+The chapter has two families of types. TextJob and BracketJob are kinds of ArchiveJob. TextRecord and BracketRecord are kinds of Record. Inheritance means one type can be used through another type's interface. That is different from creation, where one object makes another. TextJob creates TextRecord, but a TextJob is not a TextRecord. Keeping these relationships separate makes the diagram useful. The creation relationship explains which format will appear. The inheritance relationships explain which calls the client can make through base references and owning handles. If the two families seem excessive for a one-format program, that is a good design concern: we only pay this cost when the changing workflow family warrants it.
+
+DO
+Draw the two inheritance families separately.
+Label the cross-family relation creates before connecting them.
+
+SOURCE
+manuscript/ch01.json → Two connected type families, one clear handoff
+
+------------------------------------------------------------
+
+13. Static checking and dynamic choice meet at the hook
+Mechanism in C++
+
+SAY
+Suppose selected is declared const ArchiveJob& and refers to a BracketJob. The reference borrows that same job; it does not create a new base object. The compiler sees that run exists and can be called on a const job. When run calls make, virtual dispatch chooses BracketJob::make because the actual object is a bracket job. The returned Record owner then calls the bracket record's format through another virtual operation. override asks the compiler to verify that a declaration really overrides a base virtual function. It catches mistakes such as forgetting a required const qualifier. It does not test whether the produced text follows our business rules.
+
+DO
+Follow selected.run through both virtual calls.
+Discuss a missing const on make and the value of override.
+
+SOURCE
+manuscript/ch01.json → Compilation fixes the request; execution chooses the maker
+
+------------------------------------------------------------
+
+14. The owner leaves; the receipt survives
+Mechanism in C++
+
+SAY
+Ownership answers who must release a resource. The local unique_ptr<Record> in run owns the newly created record. The arrow in record->format reaches the object held by that owner. When run finishes, the owner destroys its record, but the returned string remains valid because it owns its own character data. The same owner also cleans up if format throws. Record needs a virtual destructor so deletion through its base pointer destroys the complete derived object. A raw pointer alone would not express this cleanup duty. Notice that unique_ptr does not make a null value impossible; that is why the job separately checks the creator's promise to return a usable object.
+
+DO
+Mark the point where product ownership enters run and leaves scope.
+Ask what still needs checking despite use of unique_ptr.
+
+SOURCE
+manuscript/ch01.json → Two connected type families, one clear handoff
+
+------------------------------------------------------------
+
+15. Smart-pointer conversion is not covariant overriding
+Mechanism in C++
+
+SAY
+There are two separate language rules here. The override declaration in TextJob returns unique_ptr<Record>, matching the base declaration exactly. Inside that function, make_unique<TextRecord> produces an owner of a TextRecord. That owner can be converted into an owner of Record, transferring cleanup responsibility to the result. This is not permission to declare the override as returning unique_ptr<TextRecord>. C++ supports certain covariant return types for raw pointers and references, but it does not apply that rule to arbitrary smart-pointer templates. A compiler error at the override signature is therefore different from a runtime error caused by an empty owner. Knowing which rule failed saves time when extending the job family.
+
+DO
+Compare the declared result type with the type of the return expression.
+Ask students to classify a wrong override result as a build failure.
+
+SOURCE
+manuscript/ch01.json → Two connected type families, one clear handoff
+
+------------------------------------------------------------
+
+16. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Creator → ArchiveJob. Keeps the shared workflow in ArchiveJob::run and declares the creation hook.
+
+Factory method → ArchiveJob::make. States what kind of interface construction must return; subclasses supply the actual maker.
+
+Concrete creators → TextJob; BracketJob. Select concrete products while inheriting the existing workflow.
+
+Product → Record. Declares the operation the workflow needs, independent of the product variant.
+
+Concrete products → TextRecord; BracketRecord. Implement the varying product behavior.
+
+Client → main using const ArchiveJob& selected. Uses a creator through its common type without rewriting its workflow.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → C01.07 concepts
+
+------------------------------------------------------------
+
+17. Creation varies inside a common workflow
+UML and source walkthrough
+
+SAY
+Inheritance arrows point from derived types to their bases. Dashed dependencies mean creates or uses, as labeled. ArchiveJob has no persistent Record member: run owns a local product temporarily. BracketRecord follows the same product relationship but is omitted from this overview to keep it readable; its complete implementation appears in the source listing.
+
+ArchiveJob owns a useful stable workflow and exposes one protected virtual creation hook. Concrete jobs select products; the workflow sees only Record.
+
+A format extension adds a product and a matching creator without copying label checks. Review whether creator inheritance remains useful as integrations grow; a factory callable can become clearer when combinations multiply.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch01/main.cpp:1-84; content/design-patterns-cpp/ch1.json → diagrams.1
+
+------------------------------------------------------------
+
+18. Factory Method — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+ArchiveJob owns a useful stable workflow and exposes one protected virtual creation hook. Concrete jobs select products; the workflow sees only Record.
+
+A format extension adds a product and a matching creator without copying label checks. Review whether creator inheritance remains useful as integrations grow; a factory callable can become clearer when combinations multiply.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch01/main.cpp:1-84; content/design-patterns-cpp/ch1.json → diagrams.1
+
+------------------------------------------------------------
+
+19. A virtual creation hook inside real work
+UML and source walkthrough
+
+SAY
+The workflow asks its current creator for a product, then uses the product interface. ArchiveJob::run, after input validation. The common workflow must not hard-code a concrete record.
+
+The comment marks the creation extension point. Call the virtual make function and keep the returned owner locally. Test whether the creator broke its non-null contract. Begin constructing a logic-error exception. Supply null record as the message and throw. Start constructing the shared receipt prefix. Call the product’s virtual formatter and join its owned string result.
+
+No product is used until its owning handle has been checked. A null product without this check would be dereferenced.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch01/main.cpp:34-40
+
+------------------------------------------------------------
+
+20. The derived creator makes one product choice
+UML and source walkthrough
+
+SAY
+TextJob selects TextRecord while keeping the inherited run algorithm. One concrete creator in the ArchiveJob family. Construction changes through a small override rather than a copied workflow.
+
+Declare a final creator derived from ArchiveJob. The comment explains that the returned interface handle owns the product. Declare the owning base-interface return type. Override the creation hook with the matching const qualifier. Begin returning an owning product handle. Allocate and construct a TextRecord, then transfer ownership to the return value.
+
+The returned handle owns a complete object implementing Record. Changing the return declaration to unique_ptr<TextRecord> would not be a matching override.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch01/main.cpp:43-48
+
+------------------------------------------------------------
+
+21. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. ArchiveJob owns a useful stable workflow and exposes one protected virtual creation hook. Concrete jobs select products; the workflow sees only Record.
+
+main checks both receipt formats through direct and base-reference calls, accepts exactly 20 bytes, rejects 0 and 21 bytes, and checks a null-returning creator. These tests cover the string workflow, not disk persistence or allocation-failure injection.
+
+A format extension adds a product and a matching creator without copying label checks. Review whether creator inheritance remains useful as integrations grow; a factory callable can become clearer when combinations multiply. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch01/main.cpp
+
+------------------------------------------------------------
+
+22. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. selected refers to a BracketJob; text="sample". The base reference exposes the common job API.
+
+Step 2. run validates length=6. Validation belongs to ArchiveJob and succeeds.
+
+Step 3. make returns owner of BracketRecord. The actual creator type selects the virtual override.
+
+Step 4. format returns "[sample]"; run returns "stored [sample]". Product behavior and shared workflow combine before local ownership ends.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → trace
+
+------------------------------------------------------------
+
+23. Debug the promise: Construct TextRecord directly in ArchiveJob::run.
+Execute and debug
+
+SAY
+Construct TextRecord directly in ArchiveJob::run. BracketJob still produces stored text:sample instead of stored [sample]. The workflow bypasses the virtual creation hook.
+
+main checks both receipt formats through direct and base-reference calls, accepts exactly 20 bytes, rejects 0 and 21 bytes, and checks a null-returning creator. These tests cover the string workflow, not disk persistence or allocation-failure injection.
+
+A format extension adds a product and a matching creator without copying label checks. Review whether creator inheritance remains useful as integrations grow; a factory callable can become clearer when combinations multiply.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → example.failures
+
+------------------------------------------------------------
+
+24. Debug the promise: Return an owning pointer to a local record variable.
+Execute and debug
+
+SAY
+Return an owning pointer to a local record variable. The pointer dangles when make returns; later use or deletion is invalid. An automatic local object cannot transfer its lifetime by returning its address.
+
+main checks both receipt formats through direct and base-reference calls, accepts exactly 20 bytes, rejects 0 and 21 bytes, and checks a null-returning creator. These tests cover the string workflow, not disk persistence or allocation-failure injection.
+
+A format extension adds a product and a matching creator without copying label checks. Review whether creator inheritance remains useful as integrations grow; a factory callable can become clearer when combinations multiply.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → example.failures
+
+------------------------------------------------------------
+
+25. Trace 1: Factory Method: Text product
+Trace experiments
+
+SAY
+Factory Method: Text product. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+TextJob selects TextRecord; the common run method adds stored.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → dpx-c01-trace-1; companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+26. Trace 2: Factory Method: Bracket product
+Trace experiments
+
+SAY
+Factory Method: Bracket product. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Only the product formatting changes; the common prefix remains.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → dpx-c01-trace-2; companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 3: Factory Method: Length product
+Trace experiments
+
+SAY
+Factory Method: Length product. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The string go has two bytes. The product supplies 2:go.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → dpx-c01-trace-3; companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 4: Factory Method: Polymorphic creator
+Trace experiments
+
+SAY
+Factory Method: Polymorphic creator. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The reference keeps the dynamic creator type, including the embedded space in the count.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → dpx-c01-trace-4; companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 5: Factory Method: Empty input
+Trace experiments
+
+SAY
+Factory Method: Empty input. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Validation rejects empty input before construction of a product.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → dpx-c01-trace-5; companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 6: Factory Method: Upper bound
+Trace experiments
+
+SAY
+Factory Method: Upper bound. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The stored prefix uses seven bytes and 20: uses three; twenty payload bytes make thirty.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → dpx-c01-trace-6; companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 7: Factory Method: Beyond bound
+Trace experiments
+
+SAY
+Factory Method: Beyond bound. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A different creator cannot bypass the common twenty-byte limit.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → dpx-c01-trace-7; companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 8: Factory Method: Missing product
+Trace experiments
+
+SAY
+Factory Method: Missing product. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A null factory result violates the creator contract; it is checked before dereference.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → dpx-c01-trace-8; companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+33. Exercise 01.1: Guided modification
+Practice and extension
+
+SAY
+Run TextJob and BracketJob with label x. State the exact returned strings.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The shared prefix belongs to run.
+
+After the discussion, compare the reasoning. TextJob returns "stored text:x". BracketJob returns "stored [x]". Both preserve the same validation and the entire label.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch01.json → exercises.01.1
+
+------------------------------------------------------------
+
+34. Exercise 01.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+A BracketJob is bound to const ArchiveJob& job. The code prints job.run("A"), then job.run("") inside a try block, catching invalid_argument and printing rejected. What lines appear?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The second call fails before creating a product.
+
+After the discussion, compare the reasoning. The lines are "stored [A]" and "rejected". No second receipt is returned, and make is not called for the empty label.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch01.json → exercises.01.2
+
+------------------------------------------------------------
+
+35. Exercise 01.3: Diagnose a bug
+Practice and extension
+
+SAY
+A programmer changes ArchiveJob::run to create TextRecord directly and leaves both creator subclasses unchanged. What test fails, and why?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Find which implementation is selected without make.
+
+After the discussion, compare the reasoning. The selected.run("sample") check expecting "stored [sample]" fails. Direct construction binds the workflow to TextRecord and bypasses BracketJob::make, so the actual result is "stored text:sample".
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch01.json → exercises.01.3
+
+------------------------------------------------------------
+
+36. Exercise 01.4: Choose a design
+Practice and extension
+
+SAY
+A program has a switch selecting two record types, with no useful creator inheritance. Should the team add a base creator just to claim Factory Method? Explain a smaller design.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: A pattern name is not a requirement.
+
+After the discussion, compare the reasoning. Keep a simple factory function returning unique_ptr<Record>, or pass a ready-made record when its lifetime fits. Add inherited creation only when a shared creator workflow genuinely benefits from subclass choices. The smaller design centralizes construction with fewer relationships to maintain.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch01.json → exercises.01.4
+
+------------------------------------------------------------
+
+37. Exercise 01.5: Extend without regressions
+Practice and extension
+
+SAY
+Add LengthRecord and LengthJob. The format is the label’s byte count, a colon, then the entire label. Preserve the shared workflow. State the receipt for sample.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: format can use std::to_string(text.size()).
+
+After the discussion, compare the reasoning. The receipt is "stored 6:sample". The solution adds one product and one creator, tests through const ArchiveJob&, checks lengths 1 and 20, and verifies that an empty label is still rejected.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch01.json → exercises.01.5
+
+------------------------------------------------------------
+
+38. Exercise 01.6: Justify a decision
+Practice and extension
+
+SAY
+A reviewer asks why make returns unique_ptr<Record> instead of Record&. Explain the lifetime difference and a valid use for borrowing.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Who destroys the created record?
+
+After the discussion, compare the reasoning. The current contract creates a fresh record owned by run, so unique_ptr states who destroys it even when formatting throws. A reference would need a separate owner that outlives the call, such as a cached immutable product stored in the creator. Borrowing is reasonable under that different lifetime contract, but returning a reference to a local record is invalid.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch01.json → exercises.01.6
+
+------------------------------------------------------------
+
+39. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add a length-prefixed record product and a LengthJob creator. Do not edit ArchiveJob::run, TextJob, or BracketJob. Keep every original check and add checks through the creator base reference.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: sample produces "stored 6:sample". x produces "stored 1:x". A 20-byte label is preserved after the 20: prefix. An empty label is rejected before formatting.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch01/main.cpp
+
+------------------------------------------------------------
+
+40. Extension solution and design review
+Practice and extension
+
+SAY
+The new creator returns an owning Record handle containing LengthRecord. The product implements only formatting. Tests through ArchiveJob demonstrate that the shared workflow remains responsible for validation and prefixing. For Unicode labels, text.size() counts bytes, not user-perceived characters; the exercise deliberately uses ASCII labels.
+
+A format extension adds a product and a matching creator without copying label checks. Review whether creator inheritance remains useful as integrations grow; a factory callable can become clearer when combinations multiply.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch01/main.cpp
+
+------------------------------------------------------------
+
+41. Application case 1: defend your choice
+Practice and extension
+
+SAY
+An export job already has a shared validation workflow. Integration subclasses must choose their own document type inside that workflow. Which mechanism fits?
+
+Iterator. The requirement concerns construction rather than traversal.
+
+Abstract Factory only. The central requirement is one creation hook inside the inherited workflow, not a matching product family.
+
+Factory Method. The inherited workflow invokes an overridable creation hook.
+
+Flyweight. No repeated intrinsic state needs pooling.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → C01.21 scenario
+
+------------------------------------------------------------
+
+42. Application case 2: defend your choice
+Practice and extension
+
+SAY
+BracketJob overrides make(), but ArchiveJob::run constructs TextRecord directly. What does run("sample") return?
+
+An empty string. Nothing in this change makes the formatter return an empty string.
+
+A compile error. Directly constructing TextRecord can compile while violating the intended behavior.
+
+stored [sample]. That requires the workflow to request the product through make().
+
+stored text:sample. Direct construction bypasses the virtual creation hook.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch1.json → C01.22 scenario
+
+------------------------------------------------------------
+
+43. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Factory Method varies construction through an inherited virtual hook. The creator must have a reason to exist beyond renaming a constructor. Product and creator inheritance are separate relationships. Return ownership clearly and validate required non-null products. A free factory function is often a useful simpler design.
+
+A format extension adds a product and a matching creator without copying label checks. Review whether creator inheritance remains useful as integrations grow; a factory callable can become clearer when combinations multiply.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch01.json → summary
+
+------------------------------------------------------------
+
+44. Choose the smallest construction seam that fits
+Recall and transfer
+
+SAY
+Imagine three possible futures. With two fixed formats and no creator inheritance, a small function that switches on a format value may be easiest to read. If a caller already owns the right record, passing it into the job may avoid a creator family. If every run needs a fresh product, a supplied callable can make one. Factory Method earns its place when derived jobs already represent meaningful integrations and should choose their products while sharing the workflow. These alternatives can all reduce duplicate validation. The design decision depends on the expected changes and the lifetime contract, not on which option has the most recognizable pattern name.
+
+DO
+Assign pairs one of the three futures and ask them to defend a design.
+
+SOURCE
+manuscript/ch01.json → What does not make a Factory Method
+
+------------------------------------------------------------
+
+45. Diagnose failure by the first broken promise
+Recall and transfer
+
+SAY
+A useful error report names the promise that failed. An empty label is invalid caller input, so run rejects it before creation. A null owner from EmptyJob is different: the job's own extension point failed to provide a product, so run reports a logic error. A record that silently cuts a label may return a non-null owner and satisfy every C++ signature, yet still violate the required formatting. Start debugging at the earliest failed promise, then inspect the responsible block. Keep a test through an ArchiveJob reference so the test follows the same dynamic path as a real client. Testing only a concrete format helper can miss a broken creator connection.
+
+DO
+Present the three failures one at a time and ask who owns the repair.
+Ask how a base-reference test differs from a direct helper test.
+
+SOURCE
+manuscript/ch01.json → Compilation fixes the request; execution chooses the maker
+
+------------------------------------------------------------
+
+46. Explain the pattern without relying on its name
+Recall and transfer
+
+SAY
+Close the book and explain the design in one minute. A common archive job validates a label and builds a receipt. At one point it asks a virtual make operation for a record. The derived job chooses the record type. A local owner keeps cleanup correct while the common job uses the product. That explanation captures both purpose and mechanism. Now transfer it: a report job might share validation and page assembly while integrations choose a renderer. Before copying the design, ask whether creator inheritance is already useful and whether a fresh renderer is needed each run. Finally, keep effect claims honest. Returning a receipt string alone does not prove that a report or archive reached disk.
+
+DO
+Give students sixty seconds to explain the mechanism without saying factory.
+Ask them to propose one appropriate and one unnecessary use.
+
+SOURCE
+manuscript/ch01.json → What does not make a Factory Method

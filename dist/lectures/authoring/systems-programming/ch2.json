@@ -1,0 +1,223 @@
+{
+  "chapter": 2,
+  "title": "C and C++ for Systems Programming: values, bounds, and lifetime",
+  "opening": [
+    {
+      "title": "A name, a value, and an owner are different things",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "Names provide access in a scope",
+        "Values are interpreted under a type",
+        "Ownership assigns cleanup responsibility"
+      ],
+      "narration": "A pointer variable has a name and stores a pointer value. That alone does not tell us who owns the object it reaches, how many elements are available, or how long access remains valid. Those missing facts cause many systems defects. A function can copy a pointer parameter while still changing the original pointed-to integer. A function can also return a copied integer whose value survives after its local variables disappear. The chapter develops the language needed to distinguish these cases. Before reading syntax as a memory diagram, identify the actual objects, their types, the permitted range, and the component responsible for keeping them alive.",
+      "actions": [
+        "Draw two pointer variables and one target object, then label the owner separately."
+      ],
+      "sourceRef": "content/systems-programming/ch2.json → SP02.003 / Core Distinctions",
+      "question": {
+        "prompt": "Does copying a pointer parameter copy the allocation it points into?",
+        "answer": "No. It copies the pointer value. Both pointer values can still designate the same allocation."
+      }
+    },
+    {
+      "title": "Choose a result type that can represent every state",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "A count can be zero without being an error",
+        "A negative status must stay distinct",
+        "A bool is appropriate only for two meaningful outcomes"
+      ],
+      "narration": "A byte-reading interface may report a positive count, zero for end of input, or a negative error indication. Reducing those three cases to a boolean loses meaning before the caller can make a good decision. A zero-byte result is not automatically the same as failure. The chapter contrasts size_t, an unsigned size type, with signed result types used by some system interfaces. Choose the type and the checking order to preserve every required state. Only after recognizing an error should a caller convert a successful count into a size for indexing or allocation. This is interface design, not merely a preference for one integer spelling.",
+      "actions": [
+        "List positive count, end of input, and failure as three separate states."
+      ],
+      "sourceRef": "content/systems-programming/ch2.json → SP02.010 / 2.1.4 Boolean Types",
+      "question": {
+        "prompt": "Why can converting an error value to size_t before checking it be harmful?",
+        "answer": "The conversion turns a negative state into a large unsigned value, losing the obvious error meaning before bounds logic runs."
+      }
+    },
+    {
+      "title": "A zero byte ends a string, not every payload",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "code",
+      "keyPoints": [
+        "The same array can be viewed under different contracts",
+        "strlen stops at the first zero",
+        "An explicit extent includes internal zero bytes"
+      ],
+      "narration": "The array contains A, a zero byte, B, and a final zero byte. strlen is safe here because a terminator exists, but it applies the string contract and returns one. The span deliberately describes the first three array elements as a binary payload, so its length is three and its third byte prints B. A span is a borrowed range: it stores access and a count, not ownership of the array. The array stays alive throughout main, which supports this use. Neither result is numerically wrong. The mistake would be choosing the string length when a binary protocol says all three payload bytes belong to the message.",
+      "actions": [
+        "Predict both lengths and identify which contract each operation follows."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch2.json → SP02.008 / Text vs. Binary Buffers",
+      "question": {
+        "prompt": "Which length should a three-byte binary packet use in this example?",
+        "answer": "The explicit payload extent, 3. strlen reports only the prefix before the internal zero."
+      },
+      "code": {
+        "filename": "sys_ch02_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstring>\n#include <iostream>\n#include <span>\nint main() {\n    const char packet[]{'A', '\\0', 'B', '\\0'};\n    const std::span<const char> payload(packet, 3);\n    std::cout << \"string length=\" << std::strlen(packet) << '\\n';\n    std::cout << \"payload length=\" << payload.size() << '\\n';\n    std::cout << \"third byte=\" << payload[2] << '\\n';\n}\n",
+        "expectedStdout": "string length=1\npayload length=3\nthird byte=B\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Validate a signed status before converting it",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "code",
+      "keyPoints": [
+        "The input here models an error result",
+        "Unsigned conversion is defined but changes interpretation",
+        "The corrected branch keeps the error visible"
+      ],
+      "narration": "This is a model of a fallible interface result, not a real read system call. result is negative one. Converting it to size_t is a defined unsigned conversion, but it produces the largest value of that unsigned type, which is certainly greater than one hundred. The first line therefore says converted looks large=true. The corrected branch checks negativity in the signed type and prints validated=error. It never treats that error as a count. A cast tells the compiler to perform a conversion; it does not certify that the resulting value is meaningful for the application. Maintainable boundary code keeps validation close to the conversion it justifies.",
+      "actions": [
+        "Predict the boolean without depending on the platform’s exact size_t width."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch2.json → SP02.006 / ssize_t vs. size_t",
+      "question": {
+        "prompt": "Is the premature conversion itself undefined behavior?",
+        "answer": "No. It is a defined unsigned conversion. The defect is interpreting the resulting large value as a valid count."
+      },
+      "code": {
+        "filename": "sys_ch02_signed_status.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\nint main() {\n    const std::ptrdiff_t result = -1; // A modeled error status.\n    const auto premature = static_cast<std::size_t>(result);\n    std::cout << std::boolalpha << \"converted looks large=\"\n              << (premature > 100) << '\\n';\n    if (result < 0) {\n        std::cout << \"validated=error\\n\";\n    } else {\n        const auto count = static_cast<std::size_t>(result);\n        std::cout << \"validated count=\" << count << '\\n';\n    }\n}\n",
+        "expectedStdout": "converted looks large=true\nvalidated=error\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "A modeled signed result, not an executed POSIX read."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Preserve extent when an array crosses an interface",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "An array object includes its element count",
+        "A pointer parameter does not retain that count",
+        "A span borrows access and carries an extent"
+      ],
+      "narration": "An array of four integers contains four objects, but a function parameter written as an array commonly adjusts to a pointer parameter. Inside that function, sizeof measures the pointer rather than recovering the caller's array extent. Passing a separate count can be correct, but the pointer and count must describe the same live range. A span packages those facts together while still borrowing the storage. It does not automatically prevent every invalid operation: a span can outlive its owner if the program lets it escape. The safer interface preserves information needed for checking, while the lifetime contract still states how long that information is valid.",
+      "actions": [
+        "Compare an array parameter, pointer-plus-count, and span for retained information."
+      ],
+      "sourceRef": "content/systems-programming/ch2.json → SP02.012 / Array Extent Can Disappear",
+      "question": {
+        "prompt": "Does std::span keep its array alive after the owning object dies?",
+        "answer": "No. It is a non-owning view. The owner must outlive every use of the span."
+      }
+    },
+    {
+      "title": "Value, reference, and pointer parameters change different objects",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "A value parameter is a separate object",
+        "A reference aliases the supplied object",
+        "A pointer value may still grant access to shared storage"
+      ],
+      "narration": "Suppose a function receives int count by value and assigns nine to count. It changed its own parameter, not the caller's integer. With int& count, the assignment changes the caller's object through a reference. With int* count passed by value, assigning a new pointer changes only the local pointer, while assigning through *count changes the designated integer if access is valid. These are three distinct operations, not three spellings for the same effect. const can restrict mutation through a particular access path, but it does not describe cleanup ownership. Document whether a parameter is borrowed for the call, retained afterward, or consumed into a new owner.",
+      "actions": [
+        "Trace reassignment of a pointer separately from assignment through its dereference."
+      ],
+      "sourceRef": "content/systems-programming/ch2.json → SP02.024 / C++ References as Parameters",
+      "question": {
+        "prompt": "Why can a pointer passed by value still let a function change caller-visible data?",
+        "answer": "The copied pointer can designate the same live object. Dereferencing it accesses that object, even though the pointer variable itself was copied."
+      }
+    },
+    {
+      "title": "A tag and its active value must agree",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "Union storage holds alternatives",
+        "The program must track the active member",
+        "A variant can manage the tag and object lifetime"
+      ],
+      "narration": "A message may hold either a count or text. A union can reuse storage for those alternatives, but storage overlap does not mean both values are independently alive. A separate tag must agree with the active member whenever code interprets the message. If the tag says text while only an integer has been established, casting or reading does not repair the missing lifetime relationship. In C++, std::variant combines a discriminator with managed alternative lifetimes when that abstraction fits. Raw unions still have uses at carefully controlled boundaries, but they require a more detailed invariant. Choose the simpler representation that makes invalid combinations hard to express.",
+      "actions": [
+        "Describe a count-or-text message and ask which impossible state must be prevented."
+      ],
+      "sourceRef": "content/systems-programming/ch2.json → SP02.018 / 2.2.3 Unions",
+      "question": {
+        "prompt": "What invariant must a manually tagged union preserve?",
+        "answer": "The tag must identify the member whose object lifetime and value are currently valid for use."
+      }
+    },
+    {
+      "title": "Scope hides names; lifetime governs valid use",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "A local name can refer to longer-lived storage",
+        "A returned local reference can dangle",
+        "A static local outlives individual calls"
+      ],
+      "narration": "Scope answers where a name can be used in source. Lifetime answers when the named object exists. A local owning handle can transfer its dynamic object to another owner before the local name disappears. A static local can preserve state between calls even though its name is visible only in that function. Conversely, returning a reference to an automatic local leaves a caller with access to an object whose lifetime ended. The pointer bits need not visibly change when that happens. This is why a non-null check is not a lifetime proof. Draw the object's start and end, then place every borrow inside that interval.",
+      "actions": [
+        "Draw separate intervals for a function call, local handle, and transferred dynamic object."
+      ],
+      "sourceRef": "content/systems-programming/ch2.json → SP02.041 / 2.5.4 Scope vs. Lifetime",
+      "question": {
+        "prompt": "Can a non-null returned pointer still be unusable immediately?",
+        "answer": "Yes. It may designate an automatic local whose lifetime ended when the function returned."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Language layout is not an external format",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "Structure padding is not a protocol field",
+        "Pointers are process-local access values",
+        "Decode external bytes into validated objects"
+      ],
+      "narration": "A structure groups useful fields, but its raw bytes may also contain padding and pointer representations. A different compiler, ABI, or field order can change that layout. Writing sizeof(structure) bytes to a file therefore does not automatically create a stable format. Define the external fields, sizes, order, and accepted values explicitly, then encode them. On input, check the byte count and decode values before constructing a useful object. This separation also avoids accidentally publishing unnamed padding bytes. It costs a little boundary code, but it makes version changes and compatibility tests much clearer than depending on an accidental in-memory arrangement.",
+      "actions": [
+        "Ask learners to list three properties an external format must state explicitly."
+      ],
+      "sourceRef": "content/systems-programming/ch2.json → SP02.017 / Structures Are Not Wire Formats",
+      "question": {
+        "prompt": "Why is copying a structure’s bytes weaker than specifying a file format?",
+        "answer": "It silently depends on layout, padding, byte order, and pointer meanings that may change or be meaningless outside the process."
+      }
+    },
+    {
+      "title": "Review an interface by the information it preserves",
+      "eyebrow": "02 / SYSTEMS REASONING",
+      "kind": "concept",
+      "keyPoints": [
+        "Keep errors distinct from values",
+        "Keep bounds beside borrowed access",
+        "Keep lifetime and ownership visible"
+      ],
+      "narration": "Take a function that receives a pointer and returns a number. Before judging its body, ask what the pointer may designate, whether it can be null, how many elements exist, who keeps them alive, and whether the function retains access after returning. Then ask what each result means and whether the result type can express every state. These questions turn language vocabulary into an interface review. A correct cast cannot repair a false count, and a successful compilation cannot prove a borrowed object is still alive. Good systems code supplies the missing contracts through types, validation, and clear documentation rather than leaving every caller to guess.",
+      "actions": [
+        "Use the declaration as a short review exercise and ask for the missing promises."
+      ],
+      "sourceRef": "content/systems-programming/ch2.json → SP02.048 / Chapter 2 Takeaways",
+      "question": {
+        "prompt": "Which questions remain unanswered by the declaration int inspect(const char* p) alone?",
+        "answer": "The valid extent, null policy, encoding, lifetime, retention behavior, and meaning of returned values still need a contract."
+      }
+    }
+  ]
+}

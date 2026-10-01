@@ -1,0 +1,224 @@
+{
+  "chapter": 13,
+  "title": "x86-64 Registers",
+  "opening": [
+    {
+      "title": "Read the width before interpreting the value",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "RAX, EAX, AX, and AL overlap.",
+        "A narrow write does not always preserve the same high bits.",
+        "Instruction width is part of the operation."
+      ],
+      "narration": "A register name can describe a full value or only a portion of it. RAX names sixty-four bits, EAX the low thirty-two, AX the low sixteen, and AL the low eight. These are overlapping views, not four independent boxes. The surprising rule is that a write to EAX clears the high thirty-two bits of RAX, while ordinary writes to AX or AL preserve bits outside that narrow portion. When reading assembly, underline the destination width before predicting the next full-register value. A wrong width interpretation can change an address or a return value even when the low bits look correct.",
+      "actions": [
+        "Ask which names overlap with RAX."
+      ],
+      "sourceRef": "content/systems-programming/ch13.json → SP13.006",
+      "question": {
+        "prompt": "Why is EAX not simply an independent thirty-two-bit register?",
+        "answer": "It is the low portion of RAX, and writing it also zeroes the upper half of RAX."
+      }
+    },
+    {
+      "title": "Model an eight-bit update without executing assembly",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "code",
+      "keyPoints": [
+        "Masking extracts a named portion.",
+        "An eight-bit write preserves bits outside that portion.",
+        "The model prints values, not real register contents."
+      ],
+      "narration": "The model starts with hexadecimal 1234. Masking its low byte produces decimal fifty-two because hexadecimal 34 is fifty-two. Shifting right by eight exposes decimal eighteen, which is hexadecimal 12. To model an AL write of hexadecimal AB, the program clears only the low eight bits and joins the new byte. The final printed hexadecimal value is 12ab. These operations use ordinary unsigned C++ integers; we are not reading RAX from the host processor. The point is to make the overlapping-view rule visible with exact bit operations before applying the rule to the chapter's actual assembly listing.",
+      "actions": [
+        "Predict the three printed values and explain the mask."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch13.json → SP13.030",
+      "question": {
+        "prompt": "Which bits survive the modeled eight-bit write?",
+        "answer": "Every bit outside the low eight remains unchanged."
+      },
+      "code": {
+        "filename": "sys_ch13_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstdint>\n#include <iostream>\nint main() {\n    const std::uint64_t whole = 0x1234;\n    const auto low = whole & 0xffu;\n    const auto next = (whole >> 8) & 0xffu;\n    const auto after_byte = (whole & ~std::uint64_t{0xff}) | 0xabu;\n    std::cout << \"low=\" << low << \" next=\" << next << '\\n';\n    std::cout << std::hex << \"after-byte=\" << after_byte << '\\n';\n}\n",
+        "expectedStdout": "low=52 next=18\nafter-byte=12ab\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Portable unsigned-bit model of overlapping register views; not a hardware register read."
+      }
+    },
+    {
+      "title": "The same bits can have different ordering",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "code",
+      "keyPoints": [
+        "All eight bits set means unsigned 255.",
+        "Its signed eight-bit interpretation is minus one.",
+        "Signed and unsigned branches answer different questions."
+      ],
+      "narration": "This program interprets one eight-bit pattern in two ways. As an unsigned value, all bits set means 255, which is not less than one. As a signed eight-bit value, the same representation is minus one, which is less than one. The output therefore prints signed-less true and unsigned-less false. Bit_cast copies the representation into an equal-sized type; it is not a numeric conversion that changes the bit pattern. Fixed-width integer types make the width explicit. This safely demonstrates why a comparison needs an intended signedness. A register's bits alone do not tell a branch whether the program wanted a count or a signed temperature.",
+      "actions": [
+        "Predict both Boolean outputs before running."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch13.json → SP13.028",
+      "question": {
+        "prompt": "Why can identical input bits require different branch conditions?",
+        "answer": "Signed and unsigned interpretations assign different numeric values and therefore different orderings."
+      },
+      "code": {
+        "filename": "sys_ch13_signed_view.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <bit>\n#include <cstdint>\n#include <iostream>\n#include <limits>\nint main() {\n    const std::uint8_t bits = std::numeric_limits<std::uint8_t>::max();\n    const auto signed_value = std::bit_cast<std::int8_t>(bits);\n    std::cout << std::boolalpha\n              << \"signed-less=\" << (signed_value < 1)\n              << \" unsigned-less=\" << (bits < 1u) << '\\n';\n}\n",
+        "expectedStdout": "signed-less=true unsigned-less=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Bit-pattern interpretation demonstration, not a read of CPU condition flags."
+      }
+    },
+    {
+      "title": "Register names have roles, not permanent meanings",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "RSI often receives the second scalar argument.",
+        "It may be reused after that argument is dead.",
+        "Implicit instruction operands can impose a new role."
+      ],
+      "narration": "A disassembly does not come with permanent labels such as RSI always means a string source. Under the reference ABI, RSI commonly receives the second ordinary integer or pointer argument, but a function may reuse it after that value is no longer needed. Some instructions give particular registers implicit roles: a traditional variable shift uses CL for its count, and division uses a pair including RAX and RDX. Follow where a value is defined and where it is consumed. Historical names and entry conventions help you begin the trace, but they do not replace the current instruction's data flow.",
+      "actions": [
+        "Mark the point after which an incoming argument is no longer used."
+      ],
+      "sourceRef": "content/systems-programming/ch13.json → SP13.016",
+      "question": {
+        "prompt": "Can RSI hold a loop bound in a function with no string operation?",
+        "answer": "Yes. General-purpose use can differ from a register name’s historical association."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Caller-saved is permission to overwrite",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "RAX commonly returns scalar results.",
+        "Caller-saved values need preservation when live across calls.",
+        "Current accidental preservation is not a contract."
+      ],
+      "narration": "Suppose a caller leaves an important value in RAX and then calls a helper. Even if today's helper happens not to change RAX until the return, the ABI permits it to use that register for its result and temporary work. The caller must preserve any old value it still needs. Caller-saved describes that responsibility; it is not a promise that the caller always performs a save. A compiler can instead move the value to a preserved register or recompute it. This matters for maintenance because a harmless-looking helper rewrite can expose a caller that relied on behavior the interface never guaranteed.",
+      "actions": [
+        "Use an old RAX value of nine and a helper return value of thirty-two."
+      ],
+      "sourceRef": "content/systems-programming/ch13.json → SP13.004",
+      "question": {
+        "prompt": "Who is responsible for keeping a caller-saved value needed after a call?",
+        "answer": "The caller must arrange preservation or recomputation."
+      }
+    },
+    {
+      "title": "Callee-saved means restoring the incoming value",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "RBX and R12–R15 are preserved in the reference ABI.",
+        "A function may use them temporarily.",
+        "Every normal return path must restore the caller’s state."
+      ],
+      "narration": "A callee-saved register is not reserved against use. It is available if the function restores the value it received before returning. For example, a function can save incoming RBX, use RBX to hold a loop accumulator, then restore the saved value. The saved value belongs to this caller, not to a previous call of the same function. Recursive calls therefore require independent preservation. A routine can return the correct numeric answer while still corrupting its caller by failing this obligation. Test or inspect both the result and the preserved state when reviewing assembly that participates in separately compiled software.",
+      "actions": [
+        "Trace an early error return that forgets one restore."
+      ],
+      "sourceRef": "content/systems-programming/ch13.json → SP13.010",
+      "question": {
+        "prompt": "Does a correct value in RAX prove that the function respected the ABI?",
+        "answer": "No. Preserved registers and stack state may still have been corrupted."
+      }
+    },
+    {
+      "title": "RSP is a position that every path must repair",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Stack operations change the active stack pointer.",
+        "Call boundaries require alignment.",
+        "Balanced changes must occur on each path, not only in total."
+      ],
+      "narration": "The stack pointer is more than a convenient temporary register. Calls and returns use it to locate return state, and local storage relies on its current position. If one branch pushes a value but an early return skips the matching cleanup, counting one push and one pop somewhere in the function is not enough. They must balance on each actual path. The reference ABI also imposes alignment at calls, so an eight-byte change can alter whether the next call is valid. Draw stack-position changes beside the control-flow graph when debugging a routine with several exits; the register trace and branch trace must agree.",
+      "actions": [
+        "Trace the stack position separately through success and error paths."
+      ],
+      "sourceRef": "content/systems-programming/ch13.json → SP13.020",
+      "question": {
+        "prompt": "Why is a global count of push and pop instructions insufficient?",
+        "answer": "Some execution paths may perform a push while skipping the corresponding pop or adjustment."
+      }
+    },
+    {
+      "title": "A frame pointer is optional; lifetime is not",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "RBP may provide a stable frame reference.",
+        "Optimized code may use it for other work.",
+        "Unwind metadata can describe changing stack positions."
+      ],
+      "narration": "A conventional function uses RBP as a stable frame pointer, but optimized code may omit that role and use the register for another preserved value. This does not mean the function has no local state. Locals can be in registers, stack slots, or optimized away, and metadata can explain how to recover caller state. Likewise, the presence of a frame pointer does not extend a local array's lifetime after the function returns. Keep debugging representation separate from language lifetime. The compiler's layout choice can change without changing which borrowed references remain valid after a call boundary.",
+      "actions": [
+        "Contrast logical local lifetime with an RBP-based address in one build."
+      ],
+      "sourceRef": "content/systems-programming/ch13.json → SP13.022",
+      "question": {
+        "prompt": "Does omitting a frame pointer mean local variables do not exist logically?",
+        "answer": "No. Their language lifetimes remain, although their storage and debugger representation can vary."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Flags need their own def-use trace",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "A comparison produces flag values.",
+        "A branch consumes selected flag relationships.",
+        "An intervening arithmetic instruction can replace the evidence."
+      ],
+      "narration": "Register data flow includes the condition flags, even though many listings do not show them as explicit operands. A comparison establishes equality and ordering evidence. A later branch consumes particular flags according to signed or unsigned rules. Insert a zeroing XOR between them, and the branch may now read flags from the XOR instead of the comparison. That can create a control-flow bug without changing either compared register. Annotate the flag producer and consumer just as you would annotate a value written into RAX and later read. The useful unit of reasoning is the dependency, not two nearby instruction spellings.",
+      "actions": [
+        "Mark a comparison-to-branch dependency and propose a safe place for unrelated work."
+      ],
+      "sourceRef": "content/systems-programming/ch13.json → SP13.028",
+      "question": {
+        "prompt": "Why can inserting XOR EAX,EAX break a later branch?",
+        "answer": "The XOR updates flags that the branch may have expected from an earlier comparison."
+      }
+    },
+    {
+      "title": "Translate register facts into a review checklist",
+      "eyebrow": "SYSTEMS / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Verify width and signedness.",
+        "Separate function ABI from system-call ABI.",
+        "Check live values and preservation across boundaries."
+      ],
+      "narration": "When handed a short assembly routine, begin with its declared C signature and target ABI. Identify which argument values enter which registers and which result width the caller expects. Then track narrow writes, signed comparisons, implicit operands, and values that remain live across calls. Do not carry the ordinary fourth-argument RCX rule into a Linux x86-64 system-call wrapper, where that position uses R10. The chapter's register names become useful when tied to these boundaries. A compact table supports memory, but a full explanation must show what each register means at a particular point in the actual routine.",
+      "actions": [
+        "Ask for a register trace before allowing an optimization suggestion."
+      ],
+      "sourceRef": "content/systems-programming/ch13.json → SP13.036",
+      "question": {
+        "prompt": "What is wrong with using one argument-register table for both ordinary functions and Linux system calls?",
+        "answer": "They use different ABI rules, including the fourth scalar argument register."
+      }
+    }
+  ]
+}

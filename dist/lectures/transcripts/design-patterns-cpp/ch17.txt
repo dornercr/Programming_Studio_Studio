@@ -1,0 +1,821 @@
+Design Patterns in C++
+Chapter 17: Memento — saved values, private state, and restoration
+Dr. Charles Dorner
+
+1. Undo must restore a valid pair, not two guesses
+Problem and first design
+
+SAY
+A chart selection is an interval with two endpoints. Restoring only its low endpoint could combine an old low with a new high and create a state that never existed. The real requirement is to remember a valid pair and restore that pair together under the object's rules. For a local procedure, two copied integers may be sufficient. The design pressure arrives when the selection has private state and several callers need history. Making those fields public just to help undo weakens the rest of the program. We need the state owner to create a saved record while allowing the history manager to store that record without understanding its contents.
+
+DO
+Ask learners to state the invariant before suggesting storage.
+
+SOURCE
+manuscript/ch17.json → The problem: remember an interval without breaking its rules
+
+------------------------------------------------------------
+
+2. Copying two local values is a sound baseline
+Problem and first design
+
+SAY
+The baseline works with ordinary local integers because there is no private object boundary to protect yet. old_low and old_high copy the original interval. The selection then moves to twenty and forty, and the two saved values still hold two and five. Restoring both returns the original pair. This establishes the core behavior before introducing any pattern: saved state must be independent of future edits. The code does not provide range checking or a history container, so do not mistake this tiny demonstration for the full Selection design. Its purpose is to show why copying values works. The later snapshot type adds control over who can create and inspect those saved records.
+
+DO
+Predict the changed and restored pairs before Run.
+
+SOURCE
+Lecture demonstration for manuscript/ch17.json → The problem: remember an interval without breaking its rules
+
+------------------------------------------------------------
+
+3. A reference is not a photograph of the past
+Problem and first design
+
+SAY
+This program keeps both an alias and a copy. int& names an existing integer, so aliased_low remains tied to low. When low becomes twenty, reading the alias also gives twenty. copied_low still gives two. Every access here is safe because the original integer stays alive; the failure is logical, not a dangling-reference trick. A snapshot built from references to the live endpoints would have the same defect. It would appear to save successfully while forgetting the past as soon as the selection changed. Memento needs independent state or carefully shared immutable state. Borrowing mutable current state is not enough just because the wrapper is named Snapshot.
+
+DO
+Run and explain why both outputs are valid C++ but only one satisfies history.
+
+SOURCE
+Lecture demonstration for manuscript/ch17.json → Let the state owner define the snapshot boundary
+
+------------------------------------------------------------
+
+4. Let the object define its saved record
+Problem and first design
+
+SAY
+Memento is a saved record controlled by the object whose state it represents. Selection is often called the originator: it knows how to produce and restore the record. History is the caretaker: it keeps snapshots and chooses which one to use. Those names describe responsibilities, not required base classes. In the chapter, History never reaches into the two endpoint fields. That separation matters when Selection later gains another part of its state. The change can stay inside Selection and Snapshot rather than spreading through every undo manager. A snapshot still needs a declared boundary. Hiding fields does not answer whether a new property should be restored; the product's undo promise must answer that question.
+
+DO
+Ask what changes if a selection later includes a display mode.
+
+SOURCE
+manuscript/ch17.json → Let the state owner define the snapshot boundary
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+An opaque snapshot of a valid chart interval. Selection creates a private nested Snapshot containing copied integers. History owns snapshots by value and borrows the selection. Restoration leaves the snapshot reusable and history consumes a record only after restore.
+
+Maintain 0 <= low <= high <= 100. Capture and restore both endpoints as one logical state. Let History store records without reading their private values.
+
+Every Selection pair is valid before and after public operations. A saved snapshot is unaffected by later changes to its source. History must not outlive the Selection it borrows. Cross-instance restore is allowed because instances share the same value rules. These are the rules that define a correct extension, even if it has the right C++ types. For one local edit, saving two old integers is enough. Command-specific inverse operations can reduce storage for large changes, but require correct reverse behavior. Shared immutable snapshots help large documents at the cost of more ownership design.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json
+
+------------------------------------------------------------
+
+6. The problem: remember an interval without breaking its rules
+Requirements and mechanism
+
+SAY
+A chart lets a reader select an inclusive interval from zero through one hundred. The low endpoint must never exceed the high endpoint. A change sets both endpoints together, and undo should restore the previous pair. One direct approach keeps two old integer variables beside the user-interface code. That is enough for a single local operation when the state is already public. The problem appears when the selection owns private state and more callers need undo without learning how that state is stored.
+
+Exposing low_ and high_ so a history manager can copy them creates two risks. A caller can change only one endpoint and leave an invalid interval. Also, adding another part of selection state forces every outside snapshot routine to change. The object that understands the rules should produce its own saved record. The history manager should store that record without reading or editing its contents. A saved record with this role is a memento, also called a snapshot.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → The problem: remember an interval without breaking its rules
+
+------------------------------------------------------------
+
+7. Let the state owner define the snapshot boundary
+Requirements and mechanism
+
+SAY
+Selection keeps low_ and high_ private. Its set operation accepts both values, validates all conditions, and changes neither member if the pair is invalid. The Snapshot nested class also keeps its two integers private. Its constructor is private, so outside code cannot construct an arbitrary invalid pair disguised as a valid snapshot. friend class Selection grants Selection access to those private members and constructor. Friendship is a specific access permission; it is not inheritance, ownership, or a promise that all surrounding classes can inspect the record.
+
+Snapshot publicly supports copying. This lets a History store snapshots in a vector without seeing their fields. Selection::save builds a snapshot from the current valid pair and returns it by value. Modern C++ can construct that returned value directly in its destination; whether a small copy is removed does not change the ownership contract. The snapshot owns two independent integers, so later edits to Selection cannot change what the snapshot remembers. A snapshot that stored references to live endpoints would fail this basic requirement.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → Let the state owner define the snapshot boundary
+
+------------------------------------------------------------
+
+8. Restoration should have a clear failure story
+Requirements and mechanism
+
+SAY
+restore takes a const Snapshot& and copies both integers back. It borrows the saved record for the duration of the call and leaves that record unchanged. Because these integer assignments cannot allocate or throw, restoration cannot stop between endpoints through a C++ exception in this implementation. This is an exception-safety guarantee for local operations, not a statement that another thread cannot see an intermediate assignment. The program is single-threaded and requires external synchronization if shared.
+
+The snapshot stores the entire selected interval and nothing else. It does not store the chart pixels, a mouse position, a disk file, or the number of saved history entries. Those choices form the snapshot boundary: which state is restored together. Including too little produces inconsistent restoration; including unrelated state makes undo surprisingly broad. Here any Snapshot created by any Selection can be restored into another Selection because every instance uses the same range rules. The test demonstrates that portable value policy. A per-document or per-session policy would need an identity token and an explicit rejection rule.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → Restoration should have a clear failure story
+
+------------------------------------------------------------
+
+9. The history manager keeps records without opening them
+Requirements and mechanism
+
+SAY
+History borrows a Selection and owns a vector of Snapshot values. remember asks the selection for a snapshot and stores it. undo returns false for an empty vector, making the lack of history an ordinary result rather than an exceptional failure. Otherwise it restores the last snapshot and only then removes that snapshot. The order expresses a useful general rule: do not consume the recovery record before the restoration it supports has succeeded.
+
+In this example restoration cannot throw, but retaining the order makes later changes easier to reason about. If snapshots later include a string or collection, restoring field by field could allocate and fail halfway through. A stronger design could build a complete proposed state first and swap it into place with a nonthrowing operation. The caretaker, the common pattern name for a history manager, should not guess how to do that. The object that owns the state must preserve its own invariants during restoration.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → The history manager keeps records without opening them
+
+------------------------------------------------------------
+
+10. A snapshot is a value, not a rewind button for the world
+Requirements and mechanism
+
+SAY
+The sample saves [2,5], changes the selection to [20,40], and restores [2,5]. It also keeps a separate snapshot variable and restores it more than once. This is valid because restore does not consume the snapshot. History choosing to pop its last record is a policy of that history, not a property of all snapshots. A history can instead support named checkpoints, multiple branches, or repeated restore to one baseline. Each needs a clear rule for which records remain available.
+
+Restoring an interval does not undo an exported image that was already sent to another person. A snapshot covers local state inside its declared boundary. It also does not automatically provide persistence across program runs: the program stores C++ values in memory and defines no file format. Persistent snapshots need versioned data, validated loading, and a plan for fields that change between software versions. Calling a memory snapshot a backup would mislead users unless those additional guarantees exist.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → A snapshot is a value, not a rewind button for the world
+
+------------------------------------------------------------
+
+11. Bound memory growth without weakening the contract
+Requirements and mechanism
+
+SAY
+Unlimited history stores more records after every remember call. For two integers this seems cheap, but a rich document may hold large images or trees. A capacity limit is therefore a product choice as well as a memory choice: the user can undo only so far. The lab retains the newest three remembered states. It builds a proposed vector, removes the oldest item if necessary, appends the new snapshot, then swaps the proposed vector into place. If allocation fails before the swap, the original history remains available.
+
+A complete copied snapshot is easiest to reason about but may be costly. An alternative stores only the changed values, called a delta, or uses command-specific undo as in Chapter 14. Another approach shares immutable data between snapshots. These designs can save memory but add dependencies between records or more demanding ownership rules. Measure the actual state size and editing pattern. Do not replace a few cheap copied values with a complicated history graph merely because the latter sounds more advanced.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → Bound memory growth without weakening the contract
+
+------------------------------------------------------------
+
+12. Private construction protects the saved-state boundary
+Mechanism in C++
+
+SAY
+Snapshot is nested within Selection, but the key access permission is explicit: friend class Selection allows Selection to use Snapshot's private constructor and fields. Friendship is not inheritance, ownership, or permission for every nearby class. Outside callers cannot manufacture an arbitrary invalid endpoint pair as a Snapshot. They can copy an existing snapshot because its copy operations are public. That distinction lets a vector manage records while keeping their contents opaque. The compiler enforces these access restrictions when building the program. The valid-pair guarantee also relies on Selection::set validating all conditions before changing either live endpoint; access control alone does not make arbitrary implementation code correct.
+
+DO
+Separate permission to copy a record from permission to construct arbitrary contents.
+
+SOURCE
+manuscript/ch17.json → Let the state owner define the snapshot boundary
+
+------------------------------------------------------------
+
+13. Validation happens before either endpoint changes
+Mechanism in C++
+
+SAY
+The interval invariant is a relationship between the two integers, not a rule on either integer alone. Selection::set checks the proposed pair before assigning low_ or high_. If it rejected only after writing low_, an invalid request such as nine and three could damage the current state even though the caller receives an exception. The actual source throws first and leaves the earlier pair untouched. This behavior makes snapshots trustworthy: save reads a state that successful operations preserve as valid. While stepping through the code, identify where validation ends and mutation begins. That boundary is often more useful in a review than counting how many guard statements a function contains.
+
+DO
+Trace the invalid request and identify the first assignment that must not execute.
+
+SOURCE
+manuscript/ch17.json → The problem: remember an interval without breaking its rules
+
+------------------------------------------------------------
+
+14. Restore a value; do not consume the record
+Mechanism in C++
+
+SAY
+restore takes a const reference, so it borrows the record during the call and does not edit it through that reference. The two integer assignments do not allocate or throw, which gives this small restoration a clear exception-safety story. It does not make the assignments atomic to another thread; the example is single-threaded. The same snapshot can be restored repeatedly, and another Selection can restore it because all instances share the same range rules. If records belonged to one document or session, the design would need an identity token and a checked rejection policy. Do not silently impose that different policy on this source: portable saved values are an intentional tested behavior here.
+
+DO
+Distinguish repeated restore of one value from consuming an undo-history entry.
+
+SOURCE
+manuscript/ch17.json → Restoration should have a clear failure story
+
+------------------------------------------------------------
+
+15. Keep the recovery record until restoration succeeds
+Mechanism in C++
+
+SAY
+History owns a vector of snapshots and borrows the Selection it manages. undo first handles the normal empty case by returning false. Otherwise it restores the last record and then pops it. That order means the recovery record remains available until the operation it supports has succeeded. In this integer example, restoration cannot throw, but the order communicates a useful rule for future state. If restoration later copied strings one field at a time, allocation could fail midway. Selection would need a stronger strategy, such as building a complete proposed state and committing it safely. History should not guess how to repair partially restored private fields; that responsibility stays with the state owner.
+
+DO
+Ask what a future throwing restore would lose if the record were popped first.
+
+SOURCE
+manuscript/ch17.json → The history manager keeps records without opening them
+
+------------------------------------------------------------
+
+16. Bounded history needs a commit point too
+Mechanism in C++
+
+SAY
+A capacity limit is visible behavior: it determines how far a user can undo. The extension keeps the three newest remembered states. It copies the current records to proposed, removes the oldest there if necessary, adds the new record, and swaps proposed into the live history. Allocation failure before that swap leaves the old history intact. This is a small example of preparing a new state before committing it. It costs a copy, which is reasonable for a teaching history of two-integer records. A fixed-capacity buffer may be faster for large or frequent updates, but its overwrite order needs equal care. Performance changes should preserve the same eviction and failure contract.
+
+DO
+Have learners trace the proposed vector before the final swap.
+
+SOURCE
+manuscript/ch17.json → Bound memory growth without weakening the contract
+
+------------------------------------------------------------
+
+17. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Originator → Selection. Own current state and define save/restore operations. Selection validates both endpoints together and decides the snapshot boundary.
+
+Memento → Selection::Snapshot. Retain an independent state record. The new nested value has private endpoints and a private constructor.
+
+Caretaker → History. Keep records in order and decide when to restore one. History cannot inspect or edit snapshot endpoints.
+
+Client → main. Choose when to remember relative to edits. A snapshot taken before a change records a different checkpoint from one taken afterward.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → C17.08 concepts
+
+------------------------------------------------------------
+
+18. History holds records; Selection defines their meaning
+UML and source walkthrough
+
+SAY
+The History-to-Snapshot edge means owned value storage. History-to-Selection is a borrowed dependency. Selection can read Snapshot internals because of friendship, a C++ access rule; the creation/read arrow is a teaching dependency and does not mean Selection owns every saved snapshot.
+
+Selection creates a private nested Snapshot containing copied integers. History owns snapshots by value and borrows the selection. Restoration leaves the snapshot reusable and history consumes a record only after restore.
+
+The state owner retains control of representation and valid restoration. Whenever a new field is added, review whether it belongs inside the snapshot boundary and add a restore test for that choice.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch17/main.cpp:1-79; content/design-patterns-cpp/ch17.json → diagrams.17
+
+------------------------------------------------------------
+
+19. Memento — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Selection creates a private nested Snapshot containing copied integers. History owns snapshots by value and borrows the selection. Restoration leaves the snapshot reusable and history consumes a record only after restore.
+
+The state owner retains control of representation and valid restoration. Whenever a new field is added, review whether it belongs inside the snapshot boundary and add a restore test for that choice.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch17/main.cpp:1-79; content/design-patterns-cpp/ch17.json → diagrams.17
+
+------------------------------------------------------------
+
+20. Copy the interval into and out of a record
+UML and source walkthrough
+
+SAY
+These operations define exactly which state a snapshot captures. Selection owns both operations because it knows its private representation. Outside history code can keep a value without accessing either endpoint.
+
+Define a read-only operation returning a Snapshot value. The comment says the pair is copied together. Construct a private snapshot from the current endpoints. Close save. Define restoration from a borrowed read-only snapshot. The comment identifies copying back as the restoration mechanism. Restore the low endpoint from saved value storage. Restore the high endpoint from the same snapshot. Close restore and label its source boundary.
+
+Both endpoints are copied, and saved values remain unchanged. Reference-based snapshots would track live changes instead of preserving history.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch17/main.cpp:26-34
+
+------------------------------------------------------------
+
+21. Restore first, consume history second
+UML and source walkthrough
+
+SAY
+This operation restores the newest saved state if one exists. History supplies ordering but cannot inspect snapshot fields. The recovery record should remain available until restoration succeeds.
+
+Define an undo operation that reports whether a record existed. The comment states the normal empty-history case. Return false immediately if there is no record. Ask Selection to interpret and restore the newest record. Remove that record after restoration returns. Return true to report that one state was restored. Close undo and mark its boundary.
+
+An empty history returns false and changes no selection state. Popping before a potentially throwing restore would lose the only record needed to retry.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch17/main.cpp:44-50
+
+------------------------------------------------------------
+
+22. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Selection creates a private nested Snapshot containing copied integers. History owns snapshots by value and borrows the selection. Restoration leaves the snapshot reusable and history consumes a record only after restore.
+
+The program checks empty history, restore of both endpoints, snapshot reuse, invalid-pair rejection without mutation, boundary [0,100], and cross-instance restoration. It does not test persistence, concurrency, or allocation failures in history growth.
+
+The state owner retains control of representation and valid restoration. Whenever a new field is added, review whether it belongs inside the snapshot boundary and add a restore test for that choice. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch17/main.cpp
+
+------------------------------------------------------------
+
+23. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. Selection=[2,5]; saved snapshot=[2,5].. save makes independent copies of both integers.
+
+Step 2. Live selection=[20,40]; snapshot still=[2,5].. Changing the live object does not alter the saved value.
+
+Step 3. history.undo returns true; selection=[2,5].. The last record restores both fields before being removed.
+
+Step 4. set(9,3) throws; selection remains [2,5].. The whole pair is validated before either assignment.
+
+Step 5. Another Selection restores the saved record to [2,5].. This design intentionally treats snapshots as portable interval values.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → trace
+
+------------------------------------------------------------
+
+24. Debug the promise: Snapshot stores references to low_ and high_ instead of copied values.
+Execute and debug
+
+SAY
+Snapshot stores references to low_ and high_ instead of copied values. After setting [20,40], the alleged old snapshot also reads [20,40]. It observes current storage rather than retaining the old state.
+
+The program checks empty history, restore of both endpoints, snapshot reuse, invalid-pair rejection without mutation, boundary [0,100], and cross-instance restoration. It does not test persistence, concurrency, or allocation failures in history growth.
+
+The state owner retains control of representation and valid restoration. Whenever a new field is added, review whether it belongs inside the snapshot boundary and add a restore test for that choice.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → example.failures
+
+------------------------------------------------------------
+
+25. Debug the promise: Assign low_ before validating high and low together.
+Execute and debug
+
+SAY
+Assign low_ before validating high and low together. A rejected set(9,3) may leave the interval partially changed and invalid. Throwing does not undo earlier assignments automatically.
+
+The program checks empty history, restore of both endpoints, snapshot reuse, invalid-pair rejection without mutation, boundary [0,100], and cross-instance restoration. It does not test persistence, concurrency, or allocation failures in history growth.
+
+The state owner retains control of representation and valid restoration. Whenever a new field is added, review whether it belongs inside the snapshot boundary and add a restore test for that choice.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → example.failures
+
+------------------------------------------------------------
+
+26. Trace 1: Memento: Restore interval
+Trace experiments
+
+SAY
+Memento: Restore interval. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The saved lower endpoint is three, independent of later edits.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → dpx-c17-trace-1; companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 2: Memento: Restore upper bound
+Trace experiments
+
+SAY
+Memento: Restore upper bound. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Both endpoints return to their saved values.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → dpx-c17-trace-2; companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 3: Memento: Invalid edit preserves state
+Trace experiments
+
+SAY
+Memento: Invalid edit preserves state. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Check the pair before changing either field.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → dpx-c17-trace-3; companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 4: Memento: Reusable structural snapshot
+Trace experiments
+
+SAY
+Memento: Reusable structural snapshot. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+This snapshot represents an interval value and can restore another Selection.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → dpx-c17-trace-4; companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 5: Memento: Keep three entries
+Trace experiments
+
+SAY
+Memento: Keep three entries. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Three snapshots all fit before eviction begins.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → dpx-c17-trace-5; companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 6: Memento: Evict oldest
+Trace experiments
+
+SAY
+Memento: Evict oldest. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+After four remembers, the surviving snapshots are two, three and four.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → dpx-c17-trace-6; companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 7: Memento: Empty undo
+Trace experiments
+
+SAY
+Memento: Empty undo. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+No snapshot is a normal false result, not a fabricated restore.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → dpx-c17-trace-7; companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+33. Trace 8: Memento: Undo consumes entry
+Trace experiments
+
+SAY
+Memento: Undo consumes entry. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A successfully restored entry is removed from the history.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → dpx-c17-trace-8; companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+34. Exercise 17.1: Guided modification
+Practice and extension
+
+SAY
+Change the allowed maximum from one hundred to two hundred. Which existing boundary test changes, and what new rejected case should be added?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The validation rule is centralized in Selection::set.
+
+After the discussion, compare the reasoning. Allow high <= 200, test [0,200], and reject [0,201] without changing the existing selection. Snapshot fields and history need no structural change because the representation is still two integers.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch17.json → exercises.17.1
+
+------------------------------------------------------------
+
+35. Exercise 17.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+Starting at [1,4], remember; set [3,8], remember; set [6,9]; undo twice. List the state after each undo.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: History stores state when remember is called.
+
+After the discussion, compare the reasoning. The first undo restores [3,8] and the second restores [1,4]. Saving after a change records a different checkpoint than saving before it; the caller must choose that policy deliberately.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch17.json → exercises.17.2
+
+------------------------------------------------------------
+
+36. Exercise 17.3: Diagnose a bug
+Practice and extension
+
+SAY
+An undo implementation pops the last record and then tries to restore it through a reference previously obtained from back(). What is wrong?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The referenced vector element has been destroyed.
+
+After the discussion, compare the reasoning. The reference dangles after pop_back. Accessing it is undefined behavior, even if the memory still contains old bits. Restore before popping, or first copy the snapshot into an independent local value.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch17.json → exercises.17.3
+
+------------------------------------------------------------
+
+37. Exercise 17.4: Choose a design
+Practice and extension
+
+SAY
+A snapshot of an image editor would copy hundreds of megabytes after each keystroke. Name two alternatives and explain one tradeoff.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Retain only changes or share data that cannot change.
+
+After the discussion, compare the reasoning. Command-specific deltas store smaller changes but require correct inverse operations. Shared immutable image blocks let snapshots reuse unchanged data, but need clear ownership and a new block whenever content changes.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch17.json → exercises.17.4
+
+------------------------------------------------------------
+
+38. Exercise 17.5: Extend without regressions
+Practice and extension
+
+SAY
+Limit history to its newest three records. For remembered low values one, two, three, four with high=low+1, which undo values remain?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Remove the oldest checkpoint, not the newest.
+
+After the discussion, compare the reasoning. Undo returns low values four, three, two, then false. One has been discarded. The reference solution builds proposed history before committing so allocation failure does not erase an old record first.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch17.json → exercises.17.5
+
+------------------------------------------------------------
+
+39. Exercise 17.6: Justify a decision
+Practice and extension
+
+SAY
+Explain whether restoring one Selection snapshot into another should be allowed. Give both a valid policy and when you would reject it.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Consider whether state values have owner-specific meaning.
+
+After the discussion, compare the reasoning. It is allowed here because all selections use the same coordinate range. Reject it for document-specific coordinates or ownership-sensitive resources unless the snapshot carries and validates a matching identity. Either policy can be sound when explicit and tested.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch17.json → exercises.17.6
+
+------------------------------------------------------------
+
+40. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Change History::remember so only the three most recent snapshots remain. Preserve the old history if creating the proposed new history throws before commit. Keep all primary behavior and add a four-record eviction test.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: Remember intervals [1,2], [2,3], [3,4], [4,5]. Undo restores [4,5], [3,4], [2,3], then returns false. An empty history and invalid Selection update still behave as before.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch17/main.cpp
+
+------------------------------------------------------------
+
+41. Extension solution and design review
+Practice and extension
+
+SAY
+The solution copies saved_ into proposed, evicts the oldest item there, appends a new snapshot, and swaps. The original vector is untouched until commit. A fixed-capacity buffer would avoid allocation during ordinary updates, but requires its own careful ordering and overwrite tests.
+
+The state owner retains control of representation and valid restoration. Whenever a new field is added, review whether it belongs inside the snapshot boundary and add a restore test for that choice.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch17/main.cpp
+
+------------------------------------------------------------
+
+42. Application case 1: defend your choice
+Practice and extension
+
+SAY
+An editor must restore a valid previous selection without letting History edit its private endpoints. What fits?
+
+Decorator. Adding a wrapper does not capture prior state.
+
+Memento. The originator creates a snapshot that the caretaker stores without changing its internals.
+
+Bridge. Independent variation dimensions are not the main issue.
+
+Chain of Responsibility. No ordered request handling is needed.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → C17.22 scenario
+
+------------------------------------------------------------
+
+43. Application case 2: defend your choice
+Practice and extension
+
+SAY
+A Snapshot stores references to low_ and high_ rather than copies. The selection changes from [10,30] to [20,40]. What does the alleged old snapshot observe?
+
+Automatic undo at assignment time. References do not trigger restoration.
+
+[20,40]. The references still name the current endpoints, so no independent old state was saved.
+
+[10,30] forever. That would require copied values or some other immutable saved state.
+
+A compile error in every possible implementation. References can compile while violating snapshot semantics.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch17.json → C17.23 scenario
+
+------------------------------------------------------------
+
+44. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+A snapshot should own the state it promises to remember. The originator controls access and restoration rules. A history manager can store opaque records. State boundaries determine what undo actually restores. Local memory snapshots do not imply persistent backups or reversal of external effects.
+
+The state owner retains control of representation and valid restoration. Whenever a new field is added, review whether it belongs inside the snapshot boundary and add a restore test for that choice.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch17.json → summary
+
+------------------------------------------------------------
+
+45. A snapshot, a delta, or an undo command?
+Recall and transfer
+
+SAY
+For two integers, copying complete state is clear and cheap. A large document may need a different tradeoff. A delta stores only a change, but rebuilding a state can depend on earlier records remaining available. Shared immutable data can avoid repeated copies, provided later edits never mutate the data old snapshots share. A Command remembers an action and enough information to reverse its successful effect. These designs can also be combined: a command may ask an object for a snapshot before changing it. Choose based on measured state size, edit frequency, and the undo promise. Replacing a tiny value record with a complicated history graph can increase both bugs and explanation cost without a practical benefit.
+
+DO
+Compare restoring one standalone pair with replaying several changes.
+
+SOURCE
+manuscript/ch17.json → Bound memory growth without weakening the contract
+
+------------------------------------------------------------
+
+46. Do not call a memory snapshot a complete backup
+Recall and transfer
+
+SAY
+Restoring the selected interval does not unsend an exported chart. The saved record covers local endpoints only. It also disappears when the process ends because this program defines no persistent file format. A durable backup would need serialization, validated loading, and a policy for changes between software versions. These limits are not failures of Memento; they are limits of the promise actually implemented. When undo looks wrong, ask first whether the missing state was inside the snapshot boundary, whether it was copied or merely aliased, and whether the history still retained the desired record. Those questions distinguish a faulty implementation from an unsupported expectation.
+
+DO
+Ask learners to name one external effect that endpoint restoration cannot reverse.
+
+SOURCE
+manuscript/ch17.json → A snapshot is a value, not a rewind button for the world
+
+------------------------------------------------------------
+
+47. Explain remembered state without exposing it
+Recall and transfer
+
+SAY
+Retell the design from the user's action. Before an edit, the state owner creates a valid saved record. A history manager stores that value without learning its fields. After the edit, the manager can ask the owner to restore the record. The owner alone knows how to make that transition while preserving its rules. That explanation captures Memento more accurately than saying undo copies some data. Transfer the lesson to a game checkpoint: decide whether score, position, random-generator state, and inventory belong in one boundary. Omitting a related part can produce a state that never existed. Including unrelated external actions can promise a reversal the program cannot deliver.
+
+DO
+Give a checkpoint example and ask learners to defend its state boundary.
+
+SOURCE
+manuscript/ch17.json → A snapshot is a value, not a rewind button for the world

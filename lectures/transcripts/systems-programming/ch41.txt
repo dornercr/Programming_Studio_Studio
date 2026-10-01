@@ -1,0 +1,765 @@
+Systems Programming and Machine Organization
+Chapter 41: Signals: safe notification and coordinated waiting
+Dr. Charles Dorner
+
+1. Signals: an interruption is not an ordinary call
+Problem and first experiment
+
+SAY
+Suppose a process is formatting a status line when a shutdown request arrives. The request did not wait for the formatting library to finish updating its private buffers. That is the central signal problem: the handler can run at an inconvenient point inside ordinary work. A signal is an event notification delivered under operating-system rules. It may request termination, report child changes, or reflect a fault. We must distinguish a routine request from a fault caused by an invalid instruction or memory access. Catching a fault does not establish that the interrupted program is healthy enough to continue. Begin with a minimal notification contract, not a large handler.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.004
+
+------------------------------------------------------------
+
+2. Choose the promise: request noticed, not events counted
+Problem and first experiment
+
+SAY
+A pending notification is not necessarily an exact event count. If several standard signals of the same kind arrive while blocked, they can be represented by one pending instance. A flag set to one therefore means inspect the underlying state, not process exactly one request. For child changes, ordinary code should collect all available child statuses instead of assuming one status for each signal delivery. If every event must carry data and be counted, a queue or another explicit communication mechanism may be needed. The choice comes from the requirement. Replacing a flag with an ordinary increment inside a handler does not create a reliable general event queue.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.016
+
+------------------------------------------------------------
+
+3. Run a minimal real handler
+Problem and first experiment
+
+SAY
+This Linux/POSIX demonstration installs a handler for a signal sent only to the current process. The handler stores one in a volatile sig_atomic_t flag and returns. It does not print, allocate, or take a mutex. raise sends the signal; after successful handling returns, ordinary main prints observed=true. The program checks setup and raise results, and restores the earlier disposition before exiting. This demonstrates real delivery, not an interleaving model. The flag's special type supports this limited handler communication. It is not a replacement for std::atomic in general thread communication, nor does its value tell us how many notifications might have been combined.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch41.json → SP41.012
+
+------------------------------------------------------------
+
+4. Model the check-then-sleep gap safely
+Problem and first experiment
+
+SAY
+This program is a serialized model, not an actual signal wait. The first path checks a false request flag, then models delivery, then models sleeping because of the stale decision. It prints broken sleeps=true request=true: the request exists while the imagined waiter is asleep. The corrected model makes delivery pending while the decision is protected, then handles it when the coordinated wait enables delivery. Its printed blocked=false means it does not remain asleep after that pending request is handled. No real pause is called, so the demonstration cannot hang waiting for another signal. The model explains why volatile alone cannot combine a check and a later sleep into one operation.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch41.json → SP41.022
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A model flag records that attention is needed. Two notifications arriving before the main loop checks the flag can collapse into one pending state.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Model both a Boolean notification and a counted event queue. Deliver two events before consuming anything, then explain why the two representations produce different amounts of information.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+This sequential model is not a valid signal handler implementation. Real handlers need only async-signal-safe operations and a correct signal-mask/wait protocol.
+
+A related failure in the generalized operation is concrete: Expect two standard signal notifications to behave like two items in a reliable work queue.
+
+The repair changes the operation at the point where the rule can be enforced: Treat a signal as a prompt to inspect authoritative state unless the API explicitly queues the required information. Use a suitable counted mechanism when every event matters.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+A flag answers whether attention is needed; a counter can preserve multiplicity within its range. Neither this ordinary bool nor unsigned is a real concurrent signal-handling protocol. A real handler must obey async-signal-safety rules, and the main loop must close the check-then-sleep race using the OS’s waiting and mask operations.
+
+A plausible alternative: Use a counted queue or appropriate queued notification mechanism when every event must be preserved.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.03
+
+------------------------------------------------------------
+
+8. Chapter 41 — Signals
+Systems mechanisms and source lecture
+
+SAY
+Signals notify a process or thread of events outside ordinary return-value control flow. They can represent terminal actions, child state changes, explicit requests, or synchronous faults. A signal handler can interrupt code at an inconvenient moment, so its safe operations are severely restricted. [ R20 , R21 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.001, SP41.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+41.1 Asynchronous events 41.2 Signal delivery 41.3 kill 41.4 sigaction ...plus 10 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.003
+
+------------------------------------------------------------
+
+10. Asynchronous events
+Systems mechanisms and source lecture
+
+SAY
+An asynchronous signal can arrive independently of the interrupted statement’s purpose. The program may be halfway through updating a data structure or holding a library’s internal lock. Handler code must not assume a clean application boundary. Synchronous fault signals have a different relationship to execution: they result from an instruction’s behavior. Catching such a signal does not automatically make corrupted state recoverable. Treat routine notifications and invalid-memory faults as different design problems.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.004, SP41.005
+
+------------------------------------------------------------
+
+11. Signal delivery
+Systems mechanisms and source lecture
+
+SAY
+Signal disposition defines whether a signal is handled, ignored, or given its default action, subject to signals that cannot be caught or ignored. Signal masks control which signals are blocked for a thread. In a multithreaded process, dispositions and per-thread masks have different scopes. Process-directed signals can be delivered to an eligible thread under the platform’s rules. A design that depends on one particular worker receiving a signal should use a deliberate masking and signal-consumption strategy instead of leaving delivery accidental.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.006, SP41.007
+
+------------------------------------------------------------
+
+12. kill
+Systems mechanisms and source lecture
+
+SAY
+Despite its name, kill sends a signal; the chosen signal’s disposition determines the effect. It can request termination, notify, or test certain existence/permission conditions with signal number zero under documented rules. A PID is a reusable identifier, not an eternal object reference. Long-lived supervisors must account for lifecycle and identity races. This book’s simple examples use freshly created children or the current process rather than treating an old stored PID as permanently trustworthy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.008, SP41.009
+
+------------------------------------------------------------
+
+13. sigaction
+Systems mechanisms and source lecture
+
+SAY
+sigaction installs a handler and associated mask and flags. It provides explicit control that is preferable to relying on historically varying signal semantics. Initialize the structure and signal set before installing it. Flags such as SA_RESTART affect some interrupted operations, not every possible wait or system call. Correct I/O code still needs to interpret its own interface’s results. A blanket assumption that signals can never interrupt operations is unsafe.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.010, SP41.011
+
+------------------------------------------------------------
+
+14. Signal handlers
+Systems mechanisms and source lecture
+
+SAY
+A minimal handler records that an event occurred and leaves substantial work to ordinary control flow. A volatile sig_atomic_t flag supports the limited communication pattern used here. It is not a general atomic counter or a substitute for C++ inter-thread synchronization. Do not call printf , allocate memory, acquire arbitrary mutexes, or use ordinary C++ stream operations from an asynchronous handler. They may rely on state that the interrupted code was modifying. Use only operations guaranteed async-signal-safe for the relevant environment. [ R20 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.012, SP41.013
+
+------------------------------------------------------------
+
+15. Blocking signals
+Systems mechanisms and source lecture
+
+SAY
+Blocking delays delivery; it does not necessarily discard the event. A critical setup sequence can block a signal, install state, and then unblock it at a controlled point. In multithreaded programs, use the appropriate thread-aware mask interfaces and establish masks before creating workers when that is part of the design. Blocking is also needed to close a check-then-sleep race. The signal must not slip between observing a flag and entering a wait that would then have no future notification to wake it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.014, SP41.015
+
+------------------------------------------------------------
+
+16. Pending signals
+Systems mechanisms and source lecture
+
+SAY
+A blocked signal can become pending. Standard signals generally do not queue one distinct instance for every repeated occurrence; multiple occurrences can coalesce. Real-time signals provide different queuing semantics under their documented limits. Consequently, a handler flag is usually a request to inspect state, not an exact count of events. A SIGCHLD notification should trigger collection of all available child statuses, not one wait per presumed signal instance.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.016, SP41.017
+
+------------------------------------------------------------
+
+17. Signal safety
+Systems mechanisms and source lecture
+
+SAY
+Signal safety concerns reentrancy and permitted operations at an asynchronous interruption point. It is not the same as ordinary thread safety. A function protected by an internal mutex can be thread-safe yet deadlock when called from a handler that interrupted a thread holding that mutex. A handler using an async-signal-safe function that can affect errno should save and restore errno when necessary. A self-pipe pattern can notify an event loop with a small write, but it must handle a full nonblocking pipe without blocking inside the handler.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.018, SP41.019
+
+------------------------------------------------------------
+
+18. Signal races
+Systems mechanisms and source lecture
+
+SAY
+A race occurs when correctness depends on the timing of delivery relative to ordinary state changes. Installing a handler after enabling an event source can miss the intended handling window. Updating shared bookkeeping without a masking plan can expose inconsistent state. Design the state transition and notification together. The signal says that something may have changed; protected ordinary code determines exactly what changed and performs the required work. This parallels condition-variable design in Part XI.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.020, SP41.021
+
+------------------------------------------------------------
+
+19. Sleep/wakeup races
+Systems mechanisms and source lecture
+
+SAY
+The broken pattern is if (!flag) pause(); : a signal can set the flag after the check but before pause , leaving the program asleep after the only notification. Making the flag volatile does not make those two operations atomic. sigsuspend temporarily installs a signal mask and waits as one coordinated operation. Block the relevant signal while checking the predicate, then use a mask that permits it during the wait. On return, recheck the predicate in a loop. [ R40 ]
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.022, SP41.023
+
+------------------------------------------------------------
+
+20. Pending delivery without a lost wakeup
+Systems mechanisms and source lecture
+
+SAY
+This deterministic demonstration blocks SIGUSR1 , raises it while blocked, and then uses sigsuspend to permit delivery. The handler only sets a flag. It does not require another process or rely on a sleep duration. Companion listing: ch41/signals.c The expected output is signal observed . The signal is already pending before the wait, yet delivery cannot be lost between the predicate check and the temporary unblocking. The example intentionally exits after demonstrating one notification; a reusable component would also restore dispositions and define a broader shutdown policy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.024, SP41.025
+
+------------------------------------------------------------
+
+21. Safe signal notification
+Systems mechanisms and source lecture
+
+SAY
+A signal handler should do minimal async-signal-safe work. A common pattern sets a volatile sig_atomic_t flag or writes a byte to a self-pipe, then returns. Normal code observes the flag or file descriptor and performs complex processing outside the handler. Calling arbitrary allocation or I/O library functions inside the handler can violate reentrancy requirements.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.026, SP41.027
+
+------------------------------------------------------------
+
+22. Closing a sleep/wakeup race
+Systems mechanisms and source lecture
+
+SAY
+If code checks ready == false and then separately goes to sleep, a signal arriving between those steps can be lost. Correct designs use an atomic blocking primitive such as sigsuspend with a carefully managed signal mask so the state check and sleep transition cannot miss the event window.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.028, SP41.029
+
+------------------------------------------------------------
+
+23. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 41. Trace the mask and flag before raise , after raise , inside the handler, and after sigsuspend . Explain what repeated standard-signal raises while blocked do and why an event counter cannot be inferred from this flag. Review 1. Why is thread-safe not equivalent to async-signal-safe? Review 2. Why does volatile not repair check-then-sleep?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.030, SP41.031
+
+------------------------------------------------------------
+
+24. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is signals. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.032
+
+------------------------------------------------------------
+
+25. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Shell Architecture.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.033
+
+------------------------------------------------------------
+
+26. Masks and dispositions answer different questions
+Reason about the implementation
+
+SAY
+A disposition answers what action a signal should cause. A mask answers whether delivery is currently allowed for a thread. These are different pieces of state, with different scopes in a multithreaded process. Imagine installing a shutdown handler while workers are being created. If masking is part of the plan, establish the intended mask before worker creation and deliberately select who consumes notifications. Otherwise a process-directed signal may reach an eligible worker rather than the thread whose state machine expected it. Blocking an event during setup can preserve it as pending; it does not necessarily throw it away. Describe this lifecycle before adding calls that enable the event source.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.006
+
+------------------------------------------------------------
+
+27. sigsuspend links checking with eligibility to wake
+Reason about the implementation
+
+SAY
+The correct waiting shape begins by blocking the relevant signal while checking the flag. If work is still absent, sigsuspend temporarily changes the mask and waits in one coordinated operation. A signal already pending can then be delivered without falling into a gap between checking and sleeping. When control returns, the earlier mask is restored and normal code checks the predicate again. A return does not necessarily mean the particular work we want is ready, because another handled signal may be involved. This resembles a condition-variable predicate loop, although its mechanism is a signal mask rather than a mutex. The predicate remains the source of truth.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.022
+
+------------------------------------------------------------
+
+28. Thread-safe is weaker than signal-safe here
+Reason about the implementation
+
+SAY
+Consider a library routine that locks its private mutex before changing a buffer. Two normal threads can call it safely because one waits for the other. Now imagine a handler interrupts the owning thread and calls that same routine. It waits for a mutex that the interrupted work cannot release until the handler returns. That is why ordinary thread safety does not imply asynchronous signal safety. Keep complex work in normal flow. A self-pipe can bridge a handler to an event loop using a carefully bounded notification write, but a full pipe must not make the handler block. Even a small bridge has a capacity and failure policy.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.018
+
+------------------------------------------------------------
+
+29. Restart policy does not erase I/O contracts
+Reason about the implementation
+
+SAY
+Installing a handler includes a choice of flags. SA_RESTART can restart some interrupted operations, but it does not promise that every blocking interface behaves as though no signal occurred. I/O code must still examine return values, byte counts, and documented interruption behavior. If a handler calls a permitted operation that may change errno, it may need to save and restore the interrupted value so ordinary error reporting remains meaningful. Keep the roles separate: the handler requests work, the normal operation reports its own progress, and the caller decides whether retrying is valid. Blindly retrying an operation with side effects can be as wrong as blindly treating interruption as fatal.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.010
+
+------------------------------------------------------------
+
+30. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A model flag records that attention is needed. Two notifications arriving before the main loop checks the flag can collapse into one pending state.
+
+First notification. pending true. The flag records a condition, not an event count.
+
+Second notification. pending still true. No extra information fits in one Boolean.
+
+Main loop reacts. one handling pass. That pass should inspect the underlying state if several events may have occurred.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch41/main.cpp
+
+------------------------------------------------------------
+
+31. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+First notification. pending true. The flag records a condition, not an event count.
+
+Second notification. pending still true. No extra information fits in one Boolean.
+
+Main loop reacts. one handling pass. That pass should inspect the underlying state if several events may have occurred.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch41/main.cpp
+
+------------------------------------------------------------
+
+32. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+A flag answers whether attention is needed; a counter can preserve multiplicity within its range. Neither this ordinary bool nor unsigned is a real concurrent signal-handling protocol. A real handler must obey async-signal-safety rules, and the main loop must close the check-then-sleep race using the OS’s waiting and mask operations.
+
+Treat a signal as a prompt to inspect authoritative state unless the API explicitly queues the required information. Use a suitable counted mechanism when every event matters.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch41/main.cpp:1-12
+
+------------------------------------------------------------
+
+33. A signal notification is not a work queue
+Code, diagrams, and debugging
+
+SAY
+A signal notification is not a work queue. One event sets the pending flag. A flag stores a state, not an event count.
+
+A model flag records that attention is needed. Two notifications arriving before the main loop checks the flag can collapse into one pending state.
+
+The flag records a condition, not an event count. No extra information fits in one Boolean. That pass should inspect the underlying state if several events may have occurred.
+
+One event sets the pending flag. A flag stores a state, not an event count.
+
+A second event sets the same state again, preserving no extra multiplicity.
+
+handled begins at zero to count how often this model performs handling.
+
+The single true flag causes one handling step and is cleared. Two notifications therefore lead to handled=1. This ordinary bool is not a real signal-handler synchronization mechanism.
+
+A pending flag records whether handling is needed, not how many events occurred. This single-threaded model does not establish signal-handler safety.
+
+This sequential model is not a valid signal handler implementation. Real handlers need only async-signal-safe operations and a correct signal-mask/wait protocol. In the extended lab: Expect two standard signal notifications to behave like two items in a reliable work queue.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch41/main.cpp:6-9
+
+------------------------------------------------------------
+
+34. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Expect two standard signal notifications to behave like two items in a reliable work queue.
+
+Treat a signal as a prompt to inspect authoritative state unless the API explicitly queues the required information. Use a suitable counted mechanism when every event matters.
+
+The reference solution makes the contract executable with assertions. A flag answers whether attention is needed; a counter can preserve multiplicity within its range. Neither this ordinary bool nor unsigned is a real concurrent signal-handling protocol. A real handler must obey async-signal-safety rules, and the main loop must close the check-then-sleep race using the OS’s waiting and mask operations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.06
+
+------------------------------------------------------------
+
+35. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch41/starter.cpp. Implement the first acceptance case for separate pending state from an event count. State the function inputs and result before adding code. First case: Two Boolean notifications leave one true flag.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.07
+
+------------------------------------------------------------
+
+36. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch41/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.08
+
+------------------------------------------------------------
+
+37. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Expect two standard signal notifications to behave like two items in a reliable work queue. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.09
+
+------------------------------------------------------------
+
+38. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why is check flag, then sleep vulnerable without an atomic waiting protocol? Compare the selected design with this plausible alternative: Use a counted queue or appropriate queued notification mechanism when every event must be preserved.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.10
+
+------------------------------------------------------------
+
+39. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch41/starter.cpp. Model both a Boolean notification and a counted event queue. Deliver two events before consuming anything, then explain why the two representations produce different amounts of information. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch41/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.11
+
+------------------------------------------------------------
+
+40. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Separate pending state from an event count belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.12
+
+------------------------------------------------------------
+
+41. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Model both a Boolean notification and a counted event queue. Deliver two events before consuming anything, then explain why the two representations produce different amounts of information.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch41/starter.cpp
+
+------------------------------------------------------------
+
+42. Review the extension solution
+Practice and extension
+
+SAY
+A flag answers whether attention is needed; a counter can preserve multiplicity within its range. Neither this ordinary bool nor unsigned is a real concurrent signal-handling protocol. A real handler must obey async-signal-safety rules, and the main loop must close the check-then-sleep race using the OS’s waiting and mask operations. Repair principle: Treat a signal as a prompt to inspect authoritative state unless the API explicitly queues the required information. Use a suitable counted mechanism when every event matters.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Treat a signal as a prompt to inspect authoritative state unless the API explicitly queues the required information. Use a suitable counted mechanism when every event matters.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch41/solution.cpp
+
+------------------------------------------------------------
+
+43. Application case: Signals
+Practice and extension
+
+SAY
+A signal handler calls an arbitrary library routine using locks.
+
+What is the concern?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.CASE
+
+------------------------------------------------------------
+
+44. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+A flag answers whether attention is needed; a counter can preserve multiplicity within its range. Neither this ordinary bool nor unsigned is a real concurrent signal-handling protocol. A real handler must obey async-signal-safety rules, and the main loop must close the check-then-sleep race using the OS’s waiting and mask operations.
+
+Choose a simpler approach when its narrower contract is enough. Use a counted queue or appropriate queued notification mechanism when every event must be preserved.
+
+When this system changes, retain a check that exposes the known failure: Expect two standard signal notifications to behave like two items in a reliable work queue. Treat a signal as a prompt to inspect authoritative state unless the API explicitly queues the required information. Use a suitable counted mechanism when every event matters.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch41.json → SYS41.14
+
+------------------------------------------------------------
+
+45. Debug a shutdown that is asleep forever
+Recall and transfer
+
+SAY
+A process that stops responding during shutdown may have received the only notification before it actually began waiting. Adding a longer delay can change the symptom without closing the race. Record the sequence instead: when was the flag checked, when was the signal blocked, when did it become pending, and when was delivery enabled? Our safe model gives one concrete failing order. The repair must remove that order from the allowed protocol, not make it unlikely. Also check whether complex handler work is blocked on a library lock. A trace of state and ownership is more useful than a claim that the problem disappeared during ten quiet test runs.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.020
+
+------------------------------------------------------------
+
+46. Carry the notification pattern into larger systems
+Recall and transfer
+
+SAY
+A reusable signal component needs more than a successful one-shot example. It must define installation, mask ownership, pending work, restoration of earlier dispositions, and shutdown while other threads still exist. The key lesson transfers to queues and condition variables: a notification says inspect state, while the state records what work remains. If a supervisor needs ten distinct messages, use a protocol that preserves ten messages rather than a flag that merely says yes. If it needs only a shutdown request, the simpler flag may be appropriate. State exactly what the component promises, then test notification before waiting, during waiting, repeated notification, and teardown under that promise.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch41.json → SP41.030

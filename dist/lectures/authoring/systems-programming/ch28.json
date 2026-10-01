@@ -1,0 +1,223 @@
+{
+  "chapter": 28,
+  "title": "Locality",
+  "opening": [
+    {
+      "title": "Use the bytes you bring close",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "concept",
+      "keyPoints": [
+        "Spatial locality reuses nearby bytes",
+        "Temporal locality reuses a value soon",
+        "Reuse competes with other accesses and capacity"
+      ],
+      "narration": "A cache commonly brings in a whole line even when a program asks for one small value. Spatial locality means nearby bytes are likely to be useful too. Temporal locality means a recently used value will be needed again before competing work pushes it away. These ideas explain why layout and order matter without requiring a particular cache size. Reuse after a million unrelated accesses may be too late, even if it occurs quickly in clock time. We will count useful bytes and distinct model lines, then verify that two real traversals compute the same answer. Neither step alone is a hardware timing measurement.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch28.json → SP28.006: 28.2 Spatial locality",
+      "question": {
+        "prompt": "Why is nearby storage not automatically useful spatial locality?",
+        "answer": "The program must actually use the nearby bytes before they are displaced; unused neighboring fields still consume transferred space."
+      }
+    },
+    {
+      "title": "Translate a stride into bytes before counting lines",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "code",
+      "keyPoints": [
+        "Eight four-byte values are used",
+        "Stride one touches two sixteen-byte model lines",
+        "Stride four touches eight model lines"
+      ],
+      "narration": "The model reads eight logical values, each four bytes. With a stride of one element, the selected byte addresses run from zero through twenty-eight, touching two sixteen-byte lines. With stride four, the addresses are sixteen bytes apart, so every value touches a new line: eight lines for the same thirty-two useful bytes. The printed fetched counts are thirty-two and one hundred twenty-eight under this cold unique-line traffic model. They are not observed cache misses or hardware bytes transferred. The example demonstrates why the unit elements is incomplete until element size and line size are supplied.",
+      "actions": [
+        "Predict exact output, run the complete program, then separate the measured fact from the declared model assumptions."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch28.json → SP28.012: 28.5 Strided access",
+      "question": {
+        "prompt": "Why do both cases report thirty-two useful bytes but different fetched bytes?",
+        "answer": "They read the same eight four-byte values, but the larger stride uses fewer bytes from each distinct model line."
+      },
+      "code": {
+        "filename": "sys_ch28_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <set>\nint main() {\n    constexpr unsigned elements = 8, element_bytes = 4, line_bytes = 16;\n    for (unsigned stride : {1u,4u}) {\n        std::set<unsigned> blocks;\n        for (unsigned i=0; i<elements; ++i)\n            blocks.insert((i*stride*element_bytes)/line_bytes);\n        std::cout << \"stride=\" << stride << \" lines=\" << blocks.size()\n                  << \" useful=\" << elements*element_bytes\n                  << \" fetched=\" << blocks.size()*line_bytes << '\\n';\n    }\n}\n",
+        "expectedStdout": "stride=1 lines=2 useful=32 fetched=32\nstride=4 lines=8 useful=32 fetched=128\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Cold unique-line traffic model: four-byte elements, sixteen-byte lines, no prefetch or eviction traffic."
+      }
+    },
+    {
+      "title": "A working set belongs to a phase",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "concept",
+      "keyPoints": [
+        "Count what must be useful together",
+        "Include metadata and code when relevant",
+        "Dataset size alone can overstate or understate pressure"
+      ],
+      "narration": "A program may own a large dataset while using only one tile at a time. Its active working set during that tile can be small. Conversely, an index, pointer graph, code, and thread stacks may add substantial pressure beyond the obvious input array. Choose an interval such as one request, one loop, or one batch, then ask which values are reused within it. This makes working-set reasoning useful for maintenance: adding a small lookup structure to every record may expand the hot footprint enough to change behavior. Total allocated bytes and useful hot bytes answer related but different questions.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch28.json → SP28.008: 28.3 Working sets",
+      "question": {
+        "prompt": "Why is counting only the input array sometimes an underestimate of the working set?",
+        "answer": "Traversal may also repeatedly use indexes, metadata, instructions, stacks, and other state during the same phase."
+      }
+    },
+    {
+      "title": "Equal results do not prove equal locality",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "code",
+      "keyPoints": [
+        "Both traversals sum the same twelve integer values",
+        "Only their visit order differs",
+        "Correctness is checked before performance is claimed"
+      ],
+      "narration": "This program stores zero through eleven in a flat array representing three rows of four columns. The row-first traversal visits adjacent elements in its inner loop. The column-first traversal jumps by four elements in its inner loop. Both print sixty-six and the equality check prints true because all twelve small integers are added exactly once. That result verifies the intended computation, not a speed difference. A timing claim would need a larger controlled workload, an observed compiler configuration, and a measurement method. The source’s one-line cache model explains a possible consequence of order; this program keeps the real computation contract visible.",
+      "actions": [
+        "Predict exact output, run the complete program, then separate the measured fact from the declared model assumptions."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch28.json → SP28.016: Worked example — Row-major versus column-major traversal",
+      "question": {
+        "prompt": "What does same=true establish, and what does it not establish?",
+        "answer": "It establishes equal checksums for these inputs, not equal memory traffic or measured runtime."
+      },
+      "code": {
+        "filename": "sys_ch28_same_work.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\nint main() {\n    std::array<int,12> values{};\n    for (int i=0; i<12; ++i) values[i] = i;\n    int rows = 0, columns = 0;\n    for (int row=0; row<3; ++row)\n        for (int col=0; col<4; ++col) rows += values[row*4+col];\n    for (int col=0; col<4; ++col)\n        for (int row=0; row<3; ++row) columns += values[row*4+col];\n    std::cout << \"rows=\" << rows << \" columns=\" << columns << '\\n';\n    std::cout << \"same=\" << std::boolalpha << (rows == columns) << '\\n';\n}\n",
+        "expectedStdout": "rows=66 columns=66\nsame=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Row-major is a layout fact, not a loop-name preference",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "concept",
+      "keyPoints": [
+        "Flat index = row × column count + column",
+        "Adjacent columns are contiguous in this representation",
+        "Choose loop order from actual storage layout"
+      ],
+      "narration": "In our flat three-by-four array, row one begins at element four because each earlier row contains four elements. Incrementing the column then advances one element at a time. Incrementing the row while holding column fixed advances four elements. That arithmetic, not the names row and column, explains the locality difference. A column-major representation would favor a different order, and a vector of separately allocated rows has additional layout details. Before rewriting loops, verify the actual representation and dependencies. A visually familiar matrix expression is not enough to prove which objects sit next to each other in memory.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch28.json → SP28.016: Worked example — Row-major versus column-major traversal",
+      "question": {
+        "prompt": "Would row-first necessarily be best for a column-major representation?",
+        "answer": "No. The access order should follow the actual contiguous dimension and the computation’s dependency requirements."
+      }
+    },
+    {
+      "title": "Packing hot fields can reduce unused traffic",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "concept",
+      "keyPoints": [
+        "Records may contain rarely used fields",
+        "A hot pass may need only one small field",
+        "Layout changes trade locality against interface complexity"
+      ],
+      "narration": "Suppose each record occupies sixty-four bytes, but a repeated analysis reads only a four-byte score. A record-at-a-time layout may fetch many unused bytes with each score. A separate compact score array can place sixteen scores in the space formerly occupied by one whole record. This is a potential traffic improvement, not an automatic recommendation: other operations may need complete records, and keeping parallel arrays synchronized adds maintenance obligations. Identify which phase dominates and preserve the correspondence between fields. A locality change is worthwhile when it improves the measured workload without making the data model unreliable.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch28.json → SP28.006: 28.2 Spatial locality",
+      "question": {
+        "prompt": "What correctness invariant becomes important when one record structure is split into parallel arrays?",
+        "answer": "Entries at the same logical index must continue to describe the same record, including during insertion and removal."
+      }
+    },
+    {
+      "title": "Randomness and dependence are separate properties",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "concept",
+      "keyPoints": [
+        "A random permutation may still fit in cache",
+        "Pointer chasing hides the next address until a load completes",
+        "Generate unrelated random choices outside a traversal measurement"
+      ],
+      "narration": "Calling a benchmark random does not describe its whole memory behavior. A shuffled order over a compact array may reuse a small number of pages, while pointers scattered across a large heap may touch many. Independent random loads can overlap; a dependent linked chain may wait for each previous result. Generating random numbers inside the timed region adds another workload entirely. Define the distribution, size, dependency pattern, and setup boundary before interpreting a result. Otherwise a supposed memory test may mostly measure random-number generation or a different working set from the real application.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch28.json → SP28.014: 28.6 Random access",
+      "question": {
+        "prompt": "Why should a traversal benchmark usually prepare its random order before timing?",
+        "answer": "So the measured region reflects traversal rather than also paying for random-order generation, unless that generation is intentionally part of the task."
+      }
+    },
+    {
+      "title": "The one-resident-line model has a narrow claim",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "concept",
+      "keyPoints": [
+        "The source model keeps only one line",
+        "It isolates reuse order in a tiny matrix",
+        "It does not predict a modern cache’s exact miss count"
+      ],
+      "narration": "The chapter’s compact model reports four misses for row-first traversal and sixteen for column-first traversal of its four-by-four example. Those counts follow its one-resident-line rule. A real cache has more entries, associativity, replacement behavior, and often prefetching, so the same tiny matrix may fit entirely after initial loading. The model remains useful because it shows how visit order changes reuse opportunities under a stated capacity. Do not repeat its numbers as measured performance. When changing the model, record line size, capacity, starting state, and access order together so the reason for a changed count stays visible.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch28.json → SYS28.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why might a real machine show fewer column-first misses than the teaching model?",
+        "answer": "Its cache can retain more than one line and may use other mechanisms omitted by the model."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Optimize only after preserving the computation",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "concept",
+      "keyPoints": [
+        "Check values before measuring speed",
+        "Respect loop-carried dependencies",
+        "Changing arithmetic order can change numeric results"
+      ],
+      "narration": "Reordering independent additions over our small integers preserves sixty-six. That does not mean every loop can be rearranged freely. A loop may depend on a value updated in the previous iteration, or floating-point rounding may make different summation orders produce different results. A cache-friendly rewrite must preserve the required computational contract, not just the set of addresses touched. Start with correctness checks, then measure the effect under a controlled workload. If the application permits a different numeric approximation, state that as a changed requirement. Otherwise an apparently faster result may simply be doing a different job.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch28.json → SP28.022: Guided lab and review",
+      "question": {
+        "prompt": "Why is an equal address set insufficient to justify arbitrary loop reordering?",
+        "answer": "The order may affect dependencies, side effects, or floating-point rounding even when the same locations are visited."
+      }
+    },
+    {
+      "title": "Explain locality through a concrete reuse interval",
+      "eyebrow": "SYSTEMS / CHAPTER 28",
+      "kind": "concept",
+      "keyPoints": [
+        "Name the repeated value or neighboring bytes",
+        "Count intervening competing data",
+        "State which model or measurement supports the claim"
+      ],
+      "narration": "A useful locality explanation says more than arrays are fast. Identify the value that will be reused, the neighboring bytes that will be consumed, and the other data touched before that reuse. Then connect those facts to a stated cache or translation model, or to measured evidence. Our stride example keeps useful work constant while changing modeled line use. Our checksum example keeps the answer constant while changing traversal order. Together they separate correctness, access pattern, and performance claims. In a review, ask which assumption would change if element size doubled, records moved to separate allocations, or another worker shared the cache.",
+      "actions": [
+        "Ask for a concrete access sequence and calculation before opening the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch28.json → SP28.024: Chapter Synthesis",
+      "question": {
+        "prompt": "What changes when a sixteen-element stride uses eight-byte rather than four-byte elements?",
+        "answer": "The byte stride doubles from sixty-four to one hundred twenty-eight, changing line and page usage."
+      }
+    }
+  ]
+}

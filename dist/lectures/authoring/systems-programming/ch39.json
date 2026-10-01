@@ -1,0 +1,222 @@
+{
+  "chapter": 39,
+  "title": "Process Termination — decoding results and reaping children",
+  "opening": [
+    {
+      "title": "A child stops; a parent still has work to do",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Termination ends execution",
+        "The kernel retains status for collection",
+        "One clear owner must reap that status"
+      ],
+      "narration": "When a child stops executing, the parent's lifecycle responsibility may remain. The system retains enough termination information for the parent to discover how the child ended. Collecting that information is called reaping. A terminated but unreaped child is a zombie; it is not still running its old instructions. A long-lived supervisor that ignores every completion can accumulate this bookkeeping. Start with an ownership rule: which part of the parent collects each child's status? That rule matters when multiple threads or event handlers might wait. Completion reporting should not be scattered among callers that each assume they are the only owner.",
+      "actions": [
+        "Separate execution state from retained termination bookkeeping."
+      ],
+      "sourceRef": "content/systems-programming/ch39.json → SP39.012 · 39.5 Zombie processes",
+      "question": {
+        "prompt": "Why is killing a zombie again not the normal solution?",
+        "answer": "It has already terminated. The remaining work is collecting its retained status under the parent’s lifecycle policy."
+      }
+    },
+    {
+      "title": "A nonzero child result can be a successful test",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "code",
+      "keyPoints": [
+        "Create one child for each known result",
+        "Decode only after WIFEXITED succeeds",
+        "The supervisor succeeds when observed results match expectations"
+      ],
+      "narration": "This actual process test launches a child that exits zero and another that exits six. Each child is waited for and decoded through the documented macros. The supervisor regards both as correct because those were the expected test outcomes, so its own exit code is zero and it prints that the checks passed. This separates the tested program's result from the test harness's result. A nonzero child status is not automatically a bug in the test; it may be exactly the failure case being verified. No raw wait-status bit layout is assumed, and only the parent produces the stable output.",
+      "actions": [
+        "Predict all three lines and the parent’s own exit status."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch39.json → SP39.006 · 39.2 Exit status",
+      "question": {
+        "prompt": "Why does the overall program succeed after deliberately observing child exit six?",
+        "answer": "Its job is to verify the expected status, not to treat every tested nonzero result as an unexpected harness failure."
+      },
+      "code": {
+        "filename": "sys_ch39_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cerrno>\n#include <iostream>\n#include <sys/wait.h>\n#include <unistd.h>\nbool observe(int expected) {\n    const pid_t child = fork();\n    if (child < 0) return false;\n    if (child == 0) _exit(expected);\n    int status = 0; pid_t result;\n    do { result = waitpid(child, &status, 0); } while (result < 0 && errno == EINTR);\n    return result == child && WIFEXITED(status) && WEXITSTATUS(status) == expected;\n}\nint main() {\n    if (!observe(0) || !observe(6)) return 1;\n    std::cout << \"success code=0\\n\";\n    std::cout << \"intentional failure code=6\\n\";\n    std::cout << \"supervisor check=passed\\n\";\n}\n",
+        "expectedStdout": "success code=0\nintentional failure code=6\nsupervisor check=passed\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Classify status before extracting a value",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Normal exit has an exit code",
+        "Signal termination has a signal identity",
+        "The encoded wait status is not the exit code itself"
+      ],
+      "narration": "waitpid writes an encoded status containing information about the kind of event. It does not simply store the number passed to exit. First ask WIFEXITED; only then use WEXITSTATUS. If WIFSIGNALED is true, use WTERMSIG instead. Treating every raw value as an ordinary failure code hides the difference between a program reporting invalid input and being terminated by a signal. That difference matters in diagnostics and restart policy. Job-control cases add stopped and continued states when requested, so a full shell needs more categories than a minimal run-and-wait launcher. The macros preserve that contract without hand-written bit guesses.",
+      "actions": [
+        "Give one normal-exit case and one signal case to classify."
+      ],
+      "sourceRef": "content/systems-programming/ch39.json → SP39.010 · 39.4 waitpid",
+      "question": {
+        "prompt": "May WEXITSTATUS be interpreted before checking WIFEXITED?",
+        "answer": "No. First classify the status; signal or other event categories do not provide the same ordinary-exit meaning."
+      }
+    },
+    {
+      "title": "Observe signal termination without guessing its number",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "code",
+      "keyPoints": [
+        "The child restores default SIGTERM behavior",
+        "It unblocks and raises that signal on itself",
+        "The parent checks the signal category and identity"
+      ],
+      "narration": "This demonstration terminates only its own newly created child with SIGTERM. The child explicitly restores the default disposition and unblocks the signal so an inherited mask or ignored disposition does not change the intended experiment. The parent waits and requires WIFSIGNALED plus the expected signal identity. It prints category equals signal and expected-signal equals true rather than a platform-dependent numeric signal value. The fallback child exit is a failure path if signal setup fails or control unexpectedly continues. This is a bounded termination test, not a crash demonstration and not an action against another user's process.",
+      "actions": [
+        "Predict the category and explain why no ordinary exit code is printed."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch39.json → SP39.020 · Worked example — Decoding success and failure",
+      "question": {
+        "prompt": "Why check both WIFSIGNALED and WTERMSIG?",
+        "answer": "The first identifies the status category; the second verifies which signal ended the child within that category."
+      },
+      "code": {
+        "filename": "sys_ch39_signal_status.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cerrno>\n#include <csignal>\n#include <iostream>\n#include <sys/wait.h>\n#include <unistd.h>\nint main() {\n    const pid_t child = fork();\n    if (child < 0) return 1;\n    if (child == 0) {\n        struct sigaction action{};\n        action.sa_handler = SIG_DFL;\n        sigemptyset(&action.sa_mask);\n        sigset_t unblock;\n        sigemptyset(&unblock);\n        sigaddset(&unblock, SIGTERM);\n        if (sigaction(SIGTERM, &action, nullptr) != 0 ||\n            sigprocmask(SIG_UNBLOCK, &unblock, nullptr) != 0) _exit(90);\n        raise(SIGTERM);\n        _exit(91);\n    }\n    int status = 0; pid_t result;\n    do { result = waitpid(child, &status, 0); } while (result < 0 && errno == EINTR);\n    if (result != child || !WIFSIGNALED(status) || WTERMSIG(status) != SIGTERM) return 1;\n    std::cout << \"category=signal\\nexpected-signal=true\\n\";\n}\n",
+        "expectedStdout": "category=signal\nexpected-signal=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Normal cleanup and immediate child exit are different tools",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Returning from main performs normal termination",
+        "std::exit does not unwind ordinary local automatic objects",
+        "_exit bypasses user-space termination cleanup"
+      ],
+      "narration": "In C++, returning from main leaves its scope and destroys its local automatic objects before normal termination completes. Calling std::exit directly performs normal termination processing such as registered handlers and standard-I/O cleanup, but it does not unwind ordinary automatic objects on the current stack. POSIX _exit bypasses that user-space cleanup, which is useful on many exec-bound child failure paths after fork. The choice therefore belongs to lifecycle design. A child should not flush copied parent buffers accidentally, while an ordinary application should not skip required cleanup merely because _exit sounds more final. Use structured scope exits for normal C++ ownership whenever the workflow permits them.",
+      "actions": [
+        "Compare scope cleanup, termination handlers, and child failure cleanup separately."
+      ],
+      "sourceRef": "content/systems-programming/ch39.json → SP39.004 · 39.1 exit",
+      "question": {
+        "prompt": "Does calling std::exit directly guarantee destruction of every local automatic C++ object?",
+        "answer": "No. It does not unwind ordinary stack automatic objects the way returning through their scopes does."
+      }
+    },
+    {
+      "title": "wait and waitpid encode a supervision policy",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "wait accepts an eligible completed child",
+        "waitpid can select one child",
+        "Creation order need not match completion order"
+      ],
+      "narration": "If a parent launches a quick child and a slow child, their completion order depends on scheduling and work, not just creation order. wait can collect an eligible child whose status is available. waitpid can deliberately target one child, as our demos do to make the checked relationship exact. Waiting for a particular slow child can delay handling another that has already finished; that may be acceptable or may hurt a responsive supervisor. The interface choice should follow the application's policy. Keep a mapping from child identity to expected task so a result is associated with the right work rather than whichever status happened to arrive first.",
+      "actions": [
+        "Choose a policy for a batch harness and one for a responsive task monitor."
+      ],
+      "sourceRef": "content/systems-programming/ch39.json → SP39.008 · 39.3 wait",
+      "question": {
+        "prompt": "Is waiting for one specific slow child always incorrect?",
+        "answer": "No. It is a valid policy when intended, but it may delay processing other completed children."
+      }
+    },
+    {
+      "title": "Nonblocking wait has three result categories",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Positive means a child status was returned",
+        "Zero with WNOHANG means none is available now",
+        "Minus one reports an error to classify"
+      ],
+      "narration": "A nonblocking wait is useful when the parent has other work. With WNOHANG, zero means no matching status is currently available; it is neither an error nor a child identifier to remove from a table. A positive return identifies the child whose status was supplied. Minus one requires checking the error, including whether an interrupted operation should be retried under the cancellation policy. A tight loop that repeatedly gets zero can waste CPU just as a busy I/O retry can. Integrate status checks with the application's event or scheduling mechanism. The state machine must preserve running children when no completion is ready yet.",
+      "actions": [
+        "Ask learners to handle positive, zero, and negative returns separately."
+      ],
+      "sourceRef": "content/systems-programming/ch39.json → SP39.010 · 39.4 waitpid",
+      "question": {
+        "prompt": "What should the child table do when waitpid with WNOHANG returns zero?",
+        "answer": "Keep the child as not yet collected; no status was returned to remove or decode."
+      }
+    },
+    {
+      "title": "One notification can represent several completed children",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "SIGCHLD is a reason to check statuses",
+        "Standard signals can coalesce",
+        "Drain available completions under one ownership rule"
+      ],
+      "narration": "A supervisor may use SIGCHLD to learn that child state deserves attention. It must not assume one signal equals exactly one completed child. Standard signals can coalesce while several children finish. An event-driven collector commonly checks repeatedly with nonblocking waits until no matching status remains available, then returns to other work. The signal handler itself must follow signal-safety rules; notification can be separated from the later collection work. Also avoid two independent collectors racing to reap the same child. Give status ownership to one component that updates the task table and reports completion once, even when notifications are fewer than the underlying events.",
+      "actions": [
+        "Imagine three children finishing while one notification is pending."
+      ],
+      "sourceRef": "content/systems-programming/ch39.json → SP39.014 · 39.6 Reaping children",
+      "question": {
+        "prompt": "Why can one wait per SIGCHLD leave children unreaped?",
+        "answer": "Several child events may be represented by one coalesced signal notification."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Exit status is a summary, not a data transport",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Use small documented result categories",
+        "Send rich results through an explicit channel",
+        "Keep the supervisor’s own success rule separate"
+      ],
+      "narration": "A child cannot return a large structure or arbitrary integer through ordinary exit status. It is a small completion summary interpreted through the wait interface. If the parent needs a list of records, a detailed error report, or a large computation result, use a pipe, file, or another explicit channel with its own framing and validation. Then define how the status relates to that payload: for example, zero may mean a complete valid report was produced. The baseline test showed that the supervisor can succeed after observing an expected nonzero child result. Document that distinction so callers do not confuse a tested outcome with a harness malfunction.",
+      "actions": [
+        "Specify both a result channel and a completion code for one task."
+      ],
+      "sourceRef": "content/systems-programming/ch39.json → SP39.006 · 39.2 Exit status",
+      "question": {
+        "prompt": "Where should a child send a large computed result?",
+        "answer": "Through a separate data channel with a defined format, using exit status only for a small completion summary."
+      }
+    },
+    {
+      "title": "Recall stop, classify, collect, and release",
+      "eyebrow": "SYSTEMS 39 / COMPLETION AND STATUS OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Termination category guides interpretation",
+        "Reaping completes the parent’s responsibility",
+        "Tests should include expected failure and signal paths"
+      ],
+      "narration": "A child finishing is the beginning of the parent's completion handling, not its end. The parent collects a status, classifies it with the proper macros, associates it with the task, and releases its bookkeeping exactly once. A zombie has stopped executing but awaits that collection. Normal exit and signal termination deserve distinct diagnostics. Our first demo treated a deliberate exit six as a successful test observation; the second verified termination by the intended signal without assuming its numeric value. These habits scale to supervisors that manage many children, where missed statuses and unclear ownership become persistent resource and reporting bugs.",
+      "actions": [
+        "Explain both demo outcomes from the supervisor’s point of view."
+      ],
+      "sourceRef": "content/systems-programming/ch39.json → SP39.014 · 39.6 Reaping children",
+      "question": {
+        "prompt": "What makes a child lifecycle complete from the parent’s perspective?",
+        "answer": "The child is terminated, its status has been collected and interpreted, and the parent’s task bookkeeping has been updated under its ownership policy."
+      }
+    }
+  ]
+}

@@ -1,0 +1,286 @@
+{
+  "chapter": 5,
+  "title": "Singleton: separate one instance from safe shared use",
+  "opening": [
+    {
+      "title": "One sequence is required; global access is a choice",
+      "eyebrow": "05 / THE DESIGN PRESSURE",
+      "kind": "concept",
+      "keyPoints": [
+        "Issue tickets 1, 2, and 3 once per sequence",
+        "Every later request is rejected",
+        "A shared object can be passed explicitly"
+      ],
+      "narration": "Three callers need tickets from one sequence. The successful values must be one, two, and three, with no duplicate within that sequence. After the third ticket, every later request must fail. The chapter resets only when the process starts again; it does not store the count in a file and does not coordinate different programs. Sharing one state is necessary for this small requirement. Giving every function global access to that state is a separate choice. We will first solve sharing explicitly, then inspect what Singleton adds: controlled construction and an access operation that reaches the same instance. We will also study the lifetime and testing costs of that choice.",
+      "actions": [
+        "Ask learners to separate the sharing requirement from the access mechanism.",
+        "Clarify that the example has no persistence or cross-process coordination."
+      ],
+      "sourceRef": "manuscript/ch05.json → One dispenser, not one counter per caller",
+      "question": {
+        "prompt": "Does a requirement for one sequence automatically require a global Singleton?",
+        "answer": "No. One ordinary object created in main and passed to all clients can satisfy the sharing requirement without global access."
+      }
+    },
+    {
+      "title": "Define the complete state transition",
+      "eyebrow": "05 / REQUIREMENTS AND INVARIANT",
+      "kind": "concept",
+      "keyPoints": [
+        "Before success: next is 1, 2, or 3",
+        "Success returns next and increments it",
+        "At 4: reject without changing the counter"
+      ],
+      "narration": "An invariant describes the states and transitions we permit. The dispenser starts with next equal to one. A successful take returns the current value and increases next by one. Once next is four, take throws before changing it. Repeated failure must leave the dispenser exhausted; it must not wrap around, restart, or offer another ticket. This small upper bound also avoids integer overflow on the demonstrated path. The expression next_++ is called post-increment: its result is the old value, while the stored value advances. Understanding that one expression is necessary to predict the ticket sequence. We should test both the three successful calls and more than one exhausted call.",
+      "actions": [
+        "Trace next_ before and after each of five sequential requests.",
+        "Ask why one rejection test alone gives weaker evidence than repeated rejection."
+      ],
+      "sourceRef": "manuscript/ch05.json → Once-only initialization is not method synchronization",
+      "question": {
+        "prompt": "After returning ticket 3, what is stored in next_, and what should the next two calls do?",
+        "answer": "next_ is 4. Both later calls throw before incrementing, so the exhausted state remains unchanged."
+      }
+    },
+    {
+      "title": "Explicit sharing works before Singleton exists",
+      "eyebrow": "05 / PREDICT → RUN → EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "main owns the counter",
+        "int& lets take change that same counter",
+        "The sequential calls share one state"
+      ],
+      "narration": "This is a complete sequential solution to the tiny sharing problem. main owns one integer. The ampersand in int& makes next a reference to that integer, so each call updates the same counter instead of a copy. The first three return values are stored separately and printed together. The fourth call throws, and the catch prints exhausted. We have made the dependency visible in the function argument. There is no class hierarchy or global accessor. This version is not designed for concurrent access from several threads; it demonstrates the state rule and explicit ownership. That limitation does not make Singleton necessary, because shared lifetime and synchronized mutation are different concerns.",
+      "actions": [
+        "Predict the output, then run.",
+        "Ask why the reference is essential even in a single-threaded program."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch05.json → One dispenser, not one counter per caller",
+      "question": {
+        "prompt": "What would passing next by value change in this program?",
+        "answer": "Each call would modify only its own copied parameter, so shared_next would stay 1 and repeated calls would return ticket 1."
+      },
+      "code": {
+        "filename": "dp_ch05_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\nint take(int& next) {\n    // Borrow one caller-owned counter; do not copy it.\n    if (next > 3) throw std::out_of_range(\"exhausted\");\n    return next++;\n}\nint main() {\n    int shared_next = 1;\n    const int a = take(shared_next);\n    const int b = take(shared_next);\n    const int c = take(shared_next);\n    std::cout << \"shared=\" << a << ',' << b << ',' << c << '\\n';\n    try { take(shared_next); }\n    catch (const std::out_of_range&) {\n        std::cout << \"exhausted\\n\";\n    }\n}\n",
+        "expectedStdout": "shared=1,2,3\nexhausted\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Two correct counters can violate one shared sequence",
+      "eyebrow": "05 / THE CONCRETE FAILURE",
+      "kind": "code",
+      "keyPoints": [
+        "Each desk follows its own local rule",
+        "Both still issue ticket 1",
+        "Sharing state repairs this mismatch"
+      ],
+      "narration": "Both desks use the same correct take function, yet both return one because each has its own counter. The local operations are correct and the overall arrangement is wrong for one shared sequence. The duplicate line prints true. In the repaired portion, both requests use one_next and return one then two. This example is deterministic and single-threaded; it does not model a data race. It isolates a different issue: instance identity. Singleton can prevent ordinary callers from constructing separate dispenser instances, but explicit application setup can also arrange one shared instance. If the desks actually serve independent events, the two counters might be right. The requirement decides whether the duplicate is a defect.",
+      "actions": [
+        "Predict the duplicate check before Run.",
+        "Change the stated requirement to two independent events and reevaluate the design."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch05.json → One dispenser, not one counter per caller",
+      "question": {
+        "prompt": "Could separate counters ever be the correct design for the two desks?",
+        "answer": "Yes, if each desk belongs to an independent session with its own sequence. They are wrong only when the requirement is one shared sequence."
+      },
+      "code": {
+        "filename": "dp_ch05_duplicate_counters.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\nint take(int& next) {\n    if (next > 3) throw std::out_of_range(\"exhausted\");\n    return next++;\n}\nint main() {\n    int desk_a_next = 1;\n    int desk_b_next = 1;\n    const int a = take(desk_a_next);\n    const int b = take(desk_b_next);\n    std::cout << \"separate desks=\" << a << ',' << b << '\\n';\n    std::cout << \"duplicate=\" << std::boolalpha << (a == b) << '\\n';\n    int one_next = 1; // Repair: give both callers the same state.\n    const int shared_a = take(one_next);\n    const int shared_b = take(one_next);\n    std::cout << \"shared desks=\" << shared_a << ',' << shared_b << '\\n';\n}\n",
+        "expectedStdout": "separate desks=1,1\nduplicate=true\nshared desks=1,2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Controlled construction and global access are two decisions",
+      "eyebrow": "05 / SINGLETON MECHANISM",
+      "kind": "concept",
+      "keyPoints": [
+        "A private constructor blocks ordinary direct construction",
+        "Deleted copy operations block copying",
+        "instance returns a borrowed reference"
+      ],
+      "narration": "TicketDispenser controls how ordinary code obtains an instance. Its constructor is private, so clients cannot create a second dispenser directly. Copy construction and copy assignment are deleted, so they cannot duplicate the existing one by copying. A static member function named instance provides the access point and returns TicketDispenser&. That reference lends the service; the caller does not become its owner and must not delete it. The class also has a private destructor. These C++ access rules are checked during compilation. Together with the function-local static object, they establish this program's controlled instance. They do not automatically make the service persistent, globally unique across processes, or safe for every concurrent operation.",
+      "actions": [
+        "Name the distinct roles of private construction, deleted copying, and the accessor."
+      ],
+      "sourceRef": "manuscript/ch05.json → What Singleton adds, and what it combines",
+      "question": {
+        "prompt": "Who owns the reference returned by instance: the caller or the service’s static lifetime?",
+        "answer": "The caller borrows the service. Its lifetime is managed as the initialized function-local static object, not by deleting the returned reference."
+      },
+      "theory": {
+        "what": "A controlled single instance reached through a shared accessor.",
+        "where": "TicketDispenser::instance returns its function-local static dispenser.",
+        "why": "Ordinary callers must not independently create counters for one sequence.",
+        "invariant": "Accessor calls in this executable refer to the same completed dispenser.",
+        "risk": "Hidden dependencies, shutdown order, and concurrent mutation still need separate design."
+      }
+    },
+    {
+      "title": "The word static has two meanings in this small block",
+      "eyebrow": "05 / COMPILATION AND INITIALIZATION",
+      "kind": "concept",
+      "keyPoints": [
+        "The static member function needs no existing object",
+        "The local static object survives between calls",
+        "First successful initialization constructs it once"
+      ],
+      "narration": "The static before instance says this member function belongs to the class interface and does not need an existing dispenser object. It has no this pointer. The static inside the function describes the storage and lifetime of a different thing: the local dispenser variable. That object is initialized the first time execution reaches its declaration, then reused on later calls. Since C++11, concurrent first callers do not each build their own copy; initialization is guarded. If construction throws, a later call can try initialization again. This once-only guarantee is useful, but it concerns construction. It does not wrap future calls to take in an invisible lock.",
+      "actions": [
+        "Point at each occurrence of static and explain it independently.",
+        "Ask what changes on the second call to instance."
+      ],
+      "sourceRef": "manuscript/ch05.json → What Singleton adds, and what it combines",
+      "question": {
+        "prompt": "Does guarded local-static initialization mean next_++ is automatically synchronized later?",
+        "answer": "No. Initialization is guarded once. Later shared reads and writes need their own synchronization policy."
+      }
+    },
+    {
+      "title": "Protect the check and the increment as one operation",
+      "eyebrow": "05 / MUTEX AND RAII",
+      "kind": "concept",
+      "keyPoints": [
+        "One mutex guards next_",
+        "lock_guard holds the lock for the scope",
+        "Exhaustion checking and mutation stay together"
+      ],
+      "narration": "A mutex is a lock that participating threads use to take turns accessing shared state. lock_guard acquires the mutex when the guard is constructed and releases it when the guard leaves scope. The chapter keeps both the exhaustion check and next_++ inside that guarded region. If they were protected separately, another call could slip between the check and update and break the operation's meaning. If take throws because tickets are exhausted, stack cleanup still destroys the guard and releases the lock. This is resource management tied to object lifetime, often called RAII. The code does not promise fairness or which caller gets the first ticket. It promises the guarded transition stays consistent.",
+      "actions": [
+        "Trace the lock’s lifetime on both success and exception paths.",
+        "Ask which lines form one indivisible logical operation."
+      ],
+      "sourceRef": "manuscript/ch05.json → Once-only initialization is not method synchronization",
+      "question": {
+        "prompt": "Why is locking only the increment weaker than locking the whole take operation?",
+        "answer": "The decision to allow a ticket depends on the same shared state. Splitting the check from the update lets another operation invalidate the decision in between."
+      }
+    },
+    {
+      "title": "A race has no promised output to memorize",
+      "eyebrow": "05 / CONCURRENCY LIMITS",
+      "kind": "concept",
+      "keyPoints": [
+        "Unsynchronized conflicting access is undefined behavior",
+        "Private construction does not repair a race",
+        "Sequential tests are not a concurrency proof"
+      ],
+      "narration": "It is tempting to say two unsynchronized increments merely lose one ticket. In C++, conflicting unsynchronized accesses to an ordinary shared integer can form a data race, which gives the program undefined behavior. There is no reliable output sequence to teach for that broken program. We therefore discuss the failure without running a racy demonstration. The actual chapter uses a mutex to protect the transition. Its sequential main checks identity, numbering, and repeated exhaustion; those are valuable checks but not a stress test of many threads. If a future peek method reads next_, it must follow the same synchronization policy. Locking writes alone does not make an unlocked read safe.",
+      "actions": [
+        "Ask students to distinguish a logical instance mistake from a data race.",
+        "Discuss how adding an unlocked read can break an otherwise guarded class."
+      ],
+      "sourceRef": "manuscript/ch05.json → Once-only initialization is not method synchronization",
+      "question": {
+        "prompt": "Can we promise that removing the mutex will print exactly one duplicate ticket?",
+        "answer": "No. A data race has undefined behavior in C++, so a specific faulty output is not guaranteed."
+      }
+    },
+    {
+      "title": "A long lifetime can hide short-lived assumptions",
+      "eyebrow": "05 / SHUTDOWN AND TESTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Static service state survives between test cases",
+        "Normal shutdown eventually destroys the instance",
+        "Other static destructors must not use it after destruction"
+      ],
+      "narration": "A singleton can live much longer than the operation that first asked for it. That can surprise tests: one test consumes ticket one, so the next test in the same process starts with a different state. Running that second test alone may pass while running the suite fails. Lifetime also matters during shutdown. Another static object's destructor must not reach a dispenser whose lifetime has already ended. A main-owned service often makes the shutdown order easier to control. This example's accessor identifies one service in its executable; separate processes have separate address spaces and separate counters. A familiar pattern name does not expand those boundaries into a distributed service.",
+      "actions": [
+        "Tell a two-test story and predict the second test’s result.",
+        "Ask what owning the service in main would make easier to control."
+      ],
+      "sourceRef": "manuscript/ch05.json → Lifetime and tests reveal the hidden coupling",
+      "question": {
+        "prompt": "Why can a test expecting ticket 1 pass alone and fail in a suite?",
+        "answer": "An earlier test may have consumed the shared singleton state in the same process. The test has a hidden dependency on execution history."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Inject the needed operation to make tests independent",
+      "eyebrow": "05 / EXTENSION DESIGN",
+      "kind": "concept",
+      "keyPoints": [
+        "TicketSource states the consumer’s one needed operation",
+        "admit receives a reference instead of finding a global",
+        "LocalTickets gives each test a fresh sequence"
+      ],
+      "narration": "The extension keeps the production option of one dispenser while changing how consumers depend on it. TicketSource declares take, the one operation admit needs. admit receives TicketSource& as a parameter. Production setup may pass TicketDispenser::instance, while each test creates its own LocalTickets object. Supplying a dependency explicitly is called dependency injection. The interface is justified here by a concrete need: the consumer must work with both the shared production service and isolated test services. A fresh test object avoids resetting global state behind other callers' backs. The old ticket limit and repeated-exhaustion behavior must remain the same through either implementation.",
+      "actions": [
+        "Trace production and test calls into the same admit function.",
+        "Ask why test-local objects are safer than a global reset during active work."
+      ],
+      "sourceRef": "manuscript/ch05.json → Lifetime and tests reveal the hidden coupling",
+      "question": {
+        "prompt": "What changes in admit when production switches from the singleton to an independent LocalTickets?",
+        "answer": "Nothing in its take-based logic. Setup supplies a different object through TicketSource&, preserving the same operation contract."
+      },
+      "comparisons": [
+        {
+          "label": "Production boundary",
+          "text": "Pass the chosen shared TicketDispenser to the consumer."
+        },
+        {
+          "label": "Isolated test",
+          "text": "Pass a fresh LocalTickets object for each independent test."
+        }
+      ]
+    },
+    {
+      "title": "Decide whether global access is worth its cost",
+      "eyebrow": "05 / DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "A true process-wide service may justify one instance",
+        "Independent sessions need independent state",
+        "Visible parameters expose dependencies"
+      ],
+      "narration": "A process-wide service can be a valid design choice when its lifetime, initialization, and shutdown are clear. It is less suitable when an application may host two sessions, use different test settings, or need controlled restarts. The short call to instance can hide a large dependency: any function can reach and alter the same state. A parameter makes that relationship visible. Do not add interfaces for every tiny value, but do not remove useful parameters merely to shorten signatures either. Choose the service boundary from the required operations and lifetimes. Then decide who owns the instance, how callers reach it, and what synchronization protects its state.",
+      "actions": [
+        "Give a two-session requirement and ask whether the singleton still fits.",
+        "Have students identify the dependency hidden by a global accessor."
+      ],
+      "sourceRef": "manuscript/ch05.json → Choosing a shared service deliberately",
+      "question": {
+        "prompt": "If the application starts hosting two independent events in one process, what assumption should be reconsidered?",
+        "answer": "The assumption that one process-wide ticket sequence matches the application’s needs. Each event may require its own explicitly owned service."
+      }
+    },
+    {
+      "title": "Remember three separate questions, not one magic object",
+      "eyebrow": "05 / RETRIEVAL AND TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "Identity: which instance do callers share?",
+        "Lifetime: who creates and destroys it?",
+        "Synchronization: which state transition is protected?"
+      ],
+      "narration": "Reconstruct Singleton by answering three questions. Identity asks whether callers reach the same service or different ones. Lifetime asks when the service is constructed, how long borrowed references remain valid, and when it is destroyed. Synchronization asks how concurrent operations preserve the state rules. The pattern's accessor and local static address the first two questions in this example; the mutex guards the complete take transition for the third. Tests and injection address the cost of shared history. Now apply these questions to a cache or configuration service. One global object alone is never a full answer. A clear design says what it guarantees, what it borrows, and where its guarantees stop.",
+      "actions": [
+        "Ask students to explain the three questions using the ticket example.",
+        "End with the distinction between once-only construction and synchronized use."
+      ],
+      "sourceRef": "manuscript/ch05.json → Choosing a shared service deliberately",
+      "question": {
+        "prompt": "Which guarantee comes from the local static, and which comes from lock_guard in take?",
+        "answer": "The local static provides guarded initialization and repeated access to the same instance. lock_guard protects the later check-and-increment operation on shared state."
+      }
+    }
+  ]
+}

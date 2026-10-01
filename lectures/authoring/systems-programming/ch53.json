@@ -1,0 +1,235 @@
+{
+  "chapter": 53,
+  "title": "Event-Driven I/O",
+  "opening": [
+    {
+      "title": "Readiness means try now, not a whole request is ready",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "concept",
+      "keyPoints": [
+        "One slow client must not stop all other clients",
+        "Keep descriptors nonblocking in the event loop",
+        "Retain partial protocol state between callbacks"
+      ],
+      "narration": "A readiness loop waits for endpoints that may make progress and then attempts their operations. The notification does not promise a complete message, a complete write, or permanent readiness. Another thread or event can change the state before the handler runs. Nonblocking descriptors let the handler discover would-block and return to servicing other connections. A blocking read for the rest of one client's request can stall every other client sharing the loop. The price of efficient waiting is explicit state: buffered input, parsing position, output offset, close status, and any deadline must survive across callbacks.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.024: Worked example \u2014 Why nonblocking matters",
+      "question": {
+        "prompt": "Why can a readable notification still be followed by a would-block result?",
+        "answer": "Readiness is a changing state, not a reservation. The operation must handle current results rather than rely solely on the earlier notification."
+      }
+    },
+    {
+      "title": "A partial write advances an offset, not the whole response",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "code",
+      "keyPoints": [
+        "Keep the unsent suffix in owned storage",
+        "Advance only by the reported positive count",
+        "Finish when the offset reaches the response length"
+      ],
+      "narration": "This deterministic write-progress model starts with hello and supplied accepted counts of two, one, and two. After the first step only he has been accepted; the next starts at offset two and adds l; the final step adds lo. The output reports sent equals hello and pending equals zero. No socket or timing claim is involved. The point is the state that a real nonblocking handler must preserve across writes. Starting from the beginning after partial progress duplicates bytes, while discarding the response after the first call loses its suffix. The owning response must outlive every borrowed pointer used for an attempted write.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.014: 53.6 Event loops",
+      "question": {
+        "prompt": "If the first write accepts two bytes of hello, what suffix remains?",
+        "answer": "llo remains, and the next write begins at offset two. The response must stay alive until the pending bytes are handled."
+      },
+      "code": {
+        "filename": "sys_ch53_write_progress.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\n#include <stdexcept>\n#include <string>\nint main() {\n    const std::string response = \"hello\";\n    std::string accepted;\n    std::size_t offset = 0;\n    for (std::size_t count : std::array<std::size_t, 3>{2, 1, 2}) {\n        if (count > response.size() - offset) throw std::logic_error(\"bad fixture\");\n        accepted.append(response, offset, count);\n        offset += count; // Advance only by accepted bytes.\n    }\n    std::cout << \"sent=\" << accepted << \" pending=\" << response.size() - offset << '\\n';\n}\n",
+        "expectedStdout": "sent=hello pending=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Supplied write counts model partial progress; no system call is made."
+      }
+    },
+    {
+      "title": "A busy connection can monopolize a correct loop",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "code",
+      "keyPoints": [
+        "Draining work affects fairness as well as throughput",
+        "A service budget can return control to other clients",
+        "Edge-triggered designs need a continuation plan"
+      ],
+      "narration": "In this scheduling model, busy client A has eight work items ready and client B has one. Draining all of A first puts B in ninth position. A two-item service budget puts B in third position instead. Both schedules complete the same nine items, but the delay seen by B differs. These are modeled service positions, not measured milliseconds. In a real edge-triggered reactor, stopping before would-block needs a deliberate continuation mechanism; otherwise already-buffered work might never produce a new edge. Fairness therefore requires coordinating handler budgets with the readiness mode, rather than simply breaking every loop early.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.018: 53.8 Scaling large numbers of connections",
+      "question": {
+        "prompt": "Why can a two-item handler budget be unsafe if an edge-triggered connection is simply forgotten afterward?",
+        "answer": "Unread data may remain without a new readiness edge. The reactor must schedule continued service or otherwise preserve the drain obligation."
+      },
+      "code": {
+        "filename": "sys_ch53_fairness_budget.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    const int busy_items = 8;\n    const int quiet_items = 1;\n    const int service_budget = 2;\n    const int unbounded_position = busy_items + quiet_items;\n    const int budgeted_position = service_budget + quiet_items;\n    std::cout << \"unbounded quiet-position=\" << unbounded_position << '\\n';\n    std::cout << \"budgeted quiet-position=\" << budgeted_position << '\\n';\n}\n",
+        "expectedStdout": "unbounded quiet-position=9\nbudgeted quiet-position=3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Two ready clients with unit-cost work; positions are a scheduling model, not latency measurements."
+      }
+    },
+    {
+      "title": "Would-block, EOF, and error require different transitions",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "concept",
+      "keyPoints": [
+        "Would-block: retain state and wait for progress",
+        "EOF: no more input bytes will arrive",
+        "Other error: apply the failure policy"
+      ],
+      "narration": "The source workshop assigns minus one a special modeled would-block meaning, but a real read returning minus one requires inspecting errno. A zero result on a stream indicates EOF, while a positive count adds valid bytes. Those cases must remain distinct. If a temporary lack of data closes the connection, valid clients are dropped. If EOF is treated as temporary emptiness forever, dead connections remain in the loop. A framing layer adds one more question: does EOF occur between complete frames or inside an unfinished one? The answer determines graceful completion versus truncation.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SYS53.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why is `count <= 0 means close` too crude for a nonblocking stream?",
+        "answer": "A negative result may mean EAGAIN or EINTR, which do not mean EOF. The documented error condition determines the next action."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Level and edge notifications create different obligations",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "concept",
+      "keyPoints": [
+        "Level triggering reports a condition that remains true",
+        "Edge triggering reports relevant changes",
+        "An edge handler normally drains until would-block"
+      ],
+      "narration": "Suppose four bytes are buffered and a handler reads only two. A level-triggered readiness mechanism can continue reporting that readable data remains. With edge-triggered notification, another event is not guaranteed merely because the remaining two bytes are still there. The usual receive-side rule is to continue reading until would-block or EOF. The source Linux example sends ping through a local socket pair and drains it in small chunks, making that obligation visible. Readiness does not itself consume bytes. The handler must also enforce buffer bounds and protocol limits while draining, rather than accepting unlimited input in pursuit of EAGAIN.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.020: Worked example \u2014 Drain an edge-triggered stream through EOF",
+      "question": {
+        "prompt": "Why might reading only one small chunk after an edge leave a connection stuck?",
+        "answer": "Existing unread bytes may not create another edge. The handler needs to drain them or arrange an explicit continuation."
+      }
+    },
+    {
+      "title": "Closure notification does not erase the last bytes",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "concept",
+      "keyPoints": [
+        "Data and peer shutdown can be observable together",
+        "Drain valid bytes before concluding input is finished",
+        "Keep half-close separate from total object destruction"
+      ],
+      "narration": "A peer can send its final response and then close its sending direction. The receiver may observe both readable data and a closure condition during one event cycle. Closing immediately on the notification can discard the final bytes. The local epoll example demonstrates this by sending ping and half-closing, then reading through EOF. Half-close means one direction has ended; the application may still need to finish pending output in the other direction. The state machine must decide when no further input is possible, whether a frame is complete, and when all owned resources can finally be released.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.020: Worked example \u2014 Drain an edge-triggered stream through EOF",
+      "question": {
+        "prompt": "What goes wrong if an event handler closes immediately on a hangup flag without checking readable data?",
+        "answer": "It can discard bytes sent before the peer\u2019s shutdown, including the end of a valid frame."
+      }
+    },
+    {
+      "title": "select, poll, and epoll change the waiting interface",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "concept",
+      "keyPoints": [
+        "select uses descriptor sets and platform limits",
+        "poll supplies an array of descriptor events",
+        "epoll retains registered interest in a Linux kernel object"
+      ],
+      "narration": "These interfaces all help one thread wait for I/O across multiple descriptors, but they organize the request differently. select uses descriptor sets and has limits tied to that representation. poll passes an array describing desired events. Linux epoll retains registered interests and returns events through its own descriptor. Choosing epoll does not automatically make every operation nonblocking, allocate connection state, or solve fairness. Those remain application responsibilities. Compare portability, expected connection counts, registration changes, and the available readiness modes. Keep protocol handlers separate enough that changing the waiting interface does not require rewriting message validation.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.012: 53.5 epoll",
+      "question": {
+        "prompt": "Which responsibilities remain even after switching from poll to epoll?",
+        "answer": "Nonblocking operation handling, per-connection state, framing, ownership, bounds, fairness, and shutdown. The readiness API handles only part of the design."
+      }
+    },
+    {
+      "title": "Writable interest should follow pending output",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "concept",
+      "keyPoints": [
+        "Most connected sockets can be writable much of the time",
+        "Continuous writable notifications can spin the loop",
+        "Enable interest while bytes remain, disable it when drained"
+      ],
+      "narration": "A service that always subscribes to writable events may repeatedly wake even when it has nothing to send. That consumes CPU without completing useful work. A common policy enables writable interest when the output queue becomes nonempty and removes it after the queue drains. If a write would block, the unsent suffix remains owned by the connection until later readiness. The queue must also have a size bound: a fast producer and slow client can otherwise retain unlimited memory. This connects event registration to application state rather than treating readiness subscriptions as a one-time setup choice.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.014: 53.6 Event loops",
+      "question": {
+        "prompt": "Why can a loop show high CPU use while completing no requests?",
+        "answer": "It may repeatedly process irrelevant readiness, such as writable notifications with no pending output, or spin on would-block instead of waiting."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Descriptor reuse makes stale event identity dangerous",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "concept",
+      "keyPoints": [
+        "A descriptor number is not a permanent connection identity",
+        "Remove registration and end borrowed uses before destruction",
+        "Generation identifiers can distinguish replacement connections"
+      ],
+      "narration": "After one connection closes, the operating system may reuse its descriptor integer for another connection. A delayed task that stores only the integer can then act on the wrong peer. The problem is lifetime and identity, not whether integers compare correctly. Event data should refer to connection state whose lifetime remains valid, or include a generation scheme that lets the program reject stale work. Shutdown must coordinate unregistering interest, pending callbacks, worker jobs, and final closure. A pointer inside an event record is also only a borrow unless the design explicitly keeps its target alive.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.016: 53.7 Active connections",
+      "question": {
+        "prompt": "Does storing a pointer in an epoll event automatically keep the pointed-to connection alive?",
+        "answer": "No. The application must provide a valid lifetime rule; the pointer alone does not own the object."
+      }
+    },
+    {
+      "title": "Test event sequences, not only one successful exchange",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 53",
+      "kind": "concept",
+      "keyPoints": [
+        "Fragment input and restrict write progress",
+        "Combine final data with EOF",
+        "Force temporary would-block without closure",
+        "Verify pending-state cleanup and fair continuation"
+      ],
+      "narration": "A reliable event handler should survive several schedules for the same logical conversation. Split the header across reads, make writes accept short prefixes, deliver final bytes with EOF, and insert would-block between successful steps. Compare the completed message and the remaining state after every event. The portable models make such sequences deterministic, while the local socket fixture checks the real Linux receive mechanism. Neither is a complete production server. Tests for resource limits, cancellation, timeouts, output backpressure, and stale events must grow with the application's contract rather than being assumed from a passing ping exchange.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch53.json \u2192 SP53.026: Guided lab and review",
+      "question": {
+        "prompt": "What invariant should remain true after a write returns would-block?",
+        "answer": "No unaccepted byte is discarded or duplicated; the connection still owns the pending suffix and its correct offset."
+      }
+    }
+  ]
+}

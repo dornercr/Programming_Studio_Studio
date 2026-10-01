@@ -1,0 +1,234 @@
+{
+  "chapter": 49,
+  "title": "Producer\u2013Consumer Systems: capacity, ownership, and closure",
+  "opening": [
+    {
+      "title": "A queue transfers work and limits one stage",
+      "eyebrow": "A QUEUE TRANSFERS WORK AND LIMITS ONE STAGE",
+      "kind": "concept",
+      "keyPoints": [
+        "Producers submit items",
+        "Consumers take responsibility for items",
+        "Capacity creates backpressure rather than unlimited growth"
+      ],
+      "narration": "A producer can generate work faster than a consumer can finish it. An unbounded queue turns that mismatch into growing memory use. A bounded queue limits the number of items waiting inside it, so a full queue must make the producer wait or reject the submission under an explicit contract. That is backpressure: the slower part influences the rate of incoming work. The queue is also an ownership boundary. Before a successful push, the producer owns the item; afterward, the queue does, until a consumer removes it. Start with those responsibilities before adding condition variables, because their predicates must express this state machine.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch49.json \u2192 SP49.004",
+      "question": {
+        "prompt": "What does a full bounded queue force the design to decide?",
+        "answer": "Whether a producer waits, rejects, or uses another documented policy, including who retains responsibility for an unaccepted item."
+      }
+    },
+    {
+      "title": "Ring positions need a count to explain their meaning",
+      "eyebrow": "RING POSITIONS NEED A COUNT TO EXPLAIN THEIR MEANING",
+      "kind": "concept",
+      "keyPoints": [
+        "Head names the next item to remove",
+        "Tail or count locates the next insertion",
+        "Equal positions alone can mean empty or full"
+      ],
+      "narration": "A ring buffer reuses a fixed array by wrapping indexes around its end. That saves moving every item after a removal. But an index pair alone can be ambiguous: the next insertion and removal positions may coincide when the buffer is empty or when all slots are occupied. Our demonstration stores a head and count, using their sum modulo capacity to find the insertion slot. The invariant keeps count between zero and capacity and head within the array. Logical order follows head, not physical index zero. Every field participating in that relationship needs one coordinated protection policy once producers and consumers run concurrently.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch49.json \u2192 SP49.008",
+      "question": {
+        "prompt": "Why does a ring buffer need an extra convention or count when indexes coincide?",
+        "answer": "The same index relationship can describe empty or full; the representation must distinguish those states explicitly."
+      }
+    },
+    {
+      "title": "Run a wraparound buffer without concurrency noise",
+      "eyebrow": "RUN A WRAPAROUND BUFFER WITHOUT CONCURRENCY NOISE",
+      "kind": "code",
+      "keyPoints": [
+        "Fixed storage holds three values",
+        "Removal frees one logical position",
+        "Later insertions wrap without changing FIFO order"
+      ],
+      "narration": "The ring first receives ten and twenty. Removing ten advances head to the next slot and reduces count. Inserting thirty and forty fills the ring and wraps one insertion to physical index zero. The remaining logical order is still twenty, thirty, forty, which the program prints after removed=10. This demonstration is a single-thread storage mechanism, not a synchronized producer-consumer queue. It isolates the representation invariant so a wrong wrap calculation is not confused with a waiting bug. A full push returns false before touching storage, and an empty pop returns no value. Later synchronization must protect head, count, and slots as one state.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch49.json \u2192 SP49.008",
+      "question": {
+        "prompt": "Why is forty removed after twenty and thirty even though it occupies a wrapped physical slot?",
+        "answer": "FIFO order follows the logical head and count through the ring, not the numerical order of array indexes."
+      },
+      "code": {
+        "filename": "sys_ch49_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <cstddef>\n#include <iostream>\n#include <optional>\nclass Ring {\n    std::array<int,3> slots_{};\n    std::size_t head_ = 0, count_ = 0;\npublic:\n    bool push(int value) {\n        if (count_ == slots_.size()) return false;\n        slots_[(head_+count_) % slots_.size()] = value;\n        ++count_;\n        return true;\n    }\n    std::optional<int> pop() {\n        if (count_ == 0) return std::nullopt;\n        const int value = slots_[head_];\n        head_ = (head_+1) % slots_.size();\n        --count_;\n        return value;\n    }\n};\nint main() {\n    Ring queue;\n    if (!queue.push(10) || !queue.push(20)) return 1;\n    const auto removed = queue.pop();\n    if (!removed || !queue.push(30) || !queue.push(40)) return 2;\n    if (queue.push(50)) return 3;\n    const auto a = queue.pop(), b = queue.pop(), c = queue.pop();\n    if (!a || !b || !c || queue.pop()) return 4;\n    std::cout << \"removed=\" << *removed << \" queued=\"\n              << *a << ',' << *b << ',' << *c << '\\n';\n}\n",
+        "expectedStdout": "removed=10 queued=20,30,40\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Single-thread ring storage demonstration, with no synchronization claim."
+      }
+    },
+    {
+      "title": "A rejected submission must keep its owner",
+      "eyebrow": "A REJECTED SUBMISSION MUST KEEP ITS OWNER",
+      "kind": "code",
+      "keyPoints": [
+        "Move only after acceptance checks",
+        "Full or closed leaves the caller\u2019s item intact",
+        "Drain accepted work after closure"
+      ],
+      "narration": "This single-thread ownership model has one slot containing a unique_ptr. The first push transfers the seven-valued item into the slot and empties the caller's owner. The second push fails because the slot is full, leaving the nine-valued item with its caller. After closure, the accepted seven can still be moved out and drained, while another attempt to submit nine is rejected. The output records all those facts. A real concurrent queue would guard this decision and ownership transfer with the same mutex. Moving the item before checking capacity would make a failed push lose or destroy caller-owned work, so validation order is part of the resource contract.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch49.json \u2192 SP49.004",
+      "question": {
+        "prompt": "Who owns the nine-valued item after both rejected pushes?",
+        "answer": "The caller\u2019s second unique_ptr still owns it, because the checks return before moving that handle."
+      },
+      "code": {
+        "filename": "sys_ch49_ownership.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <utility>\nint main() {\n    // One-thread ownership model: no concurrent queue is claimed.\n    std::unique_ptr<int> slot;\n    bool closed = false;\n    const auto push = [&](std::unique_ptr<int>& item) {\n        if (closed || slot || !item) return false;\n        slot = std::move(item);\n        return true;\n    };\n    auto first = std::make_unique<int>(7);\n    auto second = std::make_unique<int>(9);\n    const bool accepted = push(first);\n    const bool full_rejected = !push(second);\n    closed = true;\n    auto drained = std::move(slot);\n    const bool closed_rejected = !push(second);\n    std::cout << std::boolalpha << \"accepted=\" << accepted\n              << \" caller-empty=\" << !first << '\\n';\n    std::cout << \"full-rejected=\" << full_rejected << \" retained=\" << *second << '\\n';\n    std::cout << \"drained=\" << *drained << \" closed-rejected=\" << closed_rejected << '\\n';\n}\n",
+        "expectedStdout": "accepted=true caller-empty=true\nfull-rejected=true retained=9\ndrained=7 closed-rejected=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Single-thread ownership and drain-on-close model; no blocking or mutex implementation."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "The producer and consumer wait for different facts",
+      "eyebrow": "THE PRODUCER AND CONSUMER WAIT FOR DIFFERENT FACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Producer: closed or space exists",
+        "Consumer: closed or an item exists",
+        "Both predicates belong under one mutex"
+      ],
+      "narration": "A producer may proceed when capacity is available, unless closure requires rejecting the request. Its wait predicate is closed or count less than capacity. A consumer may proceed when an item exists or closure tells it no future input will arrive. Its predicate is closed or count greater than zero. These are two different conditions over one protected state. The queue can use separate readable and writable condition variables while retaining one mutex for slots, indexes, count, and closure. Notification does not reserve space or an item, so each awakened participant rechecks its predicate before transferring ownership. Leaving closed out of either predicate can strand a waiter during shutdown.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch49.json \u2192 SP49.012",
+      "question": {
+        "prompt": "Why must the producer\u2019s wait predicate include closed?",
+        "answer": "A full queue may never gain space during shutdown; closure must wake the producer so it can reject instead of waiting forever."
+      }
+    },
+    {
+      "title": "Drain-on-close is different from cancellation",
+      "eyebrow": "DRAIN-ON-CLOSE IS DIFFERENT FROM CANCELLATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Closing rejects new submissions",
+        "Already accepted items remain consumable",
+        "Closed and empty means normal completion"
+      ],
+      "narration": "The chapter's queue uses drain-on-close. Closing prevents future pushes but does not discard accepted items. A consumer that sees closed with a nonempty queue still removes the next item. Only closed and empty means no more work will arrive and the consumer can finish. Immediate cancellation would need a different contract for queued items, in-flight work, and resource cleanup. Do not encode both meanings in one ambiguous Boolean without stating how each path behaves. Our ownership model drains seven after closure to make the distinction concrete. A caller who expects abort must not assume that close silently destroys every outstanding task.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch49.json \u2192 SP49.014",
+      "question": {
+        "prompt": "What should pop do when the queue is closed but contains two items?",
+        "answer": "Under drain-on-close, it returns those accepted items in order; only a later closed-and-empty pop reports completion."
+      }
+    },
+    {
+      "title": "Capacity does not bound every live item",
+      "eyebrow": "CAPACITY DOES NOT BOUND EVERY LIVE ITEM",
+      "kind": "concept",
+      "keyPoints": [
+        "Producers can hold unsubmitted items",
+        "Consumers can own work outside the queue",
+        "Budget the entire pipeline"
+      ],
+      "narration": "A queue with capacity two can still participate in a system holding a hundred large items. Producers may allocate items before attempting push, and consumers may each retain one while processing. The queue bounds only the waiting stage it owns. To estimate memory use, include producer-held, queued, and consumer-held objects, plus any retries or caches. Backpressure should reach the stage that creates expensive resources if the overall budget matters. This is why ownership diagrams are useful alongside a ring-buffer diagram: one explains array occupancy, while the other explains all live items. A small count inside the queue is not a whole-process memory guarantee.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch49.json \u2192 SP49.010",
+      "question": {
+        "prompt": "Can a capacity-one queue coexist with many live large payloads?",
+        "answer": "Yes. Producers and consumers may own payloads outside the queue, so the overall pipeline can hold much more than one item."
+      }
+    },
+    {
+      "title": "Process outside the lock after taking ownership",
+      "eyebrow": "PROCESS OUTSIDE THE LOCK AFTER TAKING OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Remove and copy or move while protected",
+        "Release before expensive work",
+        "Keep queue state inaccessible through escaped references"
+      ],
+      "narration": "A consumer should hold the queue lock long enough to inspect state and transfer the next item's ownership, then process the item after unlocking. Otherwise a slow task prevents producers and other consumers from using the queue even when their operations are independent. Do not return a reference to an occupied slot and release the mutex while that slot can be reused. The consumer needs its own value or owning handle. This boundary also clarifies failures: once pop succeeds, the consumer owns the processing responsibility. A thrown processing exception is different from a queue-state failure and may require retry or reporting under the application's policy.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch49.json \u2192 SP49.006",
+      "question": {
+        "prompt": "Why is returning a reference to a reusable ring slot after unlocking unsafe?",
+        "answer": "Another operation can overwrite or change that slot while the caller still uses the reference; ownership has not been safely transferred."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Verify item identities as well as totals",
+      "eyebrow": "VERIFY ITEM IDENTITIES AS WELL AS TOTALS",
+      "kind": "concept",
+      "keyPoints": [
+        "Accepted items must be consumed exactly once",
+        "Rejected items remain outside the queue",
+        "Close and join before destruction"
+      ],
+      "narration": "A sum alone can miss a duplicate and an omission that cancel numerically. Give each attempted item a unique identity and track accepted, consumed, and rejected submissions. After all workers finish under drain-on-close, every accepted identity should appear exactly once among consumed items. Test capacity one, closing an empty queue, closing with queued items, and shutdown while producers or consumers are blocked. Closure must notify both waiter groups, and all users must stop before the queue's mutex and condition variables are destroyed. These tests connect the state machine to resource lifetime rather than merely checking that one demonstration prints the expected sum.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch49.json \u2192 SP49.026",
+      "question": {
+        "prompt": "Why is accepted=consumed alone weaker than checking each accepted identity exactly once?",
+        "answer": "Equal counts can hide one duplicated item and one missing item; identity checks detect that substitution."
+      }
+    },
+    {
+      "title": "Choose the queue contract before its implementation",
+      "eyebrow": "CHOOSE THE QUEUE CONTRACT BEFORE ITS IMPLEMENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Specify blocking, rejection, ordering, and closure",
+        "Separate acceptance from processing success",
+        "Keep lifetime ownership visible"
+      ],
+      "narration": "A queue API should make clear what a successful push means. Usually it means the queue accepted responsibility, not that a consumer finished processing. State whether order is FIFO, whether full submission blocks, how closure releases waiters, and who keeps a rejected resource. Then choose a ring, deque, or other storage representation that fits the workload. A simple mutex-based queue provides a useful correctness baseline; a lock-free alternative still needs capacity, reclamation, and shutdown proofs. Maintain the same contract when replacing the implementation, and keep the original identity-based tests so a faster design cannot quietly change which work is accepted or discarded.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch49.json \u2192 SP49.018",
+      "question": {
+        "prompt": "Does successful push prove the task completed successfully?",
+        "answer": "No. It proves acceptance under the queue contract; processing completion needs its own result or acknowledgment mechanism."
+      }
+    }
+  ]
+}

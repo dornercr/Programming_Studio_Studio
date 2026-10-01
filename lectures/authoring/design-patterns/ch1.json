@@ -1,0 +1,290 @@
+{
+  "chapter": 1,
+  "title": "Factory Method: vary construction without copying the job",
+  "opening": [
+    {
+      "title": "A second format should not mean a second workflow",
+      "eyebrow": "01 / THE DESIGN PRESSURE",
+      "kind": "concept",
+      "keyPoints": [
+        "One validation rule: 1–20 bytes",
+        "One receipt prefix: stored",
+        "Different record formatting"
+      ],
+      "narration": "Imagine maintaining an archive job that accepts a label and gives back a receipt. Today the receipt says stored text:sample. Tomorrow another integration wants stored [sample]. The new requirement changes how the label is formatted. It does not change which labels are allowed. If we copy the job, we now have two places to fix every rule. Our target is a common workflow with one clearly marked point where construction may vary. In this chapter, stored is only text in the returned string. The program does not write a file. Keeping that limit clear prevents us from promising a storage guarantee the code never makes.",
+      "actions": [
+        "Ask students to separate the stable rules from the new requirement.",
+        "Read both receipt strings aloud and identify the shared prefix."
+      ],
+      "sourceRef": "manuscript/ch01.json → The archive workflow already knows too much",
+      "question": {
+        "prompt": "Which part should stay common when bracket formatting arrives?",
+        "answer": "Label validation and receipt assembly should stay common; the record format is the varying decision."
+      }
+    },
+    {
+      "title": "Write the contract before choosing the pattern",
+      "eyebrow": "01 / REQUIREMENTS AND EVIDENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "Reject empty labels and labels over 20 bytes",
+        "Create a record only after validation",
+        "Return a separate string value"
+      ],
+      "narration": "A contract is a set of promises between parts of a program. Here the caller supplies a nonempty string containing no more than twenty bytes. The job promises to reject a bad label and to use the chosen record for a good one. Notice the word bytes. std::string::size counts stored characters of type char, which are bytes in this example; it does not count human letters in every text encoding. A twenty-byte boundary test and a twenty-one-byte rejection test give us useful evidence. We also need an empty-input test. Successful output alone cannot show that validation happens before construction, so we must trace that order in the code.",
+      "actions": [
+        "Predict the accepted results at lengths 0, 1, 20, and 21.",
+        "Point out that the chapter counts bytes, not user-perceived letters."
+      ],
+      "sourceRef": "manuscript/ch01.json → Compilation fixes the request; execution chooses the maker",
+      "question": {
+        "prompt": "Does one successful call with sample prove the input boundary?",
+        "answer": "No. It tests a normal case, not empty input, the maximum length, or the first rejected length."
+      }
+    },
+    {
+      "title": "The first version is a good small function",
+      "eyebrow": "01 / PREDICT → RUN → EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Direct construction is a reasonable starting point",
+        "A const reference borrows the label",
+        "An exception reports a rejected request"
+      ],
+      "narration": "Read this small version before looking for a design pattern. The function receives the caller's string through a reference, which is another name for the same string. const means this function cannot change that string through the parameter. The if statement tests the allowed range. throw ends the normal path and sends an error to the matching catch block. For notes, the function returns a newly built string. For empty input, the catch prints empty rejected. Nothing here requires inheritance, a pointer, or a factory. This is the right level of machinery while one fixed format meets the requirement. We need a reason to grow beyond it.",
+      "actions": [
+        "Predict both output lines, then run the program.",
+        "Identify the line that creates the returned receipt."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch01.json → The archive workflow already knows too much",
+      "question": {
+        "prompt": "What exactly prints, and does the second call return a receipt?",
+        "answer": "It prints stored text:notes and then empty rejected. The empty call throws before returning a receipt."
+      },
+      "code": {
+        "filename": "dp_ch01_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\nstd::string archive_text(const std::string& label) {\n    // One format needs no class family.\n    if (label.empty() || label.size() > 20)\n        throw std::invalid_argument(\"label\");\n    return \"stored text:\" + label;\n}\nint main() {\n    std::cout << archive_text(\"notes\") << '\\n';\n    try { archive_text(\"\"); }\n    catch (const std::invalid_argument&) {\n        std::cout << \"empty rejected\\n\";\n    }\n}\n",
+        "expectedStdout": "stored text:notes\nempty rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Copying the workflow copies the risk",
+      "eyebrow": "01 / A FAILURE THAT COMPILES",
+      "kind": "code",
+      "keyPoints": [
+        "Both functions compile",
+        "A 21-byte label gets two different decisions",
+        "The missing rule is a maintenance defect"
+      ],
+      "narration": "This program models a common repair gone wrong. Someone copied the text workflow to add brackets and forgot one half of its validation. The compiler accepts both functions because all the expressions have valid types. When we run them on the same twenty-one-byte label, the text path rejects it and the bracket path accepts it. The bracket receipt has thirty bytes: seven for stored and its following space, two brackets, and twenty-one label bytes. This is a real behavioral disagreement, not a syntax error. Centralizing validation would stop this particular drift. Factory Method will centralize the surrounding job while letting an existing job family vary the object it constructs.",
+      "actions": [
+        "Predict all three lines before Run.",
+        "Ask which shared rule would prevent the two paths from disagreeing."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch01.json → The change should affect construction, not the workflow",
+      "question": {
+        "prompt": "Would renaming copied_bracket_job to create fix the defect?",
+        "answer": "No. Names do not share validation or establish a factory-method relationship. The design must keep the rule in one workflow."
+      },
+      "code": {
+        "filename": "dp_ch01_copied_rule.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\nstd::string text_job(const std::string& label) {\n    if (label.empty() || label.size() > 20)\n        throw std::invalid_argument(\"label\");\n    return \"stored text:\" + label;\n}\nstd::string copied_bracket_job(const std::string& label) {\n    // BUG: this copied branch lost the length rule.\n    if (label.empty()) throw std::invalid_argument(\"label\");\n    return \"stored [\" + label + \"]\";\n}\nint main() {\n    const std::string label(21, 'x');\n    try { text_job(label); }\n    catch (const std::invalid_argument&) {\n        std::cout << \"text: rejected\\n\";\n    }\n    const auto receipt = copied_bracket_job(label);\n    std::cout << \"bracket: accepted \" << label.size()\n              << \" bytes\\n\";\n    std::cout << \"receipt bytes=\" << receipt.size() << '\\n';\n}\n",
+        "expectedStdout": "text: rejected\nbracket: accepted 21 bytes\nreceipt bytes=30\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "The hook changes construction, not algorithm order",
+      "eyebrow": "01 / FACTORY METHOD",
+      "kind": "concept",
+      "keyPoints": [
+        "ArchiveJob::run owns the workflow",
+        "make is the overridable creation step",
+        "The product provides format"
+      ],
+      "narration": "A hook is a place where a shared operation asks for behavior that can vary. ArchiveJob has a protected virtual make hook. Protected keeps ordinary clients from calling that hook directly through ArchiveJob; run is their useful public operation. Virtual lets the actual job object choose the implementation during execution. run first validates, then calls make, then checks the returned owner, then calls format and assembles the receipt. A derived job does not copy those steps. It only supplies the record. This arrangement is Factory Method. The key is the inherited useful workflow calling an overridable creation operation, not the spelling of make and not the mere presence of new objects.",
+      "actions": [
+        "Trace the four major steps in run.",
+        "Have a learner name the single decision delegated to the subclass."
+      ],
+      "sourceRef": "manuscript/ch01.json → The change should affect construction, not the workflow",
+      "question": {
+        "prompt": "Why is run more than a wrapper around a constructor?",
+        "answer": "It preserves shared validation, enforces a non-null product, uses the product, and assembles the receipt."
+      },
+      "theory": {
+        "what": "A virtual construction hook inside a shared job.",
+        "where": "ArchiveJob::run calls ArchiveJob::make.",
+        "why": "New record formats should not duplicate job rules.",
+        "invariant": "All normal jobs pass through the same validation and receipt assembly.",
+        "risk": "Moving validation into each subclass recreates the original drift."
+      }
+    },
+    {
+      "title": "Two hierarchies have different jobs",
+      "eyebrow": "01 / RELATIONSHIPS",
+      "kind": "concept",
+      "keyPoints": [
+        "TextJob is an ArchiveJob",
+        "TextRecord is a Record",
+        "A job creates a record; it is not a record"
+      ],
+      "narration": "The chapter has two families of types. TextJob and BracketJob are kinds of ArchiveJob. TextRecord and BracketRecord are kinds of Record. Inheritance means one type can be used through another type's interface. That is different from creation, where one object makes another. TextJob creates TextRecord, but a TextJob is not a TextRecord. Keeping these relationships separate makes the diagram useful. The creation relationship explains which format will appear. The inheritance relationships explain which calls the client can make through base references and owning handles. If the two families seem excessive for a one-format program, that is a good design concern: we only pay this cost when the changing workflow family warrants it.",
+      "actions": [
+        "Draw the two inheritance families separately.",
+        "Label the cross-family relation creates before connecting them."
+      ],
+      "sourceRef": "manuscript/ch01.json → Two connected type families, one clear handoff",
+      "question": {
+        "prompt": "Should a UML inheritance arrow run from TextJob to TextRecord?",
+        "answer": "No. TextJob inherits ArchiveJob. Its relationship to TextRecord is creation, a dependency rather than inheritance."
+      }
+    },
+    {
+      "title": "Static checking and dynamic choice meet at the hook",
+      "eyebrow": "01 / COMPILATION → EXECUTION",
+      "kind": "concept",
+      "keyPoints": [
+        "The compiler checks the declared interface",
+        "override verifies a matching virtual function",
+        "The actual object selects the implementation"
+      ],
+      "narration": "Suppose selected is declared const ArchiveJob& and refers to a BracketJob. The reference borrows that same job; it does not create a new base object. The compiler sees that run exists and can be called on a const job. When run calls make, virtual dispatch chooses BracketJob::make because the actual object is a bracket job. The returned Record owner then calls the bracket record's format through another virtual operation. override asks the compiler to verify that a declaration really overrides a base virtual function. It catches mistakes such as forgetting a required const qualifier. It does not test whether the produced text follows our business rules.",
+      "actions": [
+        "Follow selected.run through both virtual calls.",
+        "Discuss a missing const on make and the value of override."
+      ],
+      "sourceRef": "manuscript/ch01.json → Compilation fixes the request; execution chooses the maker",
+      "question": {
+        "prompt": "Does const ArchiveJob& selected turn the object into an ArchiveJob?",
+        "answer": "No. It provides a restricted borrowed view of the same BracketJob; virtual calls still use the actual object type."
+      }
+    },
+    {
+      "title": "The owner leaves; the receipt survives",
+      "eyebrow": "01 / RESOURCE LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "unique_ptr gives one handle deletion responsibility",
+        "The result string owns separate characters",
+        "A virtual destructor cleans up the complete product"
+      ],
+      "narration": "Ownership answers who must release a resource. The local unique_ptr<Record> in run owns the newly created record. The arrow in record->format reaches the object held by that owner. When run finishes, the owner destroys its record, but the returned string remains valid because it owns its own character data. The same owner also cleans up if format throws. Record needs a virtual destructor so deletion through its base pointer destroys the complete derived object. A raw pointer alone would not express this cleanup duty. Notice that unique_ptr does not make a null value impossible; that is why the job separately checks the creator's promise to return a usable object.",
+      "actions": [
+        "Mark the point where product ownership enters run and leaves scope.",
+        "Ask what still needs checking despite use of unique_ptr."
+      ],
+      "sourceRef": "manuscript/ch01.json → Two connected type families, one clear handoff",
+      "question": {
+        "prompt": "Why does returning the receipt not keep the Record alive?",
+        "answer": "The returned std::string owns its own data and does not borrow the record. The local owning handle can destroy the record safely."
+      }
+    },
+    {
+      "title": "Smart-pointer conversion is not covariant overriding",
+      "eyebrow": "01 / PRECISE C++ CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Every make override returns unique_ptr<Record>",
+        "make_unique<TextRecord> creates the concrete object",
+        "The returned owner converts while transferring ownership"
+      ],
+      "narration": "There are two separate language rules here. The override declaration in TextJob returns unique_ptr<Record>, matching the base declaration exactly. Inside that function, make_unique<TextRecord> produces an owner of a TextRecord. That owner can be converted into an owner of Record, transferring cleanup responsibility to the result. This is not permission to declare the override as returning unique_ptr<TextRecord>. C++ supports certain covariant return types for raw pointers and references, but it does not apply that rule to arbitrary smart-pointer templates. A compiler error at the override signature is therefore different from a runtime error caused by an empty owner. Knowing which rule failed saves time when extending the job family.",
+      "actions": [
+        "Compare the declared result type with the type of the return expression.",
+        "Ask students to classify a wrong override result as a build failure."
+      ],
+      "sourceRef": "manuscript/ch01.json → Two connected type families, one clear handoff",
+      "question": {
+        "prompt": "Can the override change its declared result to unique_ptr<TextRecord> just because TextRecord derives from Record?",
+        "answer": "No. Keep unique_ptr<Record> as the declared result and return a convertible concrete owner from the function body."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose the smallest construction seam that fits",
+      "eyebrow": "01 / DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "A switch is fine for a small closed set",
+        "Injection can remove a creator subclass",
+        "Factory Method fits a meaningful creator family"
+      ],
+      "narration": "Imagine three possible futures. With two fixed formats and no creator inheritance, a small function that switches on a format value may be easiest to read. If a caller already owns the right record, passing it into the job may avoid a creator family. If every run needs a fresh product, a supplied callable can make one. Factory Method earns its place when derived jobs already represent meaningful integrations and should choose their products while sharing the workflow. These alternatives can all reduce duplicate validation. The design decision depends on the expected changes and the lifetime contract, not on which option has the most recognizable pattern name.",
+      "actions": [
+        "Assign pairs one of the three futures and ask them to defend a design."
+      ],
+      "sourceRef": "manuscript/ch01.json → What does not make a Factory Method",
+      "question": {
+        "prompt": "Which alternative suits two fixed formats and no existing job inheritance?",
+        "answer": "A simple factory or checked direct selection is often enough. Factory Method is more compelling when an inherited job workflow already has a reason to exist."
+      },
+      "comparisons": [
+        {
+          "label": "Simple factory",
+          "text": "Centralize a small closed construction choice in a function."
+        },
+        {
+          "label": "Injected product or callable",
+          "text": "Let the caller supply the dependency or the fresh-object recipe."
+        },
+        {
+          "label": "Factory Method",
+          "text": "Let creator subclasses vary one construction hook in shared work."
+        }
+      ]
+    },
+    {
+      "title": "Diagnose failure by the first broken promise",
+      "eyebrow": "01 / DEBUGGING CHECK",
+      "kind": "concept",
+      "keyPoints": [
+        "Bad input: caller contract",
+        "Null product: creator contract",
+        "Wrong receipt: product or workflow contract"
+      ],
+      "narration": "A useful error report names the promise that failed. An empty label is invalid caller input, so run rejects it before creation. A null owner from EmptyJob is different: the job's own extension point failed to provide a product, so run reports a logic error. A record that silently cuts a label may return a non-null owner and satisfy every C++ signature, yet still violate the required formatting. Start debugging at the earliest failed promise, then inspect the responsible block. Keep a test through an ArchiveJob reference so the test follows the same dynamic path as a real client. Testing only a concrete format helper can miss a broken creator connection.",
+      "actions": [
+        "Present the three failures one at a time and ask who owns the repair.",
+        "Ask how a base-reference test differs from a direct helper test."
+      ],
+      "sourceRef": "manuscript/ch01.json → Compilation fixes the request; execution chooses the maker",
+      "question": {
+        "prompt": "If a new job returns nullptr for valid input, which contract failed?",
+        "answer": "The creator failed its non-null product contract. The valid label is not the cause."
+      }
+    },
+    {
+      "title": "Explain the pattern without relying on its name",
+      "eyebrow": "01 / RETRIEVAL AND TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "Stable job → creation hook → varying product",
+        "Test shared rules and new format behavior",
+        "A formatted receipt is still not durable storage"
+      ],
+      "narration": "Close the book and explain the design in one minute. A common archive job validates a label and builds a receipt. At one point it asks a virtual make operation for a record. The derived job chooses the record type. A local owner keeps cleanup correct while the common job uses the product. That explanation captures both purpose and mechanism. Now transfer it: a report job might share validation and page assembly while integrations choose a renderer. Before copying the design, ask whether creator inheritance is already useful and whether a fresh renderer is needed each run. Finally, keep effect claims honest. Returning a receipt string alone does not prove that a report or archive reached disk.",
+      "actions": [
+        "Give students sixty seconds to explain the mechanism without saying factory.",
+        "Ask them to propose one appropriate and one unnecessary use."
+      ],
+      "sourceRef": "manuscript/ch01.json → What does not make a Factory Method",
+      "question": {
+        "prompt": "Name a change that should not require editing every concrete job.",
+        "answer": "Changing the common label validation or receipt assembly should be handled in ArchiveJob::run, with regression tests for all job variants."
+      }
+    }
+  ]
+}

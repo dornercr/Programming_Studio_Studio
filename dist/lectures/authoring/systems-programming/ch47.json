@@ -1,0 +1,232 @@
+{
+  "chapter": 47,
+  "title": "Mutual Exclusion: protect invariants and return snapshots",
+  "opening": [
+    {
+      "title": "A mutex protects a relationship between values",
+      "eyebrow": "A MUTEX PROTECTS A RELATIONSHIP BETWEEN VALUES",
+      "kind": "concept",
+      "keyPoints": [
+        "Text and revision belong to one document state",
+        "All readers follow the same lock rule",
+        "The invariant should be stated before code"
+      ],
+      "narration": "Imagine a document with text and a revision number. A reader must not observe new text paired with the old revision. These fields form one state, so the lock policy must cover both. A mutex grants one participant at a time ownership of a protected region; it does not make a neighboring field safe simply by existing in the same class. Every relevant reader and writer must follow the policy. Start with one lock around this small document state. The invariant is that each visible revision identifies the corresponding committed text. That statement tells us which operations belong together and what a snapshot must contain.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch47.json \u2192 SP47.012",
+      "question": {
+        "prompt": "Would locking only the revision increment protect the text-revision relationship?",
+        "answer": "No. Readers could still observe a mismatched pair or access text without its required synchronization."
+      }
+    },
+    {
+      "title": "A snapshot is data the caller may safely keep",
+      "eyebrow": "A SNAPSHOT IS DATA THE CALLER MAY SAFELY KEEP",
+      "kind": "concept",
+      "keyPoints": [
+        "Copy related fields while locked",
+        "Return the copied value after unlocking",
+        "Do not expose a mutable internal reference"
+      ],
+      "narration": "A function that returns a reference to protected text has a hidden problem: its lock ends when the function returns, but the caller may keep using the reference while another thread changes the text. Returning a copied snapshot avoids that escape. Copy both text and revision under the same lock, then let the caller use its own pair afterward. Copying has a cost and may throw if memory allocation fails, but scope-bound lock ownership still releases the mutex on that exception path. For large immutable data, a different ownership design may be appropriate. The key is to make the caller's lifetime and access rights explicit instead of exporting a reference with an expired protection promise.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch47.json \u2192 SP47.008",
+      "question": {
+        "prompt": "Why does a locked getter returning const string& remain risky after it returns?",
+        "answer": "The reference still names internal storage after the getter releases its lock; later mutation or destruction can invalidate safe use."
+      }
+    },
+    {
+      "title": "Run a document update and an owned snapshot",
+      "eyebrow": "RUN A DOCUMENT UPDATE AND AN OWNED SNAPSHOT",
+      "kind": "code",
+      "keyPoints": [
+        "One mutex guards text and revision",
+        "replace swaps prepared text then advances revision",
+        "snapshot returns a copied pair"
+      ],
+      "narration": "The document starts at revision one with draft text. replace receives the new string by value, so that storage is ready before locking. It swaps the prepared string into the document and increments the bounded demonstration revision while holding the same mutex. snapshot copies both fields under that mutex. The first saved snapshot still prints 1:draft after replacement, while the second prints 2:ready. These values show that the caller owns independent snapshots, not references to changing internal storage. This compact example demonstrates the access policy with sequential calls; the class boundary is what prevents callers from reaching the fields without the lock.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch47.json \u2192 SP47.012",
+      "question": {
+        "prompt": "Why does the first snapshot still contain draft after replace?",
+        "answer": "It owns a copied string and revision value, independent of the document\u2019s later internal state."
+      },
+      "code": {
+        "filename": "sys_ch47_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <mutex>\n#include <string>\n#include <utility>\nclass Document {\n    mutable std::mutex mutex_;\n    std::string text_ = \"draft\";\n    unsigned revision_ = 1;\npublic:\n    void replace(std::string next) {\n        std::lock_guard lock(mutex_);\n        text_.swap(next); // Prepared storage is committed without allocation.\n        ++revision_; // This bounded demonstration performs one update.\n    }\n    std::pair<unsigned,std::string> snapshot() const {\n        std::lock_guard lock(mutex_);\n        return {revision_, text_};\n    }\n};\nint main() {\n    Document document;\n    const auto before = document.snapshot();\n    document.replace(\"ready\");\n    const auto after = document.snapshot();\n    std::cout << before.first << ':' << before.second << '\\n';\n    std::cout << after.first << ':' << after.second << '\\n';\n}\n",
+        "expectedStdout": "1:draft\n2:ready\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Scope-bound unlocking survives an exception",
+      "eyebrow": "SCOPE-BOUND UNLOCKING SURVIVES AN EXCEPTION",
+      "kind": "code",
+      "keyPoints": [
+        "Reject the candidate before changing state",
+        "The guard releases ownership while unwinding",
+        "A later operation can acquire the same mutex"
+      ],
+      "narration": "A lock_guard ties mutex ownership to a scope. This program locks, rejects a negative candidate by throwing, and leaves the protected value unchanged at seven. As the exception leaves the block, the guard's destructor unlocks the mutex. A later guarded operation acquires that same mutex and increments the value to eight. The output rejected=true value=8 checks both the rejection and later usability. Automatic unlocking does not itself roll back partially changed data, which is why validation happens before assignment here. If we had changed several fields before throwing, we would still need a design that restores or explicitly represents a valid failure state.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch47.json \u2192 SP47.006",
+      "question": {
+        "prompt": "Does lock_guard automatically restore data that was partially changed before an exception?",
+        "answer": "No. It releases the mutex. The operation must separately preserve or restore its state invariant."
+      },
+      "code": {
+        "filename": "sys_ch47_exception_release.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <mutex>\n#include <stdexcept>\nint main() {\n    std::mutex mutex;\n    int value = 7;\n    bool rejected = false;\n    try {\n        std::lock_guard lock(mutex);\n        const int candidate = -1;\n        if (candidate < 0) throw std::invalid_argument(\"negative\");\n        value = candidate;\n    } catch (const std::invalid_argument&) { rejected = true; }\n    {\n        std::lock_guard lock(mutex); // Prior guard released on the exception.\n        ++value;\n    }\n    std::cout << std::boolalpha << \"rejected=\" << rejected\n              << \" value=\" << value << '\\n';\n}\n",
+        "expectedStdout": "rejected=true value=8\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Keep validation inside the transaction it protects",
+      "eyebrow": "KEEP VALIDATION INSIDE THE TRANSACTION IT PROTECTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Check funds or capacity under the same lock",
+        "A stale snapshot cannot authorize a later update",
+        "Revalidate after releasing and reacquiring"
+      ],
+      "narration": "Suppose two requests each inspect a balance of ten and each plan to remove eight. If the funds check occurs before acquiring the mutex, both may decide that the operation is allowed. Serializing only the subtraction cannot repair the stale decisions. The check and update belong in one critical section because they establish one transaction. Expensive work can sometimes be done on a copied snapshot outside the lock, but applying its result may require checking a version or other assumptions again. Shortening a critical section is useful only when it preserves the same invariant. A faster path that admits impossible state is not an optimization of the original contract.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch47.json \u2192 SP47.010",
+      "question": {
+        "prompt": "What needs to happen when applying a calculation based on an unlocked snapshot?",
+        "answer": "Revalidate the assumptions or version under protection, unless another protocol guarantees that the relevant state could not change."
+      }
+    },
+    {
+      "title": "Lock ownership also orders memory access",
+      "eyebrow": "LOCK OWNERSHIP ALSO ORDERS MEMORY ACCESS",
+      "kind": "concept",
+      "keyPoints": [
+        "Unlock and later successful lock connect protected operations",
+        "One lock policy includes readers",
+        "A separate reader lock can break the agreement"
+      ],
+      "narration": "Mutual exclusion keeps protected operations from overlapping, and the mutex relationship also orders visibility of earlier protected updates to the next owner. That is why a reader must use the same policy as a writer even when it never changes data. A second unrelated mutex in the reader does not coordinate with the writer's mutex. The code may contain two locks and still contain a data race. Keep the ownership rule close to the data definition and expose operations that enforce it. In the document example, both replace and snapshot use mutex_, making the relationship visible instead of relying on each caller to remember a comment.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch47.json \u2192 SP47.004",
+      "question": {
+        "prompt": "Why does giving readers their own unrelated mutex fail to coordinate with writers?",
+        "answer": "The locks exclude only their own owners; there is no shared exclusion or ordering relationship between the separate mutexes."
+      }
+    },
+    {
+      "title": "Choose lock_guard or unique_lock for the actual job",
+      "eyebrow": "CHOOSE LOCK_GUARD OR UNIQUE_LOCK FOR THE ACTUAL JOB",
+      "kind": "concept",
+      "keyPoints": [
+        "lock_guard fits one uninterrupted ownership scope",
+        "unique_lock supports controlled release and waiting",
+        "Both express ownership more clearly than manual pairs"
+      ],
+      "narration": "A lock_guard acquires a mutex and releases it at the end of its scope. It is a good fit when an operation should remain protected throughout one block. A unique_lock keeps ownership state that can be released and reacquired, which condition-variable waiting needs. That extra flexibility also creates more states to reason about. Do not use manual lock and unlock calls merely to avoid a small owner object; an early return or exception can skip the unlock. Choose the simplest owner that supports the operation. Then ensure that object destruction occurs after the invariant is restored and before any long wait that depends on another thread using the same mutex.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch47.json \u2192 SP47.006",
+      "question": {
+        "prompt": "Which owner is needed for ordinary condition_variable waiting, and why?",
+        "answer": "unique_lock, because the wait operation must release and reacquire the mutex while tracking ownership."
+      }
+    },
+    {
+      "title": "Coarse and fine locks trade different costs",
+      "eyebrow": "COARSE AND FINE LOCKS TRADE DIFFERENT COSTS",
+      "kind": "concept",
+      "keyPoints": [
+        "One lock simplifies a shared invariant",
+        "More locks may permit independent work",
+        "Cross-region operations need an acquisition policy"
+      ],
+      "narration": "A single mutex around a small document or ledger is often the clearest starting point. It makes the state invariant easy to inspect and avoids many ordering problems. If measurements later show that unrelated operations wait behind it, separate locks may help. But an operation spanning those regions now needs coordinated acquisition and a proof that no cycle can form. More locks also cost memory and can increase cache traffic. The right comparison is a measured workload with the same semantics, not the number of mutexes in a diagram. Keep the coarse version as a correctness reference while experimenting with finer protection.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch47.json \u2192 SP47.018",
+      "question": {
+        "prompt": "Why is one mutex per field often a poor first design for fields that form one invariant?",
+        "answer": "Observers can see combinations from different updates, and operations preserving the relationship become more complex multi-lock transactions."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Review what escapes while the lock is held",
+      "eyebrow": "REVIEW WHAT ESCAPES WHILE THE LOCK IS HELD",
+      "kind": "concept",
+      "keyPoints": [
+        "Unknown callbacks may reenter or acquire other locks",
+        "References can outlive protection",
+        "Exceptions can expose incomplete state"
+      ],
+      "narration": "Inspect the exits from a critical section, not just its entrance. A callback may run arbitrary code, reenter the same component, or acquire another lock in an unexpected order. A returned reference may let someone access state after protection ends. An exception may release the mutex while the fields no longer satisfy their relationship. Each escape needs a policy. Often the operation can commit a small consistent update, copy a notification value, unlock, and then invoke outside code. That does not make every callback safe automatically; the callback observes a completed event rather than participating inside the protected transaction.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch47.json \u2192 SP47.014",
+      "question": {
+        "prompt": "What should hold when a guard releases its mutex during exception unwinding?",
+        "answer": "The protected state must still satisfy its documented invariant or an explicitly documented valid failure state."
+      }
+    },
+    {
+      "title": "Test conservation and consistency, not only completion",
+      "eyebrow": "TEST CONSERVATION AND CONSISTENCY, NOT ONLY COMPLETION",
+      "kind": "concept",
+      "keyPoints": [
+        "Check related-field snapshots",
+        "Exercise rejected operations and exceptions",
+        "Measure contention only after correctness"
+      ],
+      "narration": "A concurrency test that merely waits for workers to finish can miss lost items, mismatched versions, or duplicated transfers. Test the rule that the mutex is intended to protect. For a document, verify that each snapshot's revision matches its text. For a ledger, verify the conserved total and the exact number of successful bounded transfers. Add rejected inputs and exceptions so later normal operations prove the mutex and state remain usable. Then measure contention if the feature needs more throughput. Keeping tests tied to invariants makes maintenance safer because a future optimization must preserve a concrete behavior rather than a vague claim that the class is thread-safe.",
+      "actions": [
+        "Predict the result before opening the answer.",
+        "Identify the protected state and the point where the next observer may use it."
+      ],
+      "sourceRef": "content/systems-programming/ch47.json \u2192 SP47.026",
+      "question": {
+        "prompt": "What is stronger than checking that all worker threads returned?",
+        "answer": "Checking the protected state\u2019s bounds, relationships, conservation rules, accepted-operation counts, and usability after failure."
+      }
+    }
+  ]
+}

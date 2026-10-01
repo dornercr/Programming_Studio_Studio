@@ -1,0 +1,786 @@
+Systems Programming and Machine Organization
+Chapter 49: Producer–Consumer Systems: capacity, ownership, and closure
+Dr. Charles Dorner
+
+1. A queue transfers work and limits one stage
+Problem and first experiment
+
+SAY
+A producer can generate work faster than a consumer can finish it. An unbounded queue turns that mismatch into growing memory use. A bounded queue limits the number of items waiting inside it, so a full queue must make the producer wait or reject the submission under an explicit contract. That is backpressure: the slower part influences the rate of incoming work. The queue is also an ownership boundary. Before a successful push, the producer owns the item; afterward, the queue does, until a consumer removes it. Start with those responsibilities before adding condition variables, because their predicates must express this state machine.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.004
+
+------------------------------------------------------------
+
+2. Ring positions need a count to explain their meaning
+Problem and first experiment
+
+SAY
+A ring buffer reuses a fixed array by wrapping indexes around its end. That saves moving every item after a removal. But an index pair alone can be ambiguous: the next insertion and removal positions may coincide when the buffer is empty or when all slots are occupied. Our demonstration stores a head and count, using their sum modulo capacity to find the insertion slot. The invariant keeps count between zero and capacity and head within the array. Logical order follows head, not physical index zero. Every field participating in that relationship needs one coordinated protection policy once producers and consumers run concurrently.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.008
+
+------------------------------------------------------------
+
+3. Run a wraparound buffer without concurrency noise
+Problem and first experiment
+
+SAY
+The ring first receives ten and twenty. Removing ten advances head to the next slot and reduces count. Inserting thirty and forty fills the ring and wraps one insertion to physical index zero. The remaining logical order is still twenty, thirty, forty, which the program prints after removed=10. This demonstration is a single-thread storage mechanism, not a synchronized producer-consumer queue. It isolates the representation invariant so a wrong wrap calculation is not confused with a waiting bug. A full push returns false before touching storage, and an empty pop returns no value. Later synchronization must protect head, count, and slots as one state.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch49.json → SP49.008
+
+------------------------------------------------------------
+
+4. A rejected submission must keep its owner
+Problem and first experiment
+
+SAY
+This single-thread ownership model has one slot containing a unique_ptr. The first push transfers the seven-valued item into the slot and empties the caller's owner. The second push fails because the slot is full, leaving the nine-valued item with its caller. After closure, the accepted seven can still be moved out and drained, while another attempt to submit nine is rejected. The output records all those facts. A real concurrent queue would guard this decision and ownership transfer with the same mutex. Moving the item before checking capacity would make a failed push lose or destroy caller-owned work, so validation order is part of the resource contract.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch49.json → SP49.004
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Model a queue with capacity two. Reject a third item, consume one, then permit another insertion.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Implement a capacity-two queue with blocking push and pop. close rejects new pushes, wakes waiting participants, and permits consumers to drain existing items before reporting end.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+One wakeup rule is not enough: consumers need work; producers need space. Shutdown must also wake participants whose waits can no longer succeed.
+
+A related failure in the generalized operation is concrete: In pop, return no value whenever closed_ is true, even if items_ is nonempty. Buffered work is lost during shutdown.
+
+The repair changes the operation at the point where the rule can be enforced: After waiting, return no value only when the queue is empty. A closed queue can still contain items that the drain contract promises to deliver.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+A class is useful here because the mutex, predicates, queue, capacity, and closed flag must obey one shared rule across several operations. All shared state is accessed under the mutex. Separate conditions describe available items and available space. The producer closes on normal completion and on exceptions so the consumer cannot wait forever for more input. The queue must outlive every participant.
+
+A plausible alternative: An unbounded queue simplifies insertion but can turn overload into unbounded memory use.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.03
+
+------------------------------------------------------------
+
+8. Chapter 49 — Producer–Consumer Systems
+Systems mechanisms and source lecture
+
+SAY
+A producer–consumer system separates creation of work from processing of work. A bounded queue connects the two rates and applies backpressure when producers get ahead. Its correctness requires more than a mutex around a container: it needs predicates, closure semantics, ownership rules, and a way for every waiter to terminate. The queue in this chapter stores integers in preallocated slots. That keeps allocation and throwing element moves out of push and pop , making the synchronization argument visible. A generic production queue must additionally define exception guarantees for its element type.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.001, SP49.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+49.1 Producers 49.2 Consumers 49.3 Shared buffers 49.4 Bounded buffers ...plus 8 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.003
+
+------------------------------------------------------------
+
+10. Producers
+Systems mechanisms and source lecture
+
+SAY
+Producers create items and attempt to transfer them into the queue. A successful push transfers responsibility to the queue. A rejected push after closure leaves the caller responsible for whatever resource the item represents. Production rate should not be assumed lower than consumption rate. Bursts, slow downstream services, and failures can make the queue fill. Bounded capacity converts that condition into an explicit wait or rejection instead of unbounded memory growth.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.004, SP49.005
+
+------------------------------------------------------------
+
+11. Consumers
+Systems mechanisms and source lecture
+
+SAY
+Consumers wait for an available item, remove it under the queue’s protection, and process it outside the queue lock. Processing outside the lock lets other participants enqueue and dequeue while the current item is being handled. A consumer must distinguish temporarily empty from permanently closed-and-drained. Returning an empty result merely because no item is available at one instant would incorrectly terminate a worker while producers are still active.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.006, SP49.007
+
+------------------------------------------------------------
+
+12. Shared buffers
+Systems mechanisms and source lecture
+
+SAY
+The shared buffer stores items not yet transferred to consumers. A ring buffer uses a fixed array with head and tail indexes. Count distinguishes empty from full when indexes alone are ambiguous. The invariant includes 0 <= count <= capacity , valid head and tail indexes, and a relationship between occupied slots and logical order. All fields that participate in that invariant use the same mutex in this implementation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.008, SP49.009
+
+------------------------------------------------------------
+
+13. Bounded buffers
+Systems mechanisms and source lecture
+
+SAY
+A bounded buffer has a fixed maximum number of queued items. It limits queue storage and provides a natural point for backpressure. It does not by itself limit all system resources: producers may hold items before pushing, and consumers may hold items while processing. Budget the complete pipeline. If each of 100 workers can retain a large item, a small queue does not imply a small total memory footprint. Capacity controls one ownership stage, not every live object in the process.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.010, SP49.011
+
+------------------------------------------------------------
+
+14. Buffer-full condition
+Systems mechanisms and source lecture
+
+SAY
+A producer waits while the queue is full and still open. Its predicate is closed || count < capacity . Including closure ensures that shutdown can release producers that would otherwise wait forever for capacity. After waking, the producer checks closure before inserting. A notification does not reserve a slot for a particular producer; another producer may acquire the mutex first. The predicate loop handles that competition.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.012, SP49.013
+
+------------------------------------------------------------
+
+15. Buffer-empty condition
+Systems mechanisms and source lecture
+
+SAY
+A consumer waits while the queue is empty and open. Its predicate is closed || count > 0 . If the queue is closed but still contains items, the consumer drains them under the policy used here. When closed and empty, pop returns no item, signaling normal completion. This is drain-on-close , not immediate cancellation. An aborting queue would need a different contract for queued and in-flight items.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.014, SP49.015
+
+------------------------------------------------------------
+
+16. Mutex synchronization
+Systems mechanisms and source lecture
+
+SAY
+One mutex protects slots, indexes, count, and closure. The queue does not expose references to occupied slots after unlocking. Instead it copies an integer out while protected, then returns ownership of that value. The mutex also supplies visibility between the producer’s slot write and the consumer’s slot read. No extra atomic count is needed in this locked implementation. Adding atomics to already-protected fields can complicate the design without improving correctness.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.016, SP49.017
+
+------------------------------------------------------------
+
+17. Condition-variable synchronization
+Systems mechanisms and source lecture
+
+SAY
+One condition variable represents the possibility of items becoming available; another represents capacity becoming available. Push notifies a consumer after insertion, and pop notifies a producer after removal. Closure notifies both groups. The predicates remain authoritative. Notifications happen after unlocking in this implementation, but state changes occur under the mutex. Queue destruction is permitted only after all producers and consumers have stopped using it; close is not an automatic join operation.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.018, SP49.019
+
+------------------------------------------------------------
+
+18. A bounded, drainable integer queue
+Systems mechanisms and source lecture
+
+SAY
+Companion listing: ch49/bounded_queue.hpp Companion listing: ch49/main.cpp The expected sum is 5050. Capacity eight forces the implementation to support reuse of ring slots during the 100-item transfer. Scheduling determines exactly when participants wait; the correctness result does not depend on a particular waiting count. For arbitrary capacity values near size_t limits, even index increment needs range analysis. Here a successfully allocated vector<int> has a practical and implementation-constrained maximum well below a wrapping index increment. A more general storage abstraction should state and enforce its own maximum capacity explicitly.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.020, SP49.021
+
+------------------------------------------------------------
+
+19. Bounded buffer state transitions
+Systems mechanisms and source lecture
+
+SAY
+For capacity 3, a producer must wait when the queue already contains three items. After a consumer removes one, size becomes two and a waiting producer may proceed. Conversely, a consumer waits when size is zero and can be notified after a producer inserts an item. One mutex protects the queue and its size predicate.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.022, SP49.023
+
+------------------------------------------------------------
+
+20. Why two predicates matter
+Systems mechanisms and source lecture
+
+SAY
+A bounded queue has at least two logically distinct conditions: not-empty for consumers and not-full for producers. Using the same mutex is fine, but each side waits for the predicate that enables its operation. Notifications should be issued after state changes that can make the opposite predicate true.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.024, SP49.025
+
+------------------------------------------------------------
+
+21. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 49. Test capacity one, immediate closure, closure with queued items, push after closure, and several consumers with per-consumer sums. Then extend the same queue to multiple producers and consumers. Force shutdown while a producer is blocked on a full queue and while a consumer is blocked on an empty queue. Give every attempted item a unique identity and track attempted, accepted, consumed, and rejected-after-close counts. Under the chapter’s drain-on-close contract, verify at quiescence that accepted = consumed and that each accepted identity appears exactly once. All workers must finish before queue destruction. Review 1. Why notify both producer and consumer waiters on close? Review 2. Does bounded queue capacity bound all in-flight memory?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.026, SP49.027
+
+------------------------------------------------------------
+
+22. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is producer–consumer systems. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.028
+
+------------------------------------------------------------
+
+23. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Deadlock.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.029
+
+------------------------------------------------------------
+
+24. The producer and consumer wait for different facts
+Reason about the implementation
+
+SAY
+A producer may proceed when capacity is available, unless closure requires rejecting the request. Its wait predicate is closed or count less than capacity. A consumer may proceed when an item exists or closure tells it no future input will arrive. Its predicate is closed or count greater than zero. These are two different conditions over one protected state. The queue can use separate readable and writable condition variables while retaining one mutex for slots, indexes, count, and closure. Notification does not reserve space or an item, so each awakened participant rechecks its predicate before transferring ownership. Leaving closed out of either predicate can strand a waiter during shutdown.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.012
+
+------------------------------------------------------------
+
+25. Drain-on-close is different from cancellation
+Reason about the implementation
+
+SAY
+The chapter's queue uses drain-on-close. Closing prevents future pushes but does not discard accepted items. A consumer that sees closed with a nonempty queue still removes the next item. Only closed and empty means no more work will arrive and the consumer can finish. Immediate cancellation would need a different contract for queued items, in-flight work, and resource cleanup. Do not encode both meanings in one ambiguous Boolean without stating how each path behaves. Our ownership model drains seven after closure to make the distinction concrete. A caller who expects abort must not assume that close silently destroys every outstanding task.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.014
+
+------------------------------------------------------------
+
+26. Capacity does not bound every live item
+Reason about the implementation
+
+SAY
+A queue with capacity two can still participate in a system holding a hundred large items. Producers may allocate items before attempting push, and consumers may each retain one while processing. The queue bounds only the waiting stage it owns. To estimate memory use, include producer-held, queued, and consumer-held objects, plus any retries or caches. Backpressure should reach the stage that creates expensive resources if the overall budget matters. This is why ownership diagrams are useful alongside a ring-buffer diagram: one explains array occupancy, while the other explains all live items. A small count inside the queue is not a whole-process memory guarantee.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.010
+
+------------------------------------------------------------
+
+27. Process outside the lock after taking ownership
+Reason about the implementation
+
+SAY
+A consumer should hold the queue lock long enough to inspect state and transfer the next item's ownership, then process the item after unlocking. Otherwise a slow task prevents producers and other consumers from using the queue even when their operations are independent. Do not return a reference to an occupied slot and release the mutex while that slot can be reused. The consumer needs its own value or owning handle. This boundary also clarifies failures: once pop succeeds, the consumer owns the processing responsibility. A thrown processing exception is different from a queue-state failure and may require retry or reporting under the application's policy.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.006
+
+------------------------------------------------------------
+
+28. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Model a queue with capacity two. Reject a third item, consume one, then permit another insertion.
+
+Insert 1 and 2. size 2; full. The invariant is 0 <= size <= capacity.
+
+Attempt 3. reject; size stays 2. A real concurrent API must define whether full means wait, reject, or drop.
+
+Consume and insert. remove 1, insert 3; size 2. Making space changes the condition that blocked producers care about.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch49/main.cpp
+
+------------------------------------------------------------
+
+29. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Insert 1 and 2. size 2; full. The invariant is 0 <= size <= capacity.
+
+Attempt 3. reject; size stays 2. A real concurrent API must define whether full means wait, reject, or drop.
+
+Consume and insert. remove 1, insert 3; size 2. Making space changes the condition that blocked producers care about.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch49/main.cpp
+
+------------------------------------------------------------
+
+30. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+A class is useful here because the mutex, predicates, queue, capacity, and closed flag must obey one shared rule across several operations. All shared state is accessed under the mutex. Separate conditions describe available items and available space. The producer closes on normal completion and on exceptions so the consumer cannot wait forever for more input. The queue must outlive every participant.
+
+After waiting, return no value only when the queue is empty. A closed queue can still contain items that the drain contract promises to deliver.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch49/main.cpp:1-20
+
+------------------------------------------------------------
+
+31. The queue owns its synchronization and state
+Code, diagrams, and debugging
+
+SAY
+A filled diamond at Queue marks composition: these members belong to the Queue object. There is no inheritance. A consumer can still pop accepted items after close; only a closed and empty queue ends the stream. Code is from systems_labs/ch49/solution.cpp.
+
+A class is useful here because the mutex, predicates, queue, capacity, and closed flag must obey one shared rule across several operations. All shared state is accessed under the mutex. Separate conditions describe available items and available space. The producer closes on normal completion and on exceptions so the consumer cannot wait forever for more input. The queue must outlive every participant.
+
+After waiting, return no value only when the queue is empty. A closed queue can still contain items that the drain contract promises to deliver.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch49/main.cpp:1-20
+
+------------------------------------------------------------
+
+32. A bounded queue needs space, work, and shutdown rules
+Code, diagrams, and debugging
+
+SAY
+A bounded queue needs space, work, and shutdown rules. A full queue rejects this push before changing its state. This baseline is a single-threaded model, not a blocking queue.
+
+Model a queue with capacity two. Reject a third item, consume one, then permit another insertion.
+
+The invariant is 0 <= size <= capacity. A real concurrent API must define whether full means wait, reject, or drop. Making space changes the condition that blocked producers care about.
+
+A full queue rejects this push before changing its state. This baseline is a single-threaded model, not a blocking queue.
+
+When space exists, append the value. Capacity must be checked and mutation performed under one lock in a concurrent version.
+
+Return true only after accepting the value. The lab turns this contract into a bounded blocking queue with explicit closure and draining.
+
+The queue size stays between zero and capacity. A rejected push does not discard existing data; the blocking lab adds explicit close and drain rules.
+
+One wakeup rule is not enough: consumers need work; producers need space. Shutdown must also wake participants whose waits can no longer succeed. In the extended lab: In pop, return no value whenever closed_ is true, even if items_ is nonempty. Buffered work is lost during shutdown.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch49/main.cpp:10-12
+
+------------------------------------------------------------
+
+33. Wait, drain, then end
+Code, diagrams, and debugging
+
+SAY
+This block is the blocking consumer operation.
+
+Inside Queue::pop, after acquiring the queue mutex.
+
+The persistent state decides whether to continue; a notification is only a reason to recheck that state.
+
+wait temporarily releases the unique_lock while sleeping, then reacquires it. The lambda [&] borrows the queue state. It returns true if closure or an available item permits progress; the predicate is rechecked after wakeups.
+
+The empty check occurs while holding the mutex. Only emptiness now returns nullopt. Closed but nonempty must continue so accepted items can drain.
+
+Copy the oldest integer before removing it. Both operations happen within the same critical section.
+
+Notify a blocked producer that capacity may be available. The producer must still reacquire the mutex and recheck its own predicate.
+
+Return the removed value by value. The caller owns its copy after this function releases the lock.
+
+Every items_ and closed_ access uses the queue mutex; accepted buffered items drain after close.
+
+Returning immediately on closed_ loses buffered work. Waiting without the predicate can stall after an early notification.
+
+DO
+Explain each source line against the state it changes.
+
+SOURCE
+systems_labs/ch49/solution.cpp:33-37
+
+------------------------------------------------------------
+
+34. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+In pop, return no value whenever closed_ is true, even if items_ is nonempty. Buffered work is lost during shutdown.
+
+After waiting, return no value only when the queue is empty. A closed queue can still contain items that the drain contract promises to deliver.
+
+The reference solution makes the contract executable with assertions. A class is useful here because the mutex, predicates, queue, capacity, and closed flag must obey one shared rule across several operations. All shared state is accessed under the mutex. Separate conditions describe available items and available space. The producer closes on normal completion and on exceptions so the consumer cannot wait forever for more input. The queue must outlive every participant.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.06
+
+------------------------------------------------------------
+
+35. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch49/starter.cpp. Implement the first acceptance case for build a bounded, drainable queue. State the function inputs and result before adding code. First case: Values 1 through 5 are delivered in FIFO order.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.07
+
+------------------------------------------------------------
+
+36. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch49/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.08
+
+------------------------------------------------------------
+
+37. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: In pop, return no value whenever closed_ is true, even if items_ is nonempty. Buffered work is lost during shutdown. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.09
+
+------------------------------------------------------------
+
+38. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+If shutdown occurs with two queued items, should consumers drop them? Compare the selected design with this plausible alternative: An unbounded queue simplifies insertion but can turn overload into unbounded memory use.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.10
+
+------------------------------------------------------------
+
+39. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch49/starter.cpp. Implement a capacity-two queue with blocking push and pop. close rejects new pushes, wakes waiting participants, and permits consumers to drain existing items before reporting end. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch49/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.11
+
+------------------------------------------------------------
+
+40. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Build a bounded, drainable queue belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.12
+
+------------------------------------------------------------
+
+41. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Implement a capacity-two queue with blocking push and pop. close rejects new pushes, wakes waiting participants, and permits consumers to drain existing items before reporting end.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch49/starter.cpp
+
+------------------------------------------------------------
+
+42. Review the extension solution
+Practice and extension
+
+SAY
+A class is useful here because the mutex, predicates, queue, capacity, and closed flag must obey one shared rule across several operations. All shared state is accessed under the mutex. Separate conditions describe available items and available space. The producer closes on normal completion and on exceptions so the consumer cannot wait forever for more input. The queue must outlive every participant. Repair principle: After waiting, return no value only when the queue is empty. A closed queue can still contain items that the drain contract promises to deliver.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+After waiting, return no value only when the queue is empty. A closed queue can still contain items that the drain contract promises to deliver.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch49/solution.cpp
+
+------------------------------------------------------------
+
+43. Application case: Producer–Consumer Systems
+Practice and extension
+
+SAY
+A bounded queue is full when a producer arrives.
+
+What must the protocol define?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.CASE
+
+------------------------------------------------------------
+
+44. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+A class is useful here because the mutex, predicates, queue, capacity, and closed flag must obey one shared rule across several operations. All shared state is accessed under the mutex. Separate conditions describe available items and available space. The producer closes on normal completion and on exceptions so the consumer cannot wait forever for more input. The queue must outlive every participant.
+
+Choose a simpler approach when its narrower contract is enough. An unbounded queue simplifies insertion but can turn overload into unbounded memory use.
+
+When this system changes, retain a check that exposes the known failure: In pop, return no value whenever closed_ is true, even if items_ is nonempty. Buffered work is lost during shutdown. After waiting, return no value only when the queue is empty. A closed queue can still contain items that the drain contract promises to deliver.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch49.json → SYS49.14
+
+------------------------------------------------------------
+
+45. Verify item identities as well as totals
+Recall and transfer
+
+SAY
+A sum alone can miss a duplicate and an omission that cancel numerically. Give each attempted item a unique identity and track accepted, consumed, and rejected submissions. After all workers finish under drain-on-close, every accepted identity should appear exactly once among consumed items. Test capacity one, closing an empty queue, closing with queued items, and shutdown while producers or consumers are blocked. Closure must notify both waiter groups, and all users must stop before the queue's mutex and condition variables are destroyed. These tests connect the state machine to resource lifetime rather than merely checking that one demonstration prints the expected sum.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.026
+
+------------------------------------------------------------
+
+46. Choose the queue contract before its implementation
+Recall and transfer
+
+SAY
+A queue API should make clear what a successful push means. Usually it means the queue accepted responsibility, not that a consumer finished processing. State whether order is FIFO, whether full submission blocks, how closure releases waiters, and who keeps a rejected resource. Then choose a ring, deque, or other storage representation that fits the workload. A simple mutex-based queue provides a useful correctness baseline; a lock-free alternative still needs capacity, reclamation, and shutdown proofs. Maintain the same contract when replacing the implementation, and keep the original identity-based tests so a faster design cannot quietly change which work is accepted or discarded.
+
+DO
+Predict the concrete state or output before revealing the answer.
+Explain which invariant and lifetime rule make the observation valid.
+
+SOURCE
+content/systems-programming/ch49.json → SP49.018

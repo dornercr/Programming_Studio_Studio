@@ -1,0 +1,1641 @@
+{
+  "schemaVersion": 1,
+  "courseId": "design-patterns-cpp",
+  "courseTitle": "Design Patterns in C++",
+  "chapter": 15,
+  "title": "Iterator — positions, boundaries, and valid traversal",
+  "author": "Dr. Charles Dorner",
+  "sourceTopics": [
+    {
+      "id": "C15.01",
+      "title": "Pattern overview"
+    },
+    {
+      "id": "C15.02",
+      "title": "The problem: callers need readings, not storage details"
+    },
+    {
+      "id": "C15.03",
+      "title": "Separate a collection from a position within it"
+    },
+    {
+      "id": "C15.04",
+      "title": "An end position exists, but it is not an element"
+    },
+    {
+      "id": "C15.05",
+      "title": "A changed collection makes old cursors stale"
+    },
+    {
+      "id": "C15.06",
+      "title": "A safety check cannot bring a dead owner back"
+    },
+    {
+      "id": "C15.07",
+      "title": "Choose traversal features from the reporting problem"
+    },
+    {
+      "id": "C15.08",
+      "title": "Roles in the implementation"
+    },
+    {
+      "id": "C15.09",
+      "title": "Worked example: contracts and alternatives"
+    },
+    {
+      "id": "C15.10",
+      "title": "Execution trace"
+    },
+    {
+      "id": "C15.11",
+      "title": "Failure cases and repairs"
+    },
+    {
+      "id": "C15.12",
+      "title": "Code focus: Check the captured generation"
+    },
+    {
+      "id": "C15.13",
+      "title": "Code focus: Return a checked value"
+    },
+    {
+      "id": "C15.14",
+      "title": "Exercise 15.1: Guided modification"
+    },
+    {
+      "id": "C15.15",
+      "title": "Exercise 15.2: Trace unfamiliar code"
+    },
+    {
+      "id": "C15.16",
+      "title": "Exercise 15.3: Diagnose a bug"
+    },
+    {
+      "id": "C15.17",
+      "title": "Exercise 15.4: Choose a design"
+    },
+    {
+      "id": "C15.18",
+      "title": "Exercise 15.5: Extend without regressions"
+    },
+    {
+      "id": "C15.19",
+      "title": "Exercise 15.6: Justify a decision"
+    },
+    {
+      "id": "C15.20",
+      "title": "Implementation lab"
+    },
+    {
+      "id": "C15.21",
+      "title": "Chapter summary"
+    },
+    {
+      "id": "C15.22",
+      "title": "Application case 1"
+    },
+    {
+      "id": "C15.23",
+      "title": "Application case 2"
+    }
+  ],
+  "slides": [
+    {
+      "title": "The report needs values, not the storage plan",
+      "eyebrow": "ITERATOR / THE PROBLEM",
+      "kind": "cover",
+      "keyPoints": [
+        "Visit readings in insertion order",
+        "Allow two reports to stop at different positions",
+        "Keep the collection representation private"
+      ],
+      "narration": "A measurement log contains four and nine. One report needs their sum; another is still examining the first reading. We could give both reports the whole vector. That is easy today, but each report could start depending on indexing, contiguous storage, or the ability to change the vector. If the log later uses chunks, those assumptions become obstacles. The needed behavior is smaller: ask whether traversal is finished, read one value, and advance. An iterator is a separate object that holds this traversal position. The chapter calls its teaching interface Cursor. First we will see why an ordinary vector loop is enough until storage independence becomes a real requirement.",
+      "actions": [
+        "Ask two learners to point at different readings without changing the log."
+      ],
+      "sourceRef": "manuscript/ch15.json → The problem: callers need readings, not storage details",
+      "question": {
+        "prompt": "Which information belongs to the report cursor rather than the collection itself?",
+        "answer": "The report’s current traversal position. Different reports need independent positions over the same values."
+      },
+      "section": "Problem and first design",
+      "topicIds": [
+        "C15.01"
+      ],
+      "id": "dp-ch15-01"
+    },
+    {
+      "title": "Use the existing container when its contract fits",
+      "eyebrow": "FIRST RUNNABLE DESIGN",
+      "kind": "code",
+      "keyPoints": [
+        "Range-based for already traverses a vector",
+        "The colon means: take each element from this range",
+        "An int loop variable holds a copied reading"
+      ],
+      "narration": "The shortest reasonable report uses a vector and a range-based for loop. In for followed by int value, a colon, and readings, the colon separates the element declaration from the range being visited. Each integer is copied into value, then added to total. The collection itself does not change. The result is thirteen. This is already a sound use of iteration supplied by the standard library; writing a custom Cursor would not improve this tiny program. Our later wrapper is justified by a different public contract: reports should not know that the storage is a vector, and mutation should have an explicit checked policy. Keep the baseline as a reference when judging that added complexity.",
+      "actions": [
+        "Predict thirteen and Run.",
+        "Explain the colon at the point where it first appears."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch15.json → The problem: callers need readings, not storage details",
+      "question": {
+        "prompt": "Does assigning a new number to value change the stored reading here?",
+        "answer": "No. int value is a copy. A reference loop variable would have a different relationship to the element."
+      },
+      "code": {
+        "filename": "dp_ch15_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <vector>\nint main() {\n    const std::vector<int> readings{4, 9};\n    int total = 0;\n    // The colon means: visit each value in readings.\n    for (int value : readings) {\n        total += value;\n    }\n    std::cout << \"total: \" << total << '\\n';\n}\n",
+        "expectedStdout": "total: 13\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-02.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_baseline.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch15-02"
+    },
+    {
+      "title": "A single position cannot serve independent readers",
+      "eyebrow": "A CONCRETE DESIGN LIMIT",
+      "kind": "concept",
+      "keyPoints": [
+        "One shared index couples unrelated reports",
+        "A copied position can move independently",
+        "Traversal state should travel with the traversal"
+      ],
+      "narration": "Imagine placing a current_index member directly in the measurement log and letting every report use it. The first report advances, and the second unexpectedly starts at nine instead of four. The data did not change; the reports accidentally shared their progress. That is the pressure for a separate position object. Each Cursor contains its own index while borrowing the same Readings owner. Copying a cursor copies the position, so advancing the copy leaves the original alone. This does not mean the data was copied. The design separates two kinds of state: values owned by the collection and progress owned by each traversal. That separation lets reports compose without resetting one another.",
+      "actions": [
+        "Trace one cursor to nine while leaving its copy at four."
+      ],
+      "sourceRef": "manuscript/ch15.json → Separate a collection from a position within it",
+      "question": {
+        "prompt": "If two cursors share the collection, must they also share the index?",
+        "answer": "No. Each cursor stores its own index. Sharing the owner does not require sharing traversal progress."
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch15-03"
+    },
+    {
+      "title": "An in-range index can still belong to stale work",
+      "eyebrow": "SAFE FAILURE DEMONSTRATION",
+      "kind": "code",
+      "keyPoints": [
+        "Bounds checking protects an element access",
+        "A generation check protects the traversal contract",
+        "Appending can invalidate a cursor without changing its index"
+      ],
+      "narration": "This controlled model keeps a copied index rather than a standard vector iterator, so no invalid iterator is dereferenced. Before the append, index zero refers to four and the saved generation is two. After adding twelve, index zero is still within bounds and at still returns four. Yet the saved generation no longer matches. Under the chapter's chosen policy, the old traversal is stale because any successful append ends it. A bound check alone cannot enforce that rule. The word stale means an old view of a changed collection, not necessarily a missing element. Later we place the version comparison inside every public cursor operation so callers cannot forget it.",
+      "actions": [
+        "Predict the three output lines before running this safe model."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch15.json → A changed collection makes old cursors stale",
+      "question": {
+        "prompt": "Why can at(index) succeed while the cursor must be rejected?",
+        "answer": "The numeric index is valid, but the collection generation changed. Bounds and the traversal’s validity policy are separate checks."
+      },
+      "code": {
+        "filename": "dp_ch15_bounds_vs_generation.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <vector>\nint main() {\n    std::vector<int> values{4, 9};\n    std::size_t generation = 2;\n    const auto saved_generation = generation;\n    const std::size_t index = 0;\n    values.push_back(12);\n    ++generation;\n    // Index access is safe; it does not enforce a cursor policy.\n    std::cout << std::boolalpha;\n    std::cout << \"index in range: \" << (index < values.size()) << '\\n';\n    std::cout << \"value: \" << values.at(index) << '\\n';\n    std::cout << \"generation current: \"\n              << (saved_generation == generation) << '\\n';\n}\n",
+        "expectedStdout": "index in range: true\nvalue: 4\ngeneration current: false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-04.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_bounds_vs_generation.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch15-04"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json",
+      "title": "The contract we must preserve",
+      "keyPoints": [
+        "Visit readings in insertion order and support independent positions.",
+        "Make empty/end behavior explicit.",
+        "Reject cursor operations after a successful append."
+      ],
+      "narration": "A checked cursor over a readings log. Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.\n\nVisit readings in insertion order and support independent positions. Make empty/end behavior explicit. Reject cursor operations after a successful append.\n\nThe owner must remain alive and in place while a cursor is used. A live cursor index is at most the number of readings. A version mismatch is rejected before data access. An end position is never read as an element. These are the rules that define a correct extension, even if it has the right C++ types. Expose a vector const_iterator if the public contract can depend on vector rules. Own a snapshot if scans must survive later edits or owner destruction. A snapshot gives stability in exchange for copying and storage costs.",
+      "comparisons": [
+        {
+          "label": "Chosen design",
+          "text": "Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out."
+        },
+        {
+          "label": "A reasonable alternative",
+          "text": "Expose a vector const_iterator if the public contract can depend on vector rules. Own a snapshot if scans must survive later edits or owner destruction. A snapshot gives stability in exchange for copying and storage costs."
+        }
+      ],
+      "question": {
+        "prompt": "Which promise would a new Iterator implementation be allowed to break?",
+        "answer": "None of the stated requirements. The implementation may change, but these rules remain: The owner must remain alive and in place while a cursor is used. A live cursor index is at most the number of readings. A version mismatch is rejected before data access. An end position is never read as an element."
+      },
+      "topicIds": [
+        "C15.09"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch15-05"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → The problem: callers need readings, not storage details",
+      "title": "The problem: callers need readings, not storage details",
+      "keyPoints": [
+        "A measurement log stores a sequence of integer readings.",
+        "Giving every caller a reference to the internal vector exposes more than traversal."
+      ],
+      "narration": "A measurement log stores a sequence of integer readings. A report must visit the readings in insertion order and compute their total. The simplest loop uses a vector directly, and that is often the best answer when the vector is already part of the public design. The new constraint is that reports should not depend on the storage layout. The log may later use chunks, a file cache, or a filtered view. Reports also need independent positions: one view may be examining the first reading while another has reached the second.\n\nGiving every caller a reference to the internal vector exposes more than traversal. Callers can start depending on contiguous memory, indexing, and mutation details. Copying the entire vector into every report hides storage but can waste memory when readings are numerous. We need a small object that remembers a position and provides the next value without handing over the container. That object is an iterator. The teaching implementation calls it Cursor to emphasize its explicit done, read, and next operations.",
+      "excerpt": {
+        "text": "int total = 0;\nfor (int value : values) {\n    total += value;\n}",
+        "filename": "Excerpt - simplest starting point",
+        "explain": []
+      },
+      "question": {
+        "prompt": "Two readers walk the same collection at different speeds. What state must remain separate?",
+        "answer": "Each reader needs its own traversal position. They may share the stored readings, but advancing one reader must not advance the other. Changes to the collection need a separate invalidation rule."
+      },
+      "reading": [
+        "A measurement log stores a sequence of integer readings. A report must visit the readings in insertion order and compute their total. The simplest loop uses a vector directly, and that is often the best answer when the vector is already part of the public design. The new constraint is that reports should not depend on the storage layout. The log may later use chunks, a file cache, or a filtered view. Reports also need independent positions: one view may be examining the first reading while another has reached the second.",
+        "Giving every caller a reference to the internal vector exposes more than traversal. Callers can start depending on contiguous memory, indexing, and mutation details. Copying the entire vector into every report hides storage but can waste memory when readings are numerous. We need a small object that remembers a position and provides the next value without handing over the container. That object is an iterator. The teaching implementation calls it Cursor to emphasize its explicit done, read, and next operations."
+      ],
+      "topicIds": [
+        "C15.02"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch15-06"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → Separate a collection from a position within it",
+      "title": "Separate a collection from a position within it",
+      "keyPoints": [
+        "Readings owns its vector and a version number.",
+        "The nested class declaration places Cursor inside Readings as part of its interface."
+      ],
+      "narration": "Readings owns its vector and a version number. Cursor borrows the Readings object, stores the version seen at creation, and starts its own index at zero. The collection therefore holds data while each cursor holds traversal state. Copying a cursor copies its position and saved version but still refers to the same owner. Advancing the copy does not advance the original. In the example, one cursor moves to nine while an independent copy still reads four.\n\nThe nested class declaration places Cursor inside Readings as part of its interface. A nested class can access the enclosing class private members through an object; it does not carry an implicit enclosing object by magic. owner_ provides that actual object. const Readings& prevents the cursor from modifying the owner through that reference. It does not prevent other code from calling append on the original non-const collection. That distinction is why a read-only reference does not make a changing collection safe by itself.",
+      "question": {
+        "prompt": "Explain the design choice in “Separate a collection from a position within it” using this chapter's objects.",
+        "answer": "The nested class declaration places Cursor inside Readings as part of its interface. A nested class can access the enclosing class private members through an object; it does not carry an implicit enclosing object by magic. owner_ provides that actual object. const Readings& prevents the cursor from modifying the owner through that reference. It does not prevent other code from calling append on the original non-const collection. That distinction is why a read-only reference does not make a changing collection safe by itself."
+      },
+      "reading": [
+        "Readings owns its vector and a version number. Cursor borrows the Readings object, stores the version seen at creation, and starts its own index at zero. The collection therefore holds data while each cursor holds traversal state. Copying a cursor copies its position and saved version but still refers to the same owner. Advancing the copy does not advance the original. In the example, one cursor moves to nine while an independent copy still reads four.",
+        "The nested class declaration places Cursor inside Readings as part of its interface. A nested class can access the enclosing class private members through an object; it does not carry an implicit enclosing object by magic. owner_ provides that actual object. const Readings& prevents the cursor from modifying the owner through that reference. It does not prevent other code from calling append on the original non-const collection. That distinction is why a read-only reference does not make a changing collection safe by itself."
+      ],
+      "topicIds": [
+        "C15.03"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch15-07"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → An end position exists, but it is not an element",
+      "title": "An end position exists, but it is not an element",
+      "keyPoints": [
+        "For two readings, legal traversal positions are index zero, index one, and index two as the end marker.",
+        "The report loop checks !scan.done before calling read."
+      ],
+      "narration": "For two readings, legal traversal positions are index zero, index one, and index two as the end marker. done reports true at index two. There is no third reading to return. read calls vector.at, which checks the bound and throws std::out_of_range when asked for the end element. next also rejects an attempt to step beyond end. Empty collections begin at end, so the same loop works without a special branch in the report.\n\nThe report loop checks !scan.done before calling read. The exclamation mark means not: it enters the body only while the cursor is not at end. After reading, scan.next advances one position. read returns int by value, so the report receives an independent copy. An element reference could avoid copying a large object, but that reference would introduce its own invalidation and lifetime rules. A copied integer keeps this first traversal interface honest and small. The cursor still borrows the collection and must not outlive it.",
+      "question": {
+        "prompt": "Explain the design choice in “An end position exists, but it is not an element” using this chapter's objects.",
+        "answer": "The report loop checks !scan.done before calling read. The exclamation mark means not: it enters the body only while the cursor is not at end. After reading, scan.next advances one position. read returns int by value, so the report receives an independent copy. An element reference could avoid copying a large object, but that reference would introduce its own invalidation and lifetime rules. A copied integer keeps this first traversal interface honest and small. The cursor still borrows the collection and must not outlive it."
+      },
+      "reading": [
+        "For two readings, legal traversal positions are index zero, index one, and index two as the end marker. done reports true at index two. There is no third reading to return. read calls vector.at, which checks the bound and throws std::out_of_range when asked for the end element. next also rejects an attempt to step beyond end. Empty collections begin at end, so the same loop works without a special branch in the report.",
+        "The report loop checks !scan.done before calling read. The exclamation mark means not: it enters the body only while the cursor is not at end. After reading, scan.next advances one position. read returns int by value, so the report receives an independent copy. An element reference could avoid copying a large object, but that reference would introduce its own invalidation and lifetime rules. A copied integer keeps this first traversal interface honest and small. The cursor still borrows the collection and must not outlive it."
+      ],
+      "topicIds": [
+        "C15.04"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch15-08"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → A changed collection makes old cursors stale",
+      "title": "A changed collection makes old cursors stale",
+      "keyPoints": [
+        "Invalidation means that an operation has ended a cursor validity under its documented rules.",
+        "A stale cursor is different from a cursor at end."
+      ],
+      "narration": "Invalidation means that an operation has ended a cursor validity under its documented rules. This implementation chooses a strict policy: every successful append invalidates every existing cursor, even if the vector happened to have spare capacity. append first checks that the version counter can be increased without wrapping, then appends the value, then increases the version. If vector growth fails, neither the collection contents nor the version is committed by this append of an integer. A cursor compares its captured version with the current version before done, read, or next proceeds.\n\nA stale cursor is different from a cursor at end. End is a valid position in an unchanged collection. Stale means the view no longer matches the collection generation, even if its numeric index remains within bounds. Merely using at would detect a bad index but would not detect a changed traversal contract. The program checks this difference by creating a cursor, appending twelve, and rejecting use of the old cursor. Version exhaustion is rejected instead of wrapping to an old number that might make a stale cursor look current.",
+      "question": {
+        "prompt": "Explain the design choice in “A changed collection makes old cursors stale” using this chapter's objects.",
+        "answer": "A stale cursor is different from a cursor at end. End is a valid position in an unchanged collection. Stale means the view no longer matches the collection generation, even if its numeric index remains within bounds. Merely using at would detect a bad index but would not detect a changed traversal contract. The program checks this difference by creating a cursor, appending twelve, and rejecting use of the old cursor. Version exhaustion is rejected instead of wrapping to an old number that might make a stale cursor look current."
+      },
+      "reading": [
+        "Invalidation means that an operation has ended a cursor validity under its documented rules. This implementation chooses a strict policy: every successful append invalidates every existing cursor, even if the vector happened to have spare capacity. append first checks that the version counter can be increased without wrapping, then appends the value, then increases the version. If vector growth fails, neither the collection contents nor the version is committed by this append of an integer. A cursor compares its captured version with the current version before done, read, or next proceeds.",
+        "A stale cursor is different from a cursor at end. End is a valid position in an unchanged collection. Stale means the view no longer matches the collection generation, even if its numeric index remains within bounds. Merely using at would detect a bad index but would not detect a changed traversal contract. The program checks this difference by creating a cursor, appending twelve, and rejecting use of the old cursor. Version exhaustion is rejected instead of wrapping to an old number that might make a stale cursor look current."
+      ],
+      "topicIds": [
+        "C15.05"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch15-09"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → A safety check cannot bring a dead owner back",
+      "title": "A safety check cannot bring a dead owner back",
+      "keyPoints": [
+        "The version check reads owner_.stamp_.",
+        "Alternative designs make different promises."
+      ],
+      "narration": "The version check reads owner_.stamp_. If the Readings object has already been destroyed, even that first read would use a dangling reference. The check therefore protects against documented mutation while the owner is alive; it is not a general lifetime detector. main declares the collection first and all cursors later, so the collection outlives them. Copy and assignment of Readings are deleted in this example, and it has no implicit move operation. Its identity stays fixed while cursors borrow it.\n\nAlternative designs make different promises. A snapshot cursor could own a copy of the values, remain valid after append, and cost more memory. A cursor holding shared ownership of an immutable collection can extend lifetime without copying its data. Standard-library containers already supply carefully specified iterators; use them when their contracts fit. This Cursor deliberately does not claim to model a standard C++ iterator category: it lacks operator*, operator++, comparison, and the related type information. It teaches the separation of traversal state from storage without pretending to work with every standard algorithm.",
+      "question": {
+        "prompt": "Explain the design choice in “A safety check cannot bring a dead owner back” using this chapter's objects.",
+        "answer": "Alternative designs make different promises. A snapshot cursor could own a copy of the values, remain valid after append, and cost more memory. A cursor holding shared ownership of an immutable collection can extend lifetime without copying its data. Standard-library containers already supply carefully specified iterators; use them when their contracts fit. This Cursor deliberately does not claim to model a standard C++ iterator category: it lacks operator*, operator++, comparison, and the related type information. It teaches the separation of traversal state from storage without pretending to work with every standard algorithm."
+      },
+      "reading": [
+        "The version check reads owner_.stamp_. If the Readings object has already been destroyed, even that first read would use a dangling reference. The check therefore protects against documented mutation while the owner is alive; it is not a general lifetime detector. main declares the collection first and all cursors later, so the collection outlives them. Copy and assignment of Readings are deleted in this example, and it has no implicit move operation. Its identity stays fixed while cursors borrow it.",
+        "Alternative designs make different promises. A snapshot cursor could own a copy of the values, remain valid after append, and cost more memory. A cursor holding shared ownership of an immutable collection can extend lifetime without copying its data. Standard-library containers already supply carefully specified iterators; use them when their contracts fit. This Cursor deliberately does not claim to model a standard C++ iterator category: it lacks operator*, operator++, comparison, and the related type information. It teaches the separation of traversal state from storage without pretending to work with every standard algorithm."
+      ],
+      "topicIds": [
+        "C15.06"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch15-10"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → Choose traversal features from the reporting problem",
+      "title": "Choose traversal features from the reporting problem",
+      "keyPoints": [
+        "A forward scan is enough for the total.",
+        "The primary tests establish behavior for a small deterministic collection, an empty collection, independent positions, end access, end advancement, and stale access."
+      ],
+      "narration": "A forward scan is enough for the total. The lab introduces a real new need: show the newest readings first. Its reverse cursor stores the number of elements still available and reads the element at remaining minus one. It checks for zero before subtracting, because size_t is unsigned and zero minus one would wrap to a huge value. Forward and reverse cursors follow the same version policy, so a caller does not need to guess which mutation rules apply.\n\nThe primary tests establish behavior for a small deterministic collection, an empty collection, independent positions, end access, end advancement, and stale access. They do not prove thread safety. Concurrent append and read without synchronization can create a data race; a version integer is not a lock. A real reporting subsystem should either prevent concurrent edits during a scan, take a stable snapshot, or define synchronization around both data and cursor checks. The traversal interface makes that choice easier to review, but cannot make it disappear.",
+      "question": {
+        "prompt": "Why use remaining minus one for reverse read?",
+        "answer": "remaining counts unread elements. For a nonempty view, the next reverse index is one less than that count; checking empty first prevents unsigned underflow."
+      },
+      "reading": [
+        "A forward scan is enough for the total. The lab introduces a real new need: show the newest readings first. Its reverse cursor stores the number of elements still available and reads the element at remaining minus one. It checks for zero before subtracting, because size_t is unsigned and zero minus one would wrap to a huge value. Forward and reverse cursors follow the same version policy, so a caller does not need to guess which mutation rules apply.",
+        "The primary tests establish behavior for a small deterministic collection, an empty collection, independent positions, end access, end advancement, and stale access. They do not prove thread safety. Concurrent append and read without synchronization can create a data race; a version integer is not a lock. A real reporting subsystem should either prevent concurrent edits during a scan, take a stable snapshot, or define synchronization around both data and cursor checks. The traversal interface makes that choice easier to review, but cannot make it disappear."
+      ],
+      "topicIds": [
+        "C15.07"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch15-11"
+    },
+    {
+      "title": "A nested type still needs an actual owner",
+      "eyebrow": "CURSOR DATA AND SYNTAX",
+      "kind": "concept",
+      "keyPoints": [
+        "Readings owns values_ and stamp_",
+        "Cursor stores owner_, stamp_, and index_",
+        "const restricts this access path; it does not freeze the owner"
+      ],
+      "narration": "Cursor is declared inside Readings, which makes it a nested class. That placement grants access to the enclosing class's private members, but it does not magically provide a particular Readings object. The owner_ reference supplies that object. The const in const Readings& prevents the cursor from modifying the owner through this reference. It does not stop other code from calling append on a non-const Readings. Cursor also stores the generation it saw at creation and its own index. The compiler checks access and const rules when building the program. It cannot know whether someone will append later, so comparing generations is a runtime responsibility.",
+      "actions": [
+        "Separate owner identity, saved generation, and current index on the board."
+      ],
+      "sourceRef": "manuscript/ch15.json → Separate a collection from a position within it",
+      "question": {
+        "prompt": "Can another reference append while a cursor has a const Readings&?",
+        "answer": "Yes. const restricts modification through that reference. It does not make the underlying object immutable to every other access path."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch15-12"
+    },
+    {
+      "title": "End is a position, not a hidden last element",
+      "eyebrow": "TRAVERSAL BOUNDARY",
+      "kind": "concept",
+      "keyPoints": [
+        "Two readings have positions 0, 1, and end at 2",
+        "done is true at end",
+        "read and next reject operations past their contract"
+      ],
+      "narration": "With two readings, zero and one select values. Two is the valid end position and selects no value. This extra position lets a loop stop without special knowledge of the last element. An empty collection starts at end immediately. The chapter's loop tests not done before reading, then advances once. The exclamation mark negates the boolean result: enter only while not finished. read uses at, so reading end throws instead of accessing unchecked memory. next rejects another advance from end. These are explicit contracts of the teaching Cursor, not a claim that every library iterator permits the same operations or throws the same errors.",
+      "actions": [
+        "Trace empty and two-element loops using the same control flow."
+      ],
+      "sourceRef": "manuscript/ch15.json → An end position exists, but it is not an element",
+      "question": {
+        "prompt": "For an empty Readings, may read be called after done returns true?",
+        "answer": "No. End is a valid traversal position but contains no readable value."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch15-13"
+    },
+    {
+      "title": "Commit the collection change before the new version",
+      "eyebrow": "INVALIDATION POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "Every successful append invalidates all old cursors",
+        "Increase stamp_ after push_back succeeds",
+        "Reject counter exhaustion instead of wrapping"
+      ],
+      "narration": "The generation records successful collection changes. append first checks whether increasing the counter would exhaust its range. It then adds the integer to the vector, and only after success increases stamp_. If allocating more vector storage fails for this integer append, the contents and generation remain as they were. Incrementing first could invalidate cursors even though no append took place. Letting the counter wrap creates the opposite risk: an ancient cursor could accidentally match a repeated number. The strict policy does not depend on vector capacity. Even an append that uses spare memory makes all old cursors stale. That predictable rule is easier to explain than an accidental dependency on allocation behavior.",
+      "actions": [
+        "Ask learners to distinguish the wrapper’s contract from vector’s own iterator rules."
+      ],
+      "sourceRef": "manuscript/ch15.json → A changed collection makes old cursors stale",
+      "question": {
+        "prompt": "Should reserving spare capacity keep an old chapter Cursor valid after append?",
+        "answer": "No. This Cursor invalidates on every successful append, regardless of whether vector storage moves."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch15-14"
+    },
+    {
+      "title": "A version number cannot resurrect an owner",
+      "eyebrow": "LIFETIME AND CONCURRENCY",
+      "kind": "concept",
+      "keyPoints": [
+        "Checking stamp_ itself reads the borrowed owner",
+        "Readings must outlive its cursors",
+        "A generation counter is not a synchronization lock"
+      ],
+      "narration": "validate compares two numbers, but one number lives inside owner_. If that object has died, even performing the safety check is already invalid. The version mechanism therefore checks mutation while the owner is alive; it is not a lifetime detector. In main, Readings is declared before the cursors so its lifetime extends beyond theirs. The class also rejects copying and assignment, which keeps its identity simple and suppresses an implicit move in this design. None of this makes concurrent reads and appends safe. Two threads still need a shared synchronization rule around the data and checks. A snapshot or immutable shared owner changes these guarantees, but also changes cost and ownership.",
+      "actions": [
+        "Identify the first owner access in validate, not just the later element read."
+      ],
+      "sourceRef": "manuscript/ch15.json → A safety check cannot bring a dead owner back",
+      "question": {
+        "prompt": "Can validate safely detect that a borrowed owner has been destroyed?",
+        "answer": "No. It must access the owner to read the version. The owner’s lifetime must already be guaranteed."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch15-15"
+    },
+    {
+      "title": "Reverse traversal needs a careful zero boundary",
+      "eyebrow": "EXTENDING THE TRAVERSAL",
+      "kind": "concept",
+      "keyPoints": [
+        "remaining_ counts unread elements",
+        "Read remaining_ minus one only after checking zero",
+        "Preserve the same generation and owner rules"
+      ],
+      "narration": "The reverse extension answers a new reporting need: show the newest reading first. It stores how many elements remain. With three readings, remaining is three, so the first index is two; next reduces the count to two. At zero there is no next index to compute. size_t is unsigned, so zero minus one wraps to a very large value instead of becoming a useful negative index. The source therefore checks done before subtracting. This design is not just the forward loop written backward. Its state meaning differs, while lifetime, stale-generation checking, and end rejection stay consistent. Keeping those shared rules makes future reporting features easier to test and explain.",
+      "actions": [
+        "Trace remaining values 3, 2, 1, 0 beside indices 2, 1, 0."
+      ],
+      "sourceRef": "manuscript/ch15.json → Choose traversal features from the reporting problem",
+      "question": {
+        "prompt": "Why must the reverse cursor check remaining_ before subtracting one?",
+        "answer": "remaining_ uses an unsigned type. Subtracting one from zero wraps and does not represent a valid previous element."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch15-16"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → C15.08 concepts",
+      "title": "Map the roles to the actual types",
+      "keyPoints": [
+        "Collection → Readings",
+        "Concrete iterator → Readings::Cursor",
+        "Iterator protocol → done, read, next",
+        "Client → main scan loop",
+        "Element → int readings"
+      ],
+      "narration": "Collection → Readings. Own elements and supply a new compatible traversal object. Both keep their vector representation private.\n\nConcrete iterator → Readings::Cursor. Remember one traversal position and implement the operations for reading, advancing, and detecting completion.\n\nIterator protocol → done, read, next. Describe how a client visits elements. These examples use concrete C++ APIs rather than a separate virtual iterator base.\n\nClient → main scan loop. Consume values through traversal operations. The client must check completion before reading an element.\n\nElement → int readings. Hold the visited value. Element type and traversal position are different things.",
+      "comparisons": [
+        {
+          "label": "Collection → Readings",
+          "text": "Own elements and supply a new compatible traversal object. Both keep their vector representation private."
+        },
+        {
+          "label": "Concrete iterator → Readings::Cursor",
+          "text": "Remember one traversal position and implement the operations for reading, advancing, and detecting completion."
+        },
+        {
+          "label": "Iterator protocol → done, read, next",
+          "text": "Describe how a client visits elements. These examples use concrete C++ APIs rather than a separate virtual iterator base."
+        },
+        {
+          "label": "Client → main scan loop",
+          "text": "Consume values through traversal operations. The client must check completion before reading an element."
+        },
+        {
+          "label": "Element → int readings",
+          "text": "Hold the visited value. Element type and traversal position are different things."
+        }
+      ],
+      "question": {
+        "prompt": "In Iterator, which part plays Collection and what does it do?",
+        "answer": "Readings. Own elements and supply a new compatible traversal object. Both keep their vector representation private."
+      },
+      "topicIds": [
+        "C15.08"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch15-17"
+    },
+    {
+      "eyebrow": "OWNERSHIP DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch15/main.cpp:1-89; content/design-patterns-cpp/ch15.json → diagrams.15",
+      "title": "Two cursor positions, one owner",
+      "keyPoints": [
+        "Read the ownership relationships in the named example.",
+        "The owner must remain alive and in place while a cursor is used.",
+        "A live cursor index is at most the number of readings."
+      ],
+      "narration": "Only the collection-to-elements edge means ownership. Both cursor dependencies borrow the same Readings object, but each cursor has its own index and version value. Copying a cursor does not copy the readings or create shared ownership. The two iterator nodes are distinct Cursor instances. They share the collection, not their traversal positions.\n\nCursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.\n\nCallers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.",
+      "diagram": {
+        "chapter": 15,
+        "view": "overview",
+        "index": -1
+      },
+      "theory": {
+        "what": "Two cursor positions, one owner",
+        "where": "companion/examples/ch15/main.cpp",
+        "why": "Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.",
+        "invariant": "The owner must remain alive and in place while a cursor is used. A live cursor index is at most the number of readings. A version mismatch is rejected before data access. An end position is never read as an element.",
+        "risk": "Treat a bounds check as a complete validity check. An old cursor can continue after append even though the promised fixed view has ended. Keep a cursor after its owner leaves scope. Even done() accesses a dead object; the behavior is undefined."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Only the collection-to-elements edge means ownership. Both cursor dependencies borrow the same Readings object, but each cursor has its own index and version value. Copying a cursor does not copy the readings or create shared ownership. The two iterator nodes are distinct Cursor instances. They share the collection, not their traversal positions."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch15-18"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch15/main.cpp:1-89; content/design-patterns-cpp/ch15.json → diagrams.15",
+      "title": "Iterator — chronological driver trace",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "The owner must remain alive and in place while a cursor is used.",
+        "A live cursor index is at most the number of readings."
+      ],
+      "narration": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.\n\nCursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.\n\nCallers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.",
+      "diagram": {
+        "chapter": 15,
+        "view": "extra",
+        "index": 0
+      },
+      "theory": {
+        "what": "Iterator — chronological driver trace",
+        "where": "companion/examples/ch15/main.cpp",
+        "why": "Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.",
+        "invariant": "The owner must remain alive and in place while a cursor is used. A live cursor index is at most the number of readings. A version mismatch is rejected before data access. An end position is never read as an element.",
+        "risk": "Treat a bounds check as a complete validity check. An old cursor can continue after append even though the promised fixed view has ended. Keep a cursor after its owner leaves scope. Even done() accesses a dead object; the behavior is undefined."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch15-19"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch15/main.cpp:25-31",
+      "title": "Check the captured generation",
+      "keyPoints": [
+        "This guard detects a collection change while its owner is still alive.",
+        "An in-range index does not prove that a cursor still belongs to the same view.",
+        "The owner must outlive this guard, and every successful append must increase its version."
+      ],
+      "narration": "This guard detects a collection change while its owner is still alive. done and read call it; next reaches it through done. An in-range index does not prove that a cursor still belongs to the same view.\n\nDefine a read-only validity check for this cursor. The comment states that a collection change ends the view. Compare the saved generation with the owner current generation. Begin creating and throwing a logic error for a mismatch. Give the error its stale-cursor message and finish the throw. Close the mismatch branch. Close the guard and label its boundary.\n\nThe owner must outlive this guard, and every successful append must increase its version. Removing the generation check allows silent use after an append; it cannot detect a destroyed owner.",
+      "diagram": {
+        "chapter": 15,
+        "view": "focus",
+        "index": 0
+      },
+      "theory": {
+        "title": "Check the captured generation",
+        "start": "void validate() const {",
+        "end": "} // validate",
+        "what": "This guard detects a collection change while its owner is still alive.",
+        "where": "done and read call it; next reaches it through done.",
+        "why": "An in-range index does not prove that a cursor still belongs to the same view.",
+        "invariant": "The owner must outlive this guard, and every successful append must increase its version.",
+        "risk": "Removing the generation check allows silent use after an append; it cannot detect a destroyed owner.",
+        "explain": [
+          "Define a read-only validity check for this cursor.",
+          "The comment states that a collection change ends the view.",
+          "Compare the saved generation with the owner current generation.",
+          "Begin creating and throwing a logic error for a mismatch.",
+          "Give the error its stale-cursor message and finish the throw.",
+          "Close the mismatch branch.",
+          "Close the guard and label its boundary."
+        ],
+        "resolved_start": 25,
+        "resolved_end": 31,
+        "lineStart": 25,
+        "lineEnd": 31,
+        "code": "        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate",
+        "file": "examples/ch15/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Removing the generation check allows silent use after an append; it cannot detect a destroyed owner."
+      },
+      "topicIds": [
+        "C15.12"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch15-20"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch15/main.cpp:39-43",
+      "title": "Return a checked value",
+      "keyPoints": [
+        "The caller receives an independent integer from the current position.",
+        "Returning by value avoids exposing an element reference and its lifetime.",
+        "Validate before reading; the index must denote an element, not end."
+      ],
+      "narration": "The caller receives an independent integer from the current position. The report calls read only after checking done. Returning by value avoids exposing an element reference and its lifetime.\n\nDefine a read-only operation returning an integer value. The comment explains that the element is copied out. Check that the collection version still matches. Use checked vector access and copy the resulting integer. Close the read operation.\n\nValidate before reading; the index must denote an element, not end. Replacing at with unchecked indexing removes the defined end-read rejection.",
+      "diagram": {
+        "chapter": 15,
+        "view": "focus",
+        "index": 1
+      },
+      "theory": {
+        "title": "Return a checked value",
+        "start": "int read() const {",
+        "end": "} // read",
+        "what": "The caller receives an independent integer from the current position.",
+        "where": "The report calls read only after checking done.",
+        "why": "Returning by value avoids exposing an element reference and its lifetime.",
+        "invariant": "Validate before reading; the index must denote an element, not end.",
+        "risk": "Replacing at with unchecked indexing removes the defined end-read rejection.",
+        "explain": [
+          "Define a read-only operation returning an integer value.",
+          "The comment explains that the element is copied out.",
+          "Check that the collection version still matches.",
+          "Use checked vector access and copy the resulting integer.",
+          "Close the read operation."
+        ],
+        "resolved_start": 39,
+        "resolved_end": 43,
+        "lineStart": 39,
+        "lineEnd": 43,
+        "code": "        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read",
+        "file": "examples/ch15/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Replacing at with unchecked indexing removes the defined end-read rejection."
+      },
+      "topicIds": [
+        "C15.13"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch15-21"
+    },
+    {
+      "eyebrow": "ORIGINAL CHECKED C++",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch15/main.cpp",
+      "title": "Run the complete chapter program",
+      "keyPoints": [
+        "A checked cursor over a readings log",
+        "The executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested."
+      ],
+      "narration": "We now join the small pieces into the complete working program. Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.\n\nThe executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested.\n\nCallers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/examples/ch15/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\nint main() {\n    Readings readings;\n    auto empty = readings.cursor();\n    check(empty.done());\n    bool end_rejected = false;\n    try { empty.read(); }\n    catch (const std::out_of_range&) { end_rejected = true; }\n    check(end_rejected);\n    readings.append(4);\n    readings.append(9);\n    auto cursor = readings.cursor();\n    auto independent = cursor;\n    check(cursor.read() == 4);\n    cursor.next();\n    check(cursor.read() == 9 && independent.read() == 4);\n    int total = 0;\n    for (auto scan = readings.cursor(); !scan.done(); scan.next()) {\n        total += scan.read();\n    }\n    check(total == 13);\n    std::cout << \"total: \" << total << '\\n';\n    cursor.next();\n    check(cursor.done());\n    bool next_rejected = false;\n    try { cursor.next(); }\n    catch (const std::out_of_range&) { next_rejected = true; }\n    check(next_rejected);\n    readings.append(12);\n    bool stale_rejected = false;\n    try { independent.read(); }\n    catch (const std::logic_error&) { stale_rejected = true; }\n    check(stale_rejected);\n    std::cout << \"stale cursor: rejected\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "total: 13\nstale cursor: rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-22.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "question": {
+        "prompt": "Does matching the demonstration output prove every promised behavior?",
+        "answer": "No. The executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested. A printed result shows that run; the checks and stated limits explain what was actually verified."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch15-22"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → trace",
+      "title": "Follow one request through the objects",
+      "keyPoints": [
+        "Empty: index=0, size=0.",
+        "After appending 4 and 9: version=2.",
+        "cursor index=1; independent index=0.",
+        "Scan sees 4, then 9, then end.",
+        "Append 12: version=3; old saved version=2."
+      ],
+      "narration": "Step 1. Empty: index=0, size=0.. done is true; read is rejected because there is no element.\n\nStep 2. After appending 4 and 9: version=2.. New cursors capture two and begin at index zero.\n\nStep 3. cursor index=1; independent index=0.. Advancing one cursor does not alter the copied position.\n\nStep 4. Scan sees 4, then 9, then end.. The running total becomes thirteen.\n\nStep 5. Append 12: version=3; old saved version=2.. Old operations are rejected before accessing an element.",
+      "walkthrough": [
+        {
+          "label": "Step 1",
+          "text": "Empty: index=0, size=0.",
+          "reason": "done is true; read is rejected because there is no element."
+        },
+        {
+          "label": "Step 2",
+          "text": "After appending 4 and 9: version=2.",
+          "reason": "New cursors capture two and begin at index zero."
+        },
+        {
+          "label": "Step 3",
+          "text": "cursor index=1; independent index=0.",
+          "reason": "Advancing one cursor does not alter the copied position."
+        },
+        {
+          "label": "Step 4",
+          "text": "Scan sees 4, then 9, then end.",
+          "reason": "The running total becomes thirteen."
+        },
+        {
+          "label": "Step 5",
+          "text": "Append 12: version=3; old saved version=2.",
+          "reason": "Old operations are rejected before accessing an element."
+        }
+      ],
+      "question": {
+        "prompt": "Which operation makes the next step possible?",
+        "answer": "Empty: index=0, size=0. — done is true; read is rejected because there is no element.\nAfter appending 4 and 9: version=2. — New cursors capture two and begin at index zero.\ncursor index=1; independent index=0. — Advancing one cursor does not alter the copied position.\nScan sees 4, then 9, then end. — The running total becomes thirteen.\nAppend 12: version=3; old saved version=2. — Old operations are rejected before accessing an element."
+      },
+      "topicIds": [
+        "C15.10"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch15-23"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → example.failures",
+      "title": "Debug the promise: Treat a bounds check as a complete validity check.",
+      "keyPoints": [
+        "Treat a bounds check as a complete validity check.",
+        "An old cursor can continue after append even though the promised fixed view has ended."
+      ],
+      "narration": "Treat a bounds check as a complete validity check. An old cursor can continue after append even though the promised fixed view has ended. Its index may still be in bounds; validity also depends on collection generation.\n\nThe executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested.\n\nCallers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "An old cursor can continue after append even though the promised fixed view has ended."
+        },
+        {
+          "label": "Why it fails",
+          "text": "Its index may still be in bounds; validity also depends on collection generation."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "Its index may still be in bounds; validity also depends on collection generation. An old cursor can continue after append even though the promised fixed view has ended."
+      },
+      "topicIds": [
+        "C15.11"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch15-24"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → example.failures",
+      "title": "Debug the promise: Keep a cursor after its owner leaves scope.",
+      "keyPoints": [
+        "Keep a cursor after its owner leaves scope.",
+        "Even done() accesses a dead object; the behavior is undefined."
+      ],
+      "narration": "Keep a cursor after its owner leaves scope. Even done() accesses a dead object; the behavior is undefined. A borrowed reference does not own or extend the collection lifetime.\n\nThe executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested.\n\nCallers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "Even done() accesses a dead object; the behavior is undefined."
+        },
+        {
+          "label": "Why it fails",
+          "text": "A borrowed reference does not own or extend the collection lifetime."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "A borrowed reference does not own or extend the collection lifetime. Even done() accesses a dead object; the behavior is undefined."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch15-25"
+    },
+    {
+      "title": "Trace 1: Iterator: Forward first",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Iterator: Forward first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Iterator: Forward first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nA new cursor starts at the first stored element.\n\nThe bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → dpx-c15-trace-1; companion/solutions/ch15/main.cpp",
+      "question": {
+        "prompt": "Iterator: Forward first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "3. A new cursor starts at the first stored element."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  return r.cursor().read();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch15_trace_1.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  return r.cursor().read();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-26.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_trace_1.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-15-a",
+      "section": "Trace experiments",
+      "id": "dp-ch15-26"
+    },
+    {
+      "title": "Trace 2: Iterator: Forward second",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Iterator: Forward second. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Iterator: Forward second. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nOne next advances by one element.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → dpx-c15-trace-2; companion/solutions/ch15/main.cpp",
+      "question": {
+        "prompt": "Iterator: Forward second. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "8. One next advances by one element."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  auto c=r.cursor();\n  c.next();\n  return c.read();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch15_trace_2.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  auto c=r.cursor();\n  c.next();\n  return c.read();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "8\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-27.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_trace_2.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-15-a",
+      "section": "Trace experiments",
+      "id": "dp-ch15-27"
+    },
+    {
+      "title": "Trace 3: Iterator: Independent cursor copy",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Iterator: Independent cursor copy. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Iterator: Independent cursor copy. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nCopying a cursor copies its position; advancing one does not move the other.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → dpx-c15-trace-3; companion/solutions/ch15/main.cpp",
+      "question": {
+        "prompt": "Iterator: Independent cursor copy. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "3. Copying a cursor copies its position; advancing one does not move the other."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  auto a=r.cursor(),b=a;\n  a.next();\n  return b.read();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch15_trace_3.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  auto a=r.cursor(),b=a;\n  a.next();\n  return b.read();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-28.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_trace_3.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-15-a",
+      "section": "Trace experiments",
+      "id": "dp-ch15-28"
+    },
+    {
+      "title": "Trace 4: Iterator: Stale forward cursor",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Iterator: Stale forward cursor. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Iterator: Stale forward cursor. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nAppending changes the owner’s version and invalidates the old view.\n\n The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → dpx-c15-trace-4; companion/solutions/ch15/main.cpp",
+      "question": {
+        "prompt": "Iterator: Stale forward cursor. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. Appending changes the owner’s version and invalidates the old view."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Readings r;\n  auto c=r.cursor();\n  r.append(3);\n  return dpx_rejects<std::logic_error>([&]{\n    c.done();\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch15_trace_4.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Readings r;\n  auto c=r.cursor();\n  r.append(3);\n  return dpx_rejects<std::logic_error>([&]{\n    c.done();\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-29.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_trace_4.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-15-a",
+      "section": "Trace experiments",
+      "id": "dp-ch15-29"
+    },
+    {
+      "title": "Trace 5: Iterator: Reverse first",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Iterator: Reverse first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Iterator: Reverse first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nReverse traversal starts at the last stored element.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → dpx-c15-trace-5; companion/solutions/ch15/main.cpp",
+      "question": {
+        "prompt": "Iterator: Reverse first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "8. Reverse traversal starts at the last stored element."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  return r.reverse_cursor().read();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch15_trace_5.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  return r.reverse_cursor().read();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "8\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-30.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_trace_5.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-15-a",
+      "section": "Trace experiments",
+      "id": "dp-ch15-30"
+    },
+    {
+      "title": "Trace 6: Iterator: Reverse second",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Iterator: Reverse second. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Iterator: Reverse second. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nOne reverse step reaches the previous element, not the end yet.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → dpx-c15-trace-6; companion/solutions/ch15/main.cpp",
+      "question": {
+        "prompt": "Iterator: Reverse second. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "3. One reverse step reaches the previous element, not the end yet."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  auto c=r.reverse_cursor();\n  c.next();\n  return c.read();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch15_trace_6.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  r.append(8);\n  auto c=r.reverse_cursor();\n  c.next();\n  return c.read();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-31.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_trace_6.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-15-a",
+      "section": "Trace experiments",
+      "id": "dp-ch15-31"
+    },
+    {
+      "title": "Trace 7: Iterator: Empty reverse",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Iterator: Empty reverse. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Iterator: Empty reverse. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nA zero-length collection has no reverse element to read.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → dpx-c15-trace-7; companion/solutions/ch15/main.cpp",
+      "question": {
+        "prompt": "Iterator: Empty reverse. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. A zero-length collection has no reverse element to read."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Readings r;\n  return r.reverse_cursor().done();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch15_trace_7.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Readings r;\n  return r.reverse_cursor().done();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-32.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_trace_7.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-15-a",
+      "section": "Trace experiments",
+      "id": "dp-ch15-32"
+    },
+    {
+      "title": "Trace 8: Iterator: Stale reverse cursor",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Iterator: Stale reverse cursor. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Iterator: Stale reverse cursor. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nReverse cursors obey the same owner-version rule as forward cursors.\n\n The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → dpx-c15-trace-8; companion/solutions/ch15/main.cpp",
+      "question": {
+        "prompt": "Iterator: Stale reverse cursor. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. Reverse cursors obey the same owner-version rule as forward cursors."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  auto c=r.reverse_cursor();\n  r.append(8);\n  return dpx_rejects<std::logic_error>([&]{\n    c.read();\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch15_trace_8.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Readings r;\n  r.append(3);\n  auto c=r.reverse_cursor();\n  r.append(8);\n  return dpx_rejects<std::logic_error>([&]{\n    c.read();\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-33.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch15_trace_8.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-15-a",
+      "section": "Trace experiments",
+      "id": "dp-ch15-33"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → exercises.15.1",
+      "title": "Exercise 15.1: Guided modification",
+      "keyPoints": [
+        "Add a third reading, six, before creating the primary scan. What total should the scan check?"
+      ],
+      "narration": "Add a third reading, six, before creating the primary scan. What total should the scan check?\n\nPause here and make a concrete prediction or sketch a change. The hint is: Only add values before the new cursor is created.\n\nAfter the discussion, compare the reasoning. The scan total is nineteen: four plus nine plus six. Any cursor created before the append becomes stale, so create the scan after all three insertions.",
+      "hint": "Only add values before the new cursor is created.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The scan total is nineteen: four plus nine plus six. Any cursor created before the append becomes stale, so create the scan after all three insertions."
+      },
+      "topicIds": [
+        "C15.14"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-34"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → exercises.15.2",
+      "title": "Exercise 15.2: Trace unfamiliar code",
+      "keyPoints": [
+        "For readings [2,5], let a=readings.cursor(); let b=a; call a.next(); then print b.read(), a.read(), b.done(). Give the values."
+      ],
+      "narration": "For readings [2,5], let a=readings.cursor(); let b=a; call a.next(); then print b.read(), a.read(), b.done(). Give the values.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Each cursor keeps its own index.\n\nAfter the discussion, compare the reasoning. The values are 2, 5, and false, printed as 0 by default stream formatting. Copying b preserved index zero while a moved to index one.",
+      "hint": "Each cursor keeps its own index.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The values are 2, 5, and false, printed as 0 by default stream formatting. Copying b preserved index zero while a moved to index one."
+      },
+      "topicIds": [
+        "C15.15"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-35"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → exercises.15.3",
+      "title": "Exercise 15.3: Diagnose a bug",
+      "keyPoints": [
+        "A loop runs read() before checking done(). What happens for an empty Readings object in this implementation?"
+      ],
+      "narration": "A loop runs read() before checking done(). What happens for an empty Readings object in this implementation?\n\nPause here and make a concrete prediction or sketch a change. The hint is: Check the operation used inside read.\n\nAfter the discussion, compare the reasoning. vector.at(0) throws std::out_of_range. No value is produced. Move the done check before read; do not special-case emptiness by inventing a zero reading.",
+      "hint": "Check the operation used inside read.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "vector.at(0) throws std::out_of_range. No value is produced. Move the done check before read; do not special-case emptiness by inventing a zero reading."
+      },
+      "topicIds": [
+        "C15.16"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-36"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → exercises.15.4",
+      "title": "Exercise 15.4: Choose a design",
+      "keyPoints": [
+        "A long report must see the original readings even while new readings arrive. Choose strict invalidation or a snapshot and explain the cost."
+      ],
+      "narration": "A long report must see the original readings even while new readings arrive. Choose strict invalidation or a snapshot and explain the cost.\n\nPause here and make a concrete prediction or sketch a change. The hint is: The report needs stability, not an error after the first append.\n\nAfter the discussion, compare the reasoning. A snapshot matches that requirement because it keeps the original view. It costs copied data or shared immutable storage. Strict invalidation is simpler for single-threaded scans but interrupts the required report.",
+      "hint": "The report needs stability, not an error after the first append.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "A snapshot matches that requirement because it keeps the original view. It costs copied data or shared immutable storage. Strict invalidation is simpler for single-threaded scans but interrupts the required report."
+      },
+      "topicIds": [
+        "C15.17"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-37"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → exercises.15.5",
+      "title": "Exercise 15.5: Extend without regressions",
+      "keyPoints": [
+        "Implement reverse traversal with the same invalidation rule. What must happen for an empty log and after append?"
+      ],
+      "narration": "Implement reverse traversal with the same invalidation rule. What must happen for an empty log and after append?\n\nPause here and make a concrete prediction or sketch a change. The hint is: Guard zero before subtracting from an unsigned count.\n\nAfter the discussion, compare the reasoning. An empty reverse cursor is done immediately. read and next at end throw. Any later append makes old reverse cursors stale. The lab solution visits 12, 9, 4 and checks these cases.",
+      "hint": "Guard zero before subtracting from an unsigned count.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "An empty reverse cursor is done immediately. read and next at end throw. Any later append makes old reverse cursors stale. The lab solution visits 12, 9, 4 and checks these cases."
+      },
+      "topicIds": [
+        "C15.18"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-38"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → exercises.15.6",
+      "title": "Exercise 15.6: Justify a decision",
+      "keyPoints": [
+        "Write a review comment explaining why the version field does not make concurrent append and read safe."
+      ],
+      "narration": "Write a review comment explaining why the version field does not make concurrent append and read safe.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Both the vector and version are ordinary unsynchronized state.\n\nAfter the discussion, compare the reasoning. The check detects a sequential contract violation; it does not serialize access. A writer can race with the check or data access. Use a lock, a stable snapshot, or another explicit concurrency design around the entire operation.",
+      "hint": "Both the vector and version are ordinary unsynchronized state.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The check detects a sequential contract violation; it does not serialize access. A writer can race with the check or data access. Use a lock, a stable snapshot, or another explicit concurrency design around the entire operation."
+      },
+      "topicIds": [
+        "C15.19"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-39"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/exercises/ch15/main.cpp",
+      "title": "Extend the program without losing its tests",
+      "keyPoints": [
+        "Add ReverseCursor and reverse_cursor() without exposing values_. Visit newest to oldest; return integers by value. Match forward rules for owner lifetime, stale checks, end reads, and end advancement. Keep all primary tests."
+      ],
+      "narration": "Add ReverseCursor and reverse_cursor() without exposing values_. Visit newest to oldest; return integers by value. Match forward rules for owner lifetime, stale checks, end reads, and end advancement. Keep all primary tests.\n\nKeep the original checks as a baseline. The new behavior must also satisfy these checks: For [4,9,12], reverse reads 12,9,4, then done. Reading reverse end throws; an empty reverse cursor is done. Appending after creation makes reverse done reject the old cursor.\n\nThe starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/exercises/ch15/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\nint main() {\n    Readings readings;\n    auto empty = readings.cursor();\n    check(empty.done());\n    bool end_rejected = false;\n    try { empty.read(); }\n    catch (const std::out_of_range&) { end_rejected = true; }\n    check(end_rejected);\n    readings.append(4);\n    readings.append(9);\n    auto cursor = readings.cursor();\n    auto independent = cursor;\n    check(cursor.read() == 4);\n    cursor.next();\n    check(cursor.read() == 9 && independent.read() == 4);\n    int total = 0;\n    for (auto scan = readings.cursor(); !scan.done(); scan.next()) {\n        total += scan.read();\n    }\n    check(total == 13);\n    std::cout << \"total: \" << total << '\\n';\n    cursor.next();\n    check(cursor.done());\n    bool next_rejected = false;\n    try { cursor.next(); }\n    catch (const std::out_of_range&) { next_rejected = true; }\n    check(next_rejected);\n    readings.append(12);\n    bool stale_rejected = false;\n    try { independent.read(); }\n    catch (const std::logic_error&) { stale_rejected = true; }\n    check(stale_rejected);\n    std::cout << \"stale cursor: rejected\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "total: 13\nstale cursor: rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-40.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "checks": [
+        {
+          "prompt": "For [4,9,12], reverse reads 12,9,4, then done.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Reading reverse end throws; an empty reverse cursor is done.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Appending after creation makes reverse done reject the old cursor.",
+          "answer": "This is a required acceptance check for the extension."
+        }
+      ],
+      "question": {
+        "prompt": "What must the extension add?",
+        "answer": "Add ReverseCursor and reverse_cursor() without exposing values_. Visit newest to oldest; return integers by value. Match forward rules for owner lifetime, stale checks, end reads, and end advancement. Keep all primary tests."
+      },
+      "topicIds": [
+        "C15.20"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-40"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/solutions/ch15/main.cpp",
+      "title": "Extension solution and design review",
+      "keyPoints": [
+        "For [4,9,12], reverse reads 12,9,4, then done.",
+        "Reading reverse end throws; an empty reverse cursor is done.",
+        "Appending after creation makes reverse done reject the old cursor."
+      ],
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/solutions/ch15/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\n#include <vector>\n\nclass Readings {\n    std::vector<int> values_;\n    std::size_t stamp_ = 0;\npublic:\n    Readings() = default;\n    Readings(const Readings&) = delete;\n    Readings& operator=(const Readings&) = delete;\n    void append(int value) {\n        if (stamp_ == std::numeric_limits<std::size_t>::max()) {\n            throw std::overflow_error(\"version exhausted\");\n        }\n        values_.push_back(value);\n        ++stamp_;\n    }\n    class Cursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t index_ = 0;\n        void validate() const {\n            // A change ends this view.\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\n                    \"stale cursor\");\n            }\n        } // validate\n    public:\n        explicit Cursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_) {}\n        bool done() const {\n            validate();\n            return index_ == owner_.values_.size();\n        }\n        int read() const {\n            // Copy the element value.\n            validate();\n            return owner_.values_.at(index_);\n        } // read\n        void next() {\n            if (done()) {\n                throw std::out_of_range(\"past end\");\n            }\n            ++index_;\n        }\n    };\n    class ReverseCursor {\n        const Readings& owner_;\n        std::size_t stamp_;\n        std::size_t remaining_;\n        void validate() const {\n            if (stamp_ != owner_.stamp_) {\n                throw std::logic_error(\"stale reverse cursor\");\n            }\n        }\n    public:\n        explicit ReverseCursor(const Readings& owner)\n            : owner_(owner), stamp_(owner.stamp_),\n              remaining_(owner.values_.size()) {}\n        bool done() const { validate(); return remaining_ == 0; }\n        int read() const {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            return owner_.values_.at(remaining_ - 1);\n        }\n        void next() {\n            if (done()) { throw std::out_of_range(\"reverse end\"); }\n            --remaining_;\n        }\n    };\n    ReverseCursor reverse_cursor() const { return ReverseCursor(*this); }\n    Cursor cursor() const { return Cursor(*this); }\n};\nvoid check(bool okay) {\n    if (!okay) { throw std::runtime_error(\"cursor check failed\"); }\n}\nint main() {\n    Readings readings;\n    auto empty = readings.cursor();\n    check(empty.done());\n    bool end_rejected = false;\n    try { empty.read(); }\n    catch (const std::out_of_range&) { end_rejected = true; }\n    check(end_rejected);\n    readings.append(4);\n    readings.append(9);\n    auto cursor = readings.cursor();\n    auto independent = cursor;\n    check(cursor.read() == 4);\n    cursor.next();\n    check(cursor.read() == 9 && independent.read() == 4);\n    int total = 0;\n    for (auto scan = readings.cursor(); !scan.done(); scan.next()) {\n        total += scan.read();\n    }\n    check(total == 13);\n    std::cout << \"total: \" << total << '\\n';\n    cursor.next();\n    check(cursor.done());\n    bool next_rejected = false;\n    try { cursor.next(); }\n    catch (const std::out_of_range&) { next_rejected = true; }\n    check(next_rejected);\n    readings.append(12);\n    bool stale_rejected = false;\n    try { independent.read(); }\n    catch (const std::logic_error&) { stale_rejected = true; }\n    check(stale_rejected);\n    std::cout << \"stale cursor: rejected\\n\";\n\n    auto reverse = readings.reverse_cursor();\n    check(reverse.read() == 12);\n    reverse.next();\n    check(reverse.read() == 9);\n    reverse.next();\n    check(reverse.read() == 4);\n    reverse.next();\n    check(reverse.done());\n    bool reverse_end = false;\n    try { reverse.read(); }\n    catch (const std::out_of_range&) { reverse_end = true; }\n    check(reverse_end);\n    bool reverse_next_end = false;\n    try { reverse.next(); }\n    catch (const std::out_of_range&) { reverse_next_end = true; }\n    check(reverse_next_end);\n    readings.append(20);\n    bool reverse_stale = false;\n    try { reverse.done(); }\n    catch (const std::logic_error&) { reverse_stale = true; }\n    check(reverse_stale);\n    Readings none;\n    check(none.reverse_cursor().done());\n    std::cout << \"reverse: 12 9 4\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "total: 13\nstale cursor: rejected\nreverse: 12 9 4\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch15/dp-ch15-41.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "narration": "The solution stores remaining_ initialized to the collection size, checks for zero, reads remaining_-1, and decrements on next. It uses the same captured version policy. A signed index could also work, but would require clear size conversion and lower-bound handling.\n\nCallers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.",
+      "question": {
+        "prompt": "Why is this solution a reasonable extension, and could another design work?",
+        "answer": "The solution stores remaining_ initialized to the collection size, checks for zero, reads remaining_-1, and decrements on next. It uses the same captured version policy. A signed index could also work, but would require clear size conversion and lower-bound handling."
+      },
+      "section": "Practice and extension",
+      "id": "dp-ch15-41"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → C15.22 scenario",
+      "title": "Application case 1: defend your choice",
+      "keyPoints": [
+        "Clients need independent traversal positions without seeing a collection’s storage. Which role fits?"
+      ],
+      "scenario": {
+        "prompt": "Clients need independent traversal positions without seeing a collection’s storage. Which role fits?",
+        "options": [
+          "Factory Method",
+          "Facade only",
+          "Iterator",
+          "Mediator"
+        ],
+        "correctIndex": 2,
+        "explanation": "A cursor exposes traversal while hiding the representation.",
+        "rationales": [
+          "A creation hook does not explain advancing through elements.",
+          "A coordination entry point does not define traversal state.",
+          "A cursor exposes traversal while hiding the representation.",
+          "Coordinating peers is a different responsibility."
+        ],
+        "id": "C15.22-s1"
+      },
+      "narration": "Clients need independent traversal positions without seeing a collection’s storage. Which role fits?\n\nFactory Method. A creation hook does not explain advancing through elements.\n\nFacade only. A coordination entry point does not define traversal state.\n\nIterator. A cursor exposes traversal while hiding the representation.\n\nMediator. Coordinating peers is a different responsibility.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Iterator. A cursor exposes traversal while hiding the representation."
+      },
+      "topicIds": [
+        "C15.22"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-42"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch15.json → C15.23 scenario",
+      "title": "Application case 2: defend your choice",
+      "keyPoints": [
+        "A Cursor is still within bounds after Readings::append, but its saved version differs from the owner. What should happen?"
+      ],
+      "scenario": {
+        "prompt": "A Cursor is still within bounds after Readings::append, but its saved version differs from the owner. What should happen?",
+        "options": [
+          "Delete the owner through the cursor",
+          "Copying the cursor restores its validity",
+          "Continue because the index is in range",
+          "Reject the stale cursor under this fixed-view contract."
+        ],
+        "correctIndex": 3,
+        "explanation": "Bounds alone do not establish that the traversal is still valid.",
+        "rationales": [
+          "The cursor only borrows the collection.",
+          "A copy keeps the same stale owner version.",
+          "Append deliberately invalidates saved versions in this example.",
+          "Bounds alone do not establish that the traversal is still valid."
+        ],
+        "id": "C15.23-s1"
+      },
+      "narration": "A Cursor is still within bounds after Readings::append, but its saved version differs from the owner. What should happen?\n\nDelete the owner through the cursor. The cursor only borrows the collection.\n\nCopying the cursor restores its validity. A copy keeps the same stale owner version.\n\nContinue because the index is in range. Append deliberately invalidates saved versions in this example.\n\nReject the stale cursor under this fixed-view contract.. Bounds alone do not establish that the traversal is still valid.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Reject the stale cursor under this fixed-view contract.. Bounds alone do not establish that the traversal is still valid."
+      },
+      "topicIds": [
+        "C15.23"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch15-43"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 15",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch15.json → summary",
+      "title": "Keep these rules when the program grows",
+      "keyPoints": [
+        "A cursor owns its position, not necessarily its collection.",
+        "End is a valid position with no readable element.",
+        "Bounds and generation are separate checks.",
+        "Read-only access does not freeze other access paths.",
+        "Custom traversal interfaces should not claim standard-iterator compatibility without meeting its requirements."
+      ],
+      "narration": "A cursor owns its position, not necessarily its collection. End is a valid position with no readable element. Bounds and generation are separate checks. Read-only access does not freeze other access paths. Custom traversal interfaces should not claim standard-iterator compatibility without meeting its requirements.\n\nCallers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.",
+      "question": {
+        "prompt": "Explain Iterator without reciting its class names.",
+        "answer": "Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out. Expose a vector const_iterator if the public contract can depend on vector rules. Own a snapshot if scans must survive later edits or owner destruction. A snapshot gives stability in exchange for copying and storage costs."
+      },
+      "topicIds": [
+        "C15.21"
+      ],
+      "section": "Recall and transfer",
+      "id": "dp-ch15-44"
+    },
+    {
+      "title": "Custom Cursor or standard iterator?",
+      "eyebrow": "DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Use standard iterators when their contracts already fit",
+        "Choose a snapshot when readers need stable old data",
+        "Do not claim algorithm compatibility that is not implemented"
+      ],
+      "narration": "The custom Cursor teaches independent traversal and a deliberately checked mutation policy. It does not implement the standard iterator operations, comparisons, and type information expected by ordinary standard-library algorithms. Naming something an iterator does not make it usable by every algorithm. If a vector is already the intended public representation, its existing iterators are usually the simpler choice. If a report must survive later appends, a copied snapshot may be more useful than rejecting stale access, at the cost of copied data. Shared immutable storage can reduce copying while extending lifetime. Compare these options by the report's consistency and ownership needs before judging their syntax.",
+      "actions": [
+        "Ask which report requirement justifies snapshot cost."
+      ],
+      "sourceRef": "manuscript/ch15.json → A safety check cannot bring a dead owner back",
+      "question": {
+        "prompt": "Can this Cursor be passed directly to every algorithm that accepts standard iterators?",
+        "answer": "No. It exposes done/read/next rather than the full required standard iterator interface and semantics."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch15-45"
+    },
+    {
+      "title": "Three failures need three different tests",
+      "eyebrow": "DIAGNOSIS CHECK",
+      "kind": "concept",
+      "keyPoints": [
+        "End access: no value exists at this position",
+        "Stale access: the generation changed",
+        "Dangling owner: the lifetime promise was broken"
+      ],
+      "narration": "Do not collapse every traversal failure into out of range. At end, the owner is alive and unchanged, but no element occupies the current position. A stale cursor may still have index zero, yet its generation contract has ended. A dangling cursor has no valid owner to inspect and must be prevented by design, not demonstrated by executing undefined behavior. The chapter tests empty input, independent positions, end reads, end advancement, and mutation rejection. When adding reverse traversal, repeat the contract tests for that direction rather than checking only the printed reverse order. A sequence that prints twelve, nine, four can still mishandle empty input or wrap after the last element.",
+      "actions": [
+        "Ask learners to name a safe test for each documented condition."
+      ],
+      "sourceRef": "manuscript/ch15.json → Choose traversal features from the reporting problem",
+      "question": {
+        "prompt": "Which test distinguishes a stale cursor from ordinary end access?",
+        "answer": "Create a cursor at a valid element, append successfully, then require the old cursor operation to reject the generation mismatch."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch15-46"
+    },
+    {
+      "title": "Describe the boundary between data and travel",
+      "eyebrow": "RECALL AND TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "The collection owns readings",
+        "Each cursor owns a position and a validity view",
+        "The contract says how mutation ends that view"
+      ],
+      "narration": "Explain Iterator without starting from pointer syntax. A collection keeps values. A small separate object remembers where one caller is in those values and provides a limited way to visit them. Two callers can move independently without seeing the collection's internal layout. Then explain the chapter's additional rules: append ends existing views, end is not an element, and the owner must remain alive. Transfer this to paged records from a file cache. A cursor could remember a page and offset, but the report could still ask for the next reading. Storage independence is useful only if the public traversal contract remains clear about failures, freshness, and cost.",
+      "actions": [
+        "Have learners explain a chunked-storage change without exposing vector operations."
+      ],
+      "sourceRef": "manuscript/ch15.json → The problem: callers need readings, not storage details",
+      "question": {
+        "prompt": "What can change behind a stable traversal interface, and what must remain explicit?",
+        "answer": "Storage layout can change. Ordering, validity after mutation, lifetime, failure behavior, and performance assumptions still need a clear contract."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch15-47"
+    }
+  ]
+}

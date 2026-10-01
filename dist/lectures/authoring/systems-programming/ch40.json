@@ -1,0 +1,222 @@
+{
+  "chapter": 40,
+  "title": "Pipes and Redirection — bytes, EOF, and endpoint ownership",
+  "opening": [
+    {
+      "title": "A pipe needs both data state and writer state",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "The kernel holds a bounded byte stream",
+        "An empty buffer can still have future producers",
+        "EOF requires all writers closed and all data consumed"
+      ],
+      "narration": "A pipe connects a write endpoint to a read endpoint through a kernel-managed byte buffer. Empty does not always mean finished. If a writer still exists, an empty blocking read may wait for future data. Once every write reference is closed, already-buffered bytes must still be delivered before the reader observes EOF. These two facts explain many pipeline hangs and truncation bugs. The useful state description therefore includes both buffered bytes and open writer references. Start there before adding child processes, because a forgotten duplicate descriptor can keep a writer reference alive even after the process you thought of as the producer has finished.",
+      "actions": [
+        "Ask learners to classify empty-with-writer and nonempty-without-writer separately."
+      ],
+      "sourceRef": "content/systems-programming/ch40.json → SP40.004 · 40.1 Pipes",
+      "question": {
+        "prompt": "What two conditions must both hold for pipe EOF?",
+        "answer": "All write-end references are closed and buffered bytes have been consumed."
+      }
+    },
+    {
+      "title": "Closing the writer does not erase buffered bytes",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "code",
+      "keyPoints": [
+        "Write cat into a fresh pipe",
+        "Close its sole writer",
+        "The reader gets cat, then EOF"
+      ],
+      "narration": "This actual pipe demo writes three bytes, closes the only write descriptor, then reads. The first read returns the pending word cat. A later read returns zero because the buffer is now drained and no writer remains. The program prints data equals cat and next equals EOF. It checks transfer and close results and owns both endpoints within a short scope. No child or external command is needed to demonstrate the pipe contract. This is different from a model that immediately returns EOF whenever writer count reaches zero: that mistaken rule would drop the final buffered data, exactly the failure the chapter's lab asks students to avoid.",
+      "actions": [
+        "Predict the first read and the following read before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch40.json → SP40.004 · 40.1 Pipes",
+      "question": {
+        "prompt": "Why does the first read not return zero after the writer closes?",
+        "answer": "The pipe still contains the three buffered bytes, which must be delivered before EOF."
+      },
+      "code": {
+        "filename": "sys_ch40_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <unistd.h>\nint main() {\n    int ends[2];\n    if (pipe(ends) != 0) return 1;\n    bool okay = write(ends[1], \"cat\", 3) == 3;\n    okay = close(ends[1]) == 0 && okay;\n    char buffer[8]{};\n    const auto count = read(ends[0], buffer, sizeof buffer);\n    char extra = '?';\n    const auto final_count = read(ends[0], &extra, 1);\n    okay = close(ends[0]) == 0 && okay;\n    if (!okay || count != 3 || final_count != 0) return 1;\n    std::cout << \"data=\";\n    std::cout.write(buffer, count);\n    std::cout << \"\\nnext=EOF\\n\";\n}\n",
+        "expectedStdout": "data=cat\nnext=EOF\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Every duplicated writer is a new cleanup obligation",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "dup adds a real descriptor-table reference",
+        "Closing one writer leaves another alive",
+        "A retained inherited writer can keep a reader waiting"
+      ],
+      "narration": "If the parent duplicates a pipe's write end, the kernel now has another reference that can keep the stream open for writing. Closing the original number does not remove the duplicate. The same problem arises through fork when children inherit ends they do not use. A consumer may wait forever because an unrelated process still holds a writer, even though the useful producer has exited. Draw an ownership table for every process and every endpoint. Mark both intended use and release. Copying an integer is not duplication, but every actual duplicated or inherited entry must be considered in the EOF contract.",
+      "actions": [
+        "Count real descriptor references rather than named producer processes."
+      ],
+      "sourceRef": "content/systems-programming/ch40.json → SP40.010 · 40.4 File-descriptor duplication",
+      "question": {
+        "prompt": "Why can an unrelated child prevent another reader from seeing EOF?",
+        "answer": "It may retain an inherited write descriptor even if it never writes through it."
+      }
+    },
+    {
+      "title": "Expose a leaked-writer condition without hanging",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "code",
+      "keyPoints": [
+        "Make the reader nonblocking",
+        "A retained writer yields would-block on empty input",
+        "Closing the final writer changes the result to EOF"
+      ],
+      "narration": "The program duplicates the write endpoint, closes the original, and sets the reader to nonblocking mode. The buffer is empty, but the duplicate writer remains, so read reports EAGAIN or EWOULDBLOCK rather than EOF. After closing that duplicate, another read returns zero. The output makes the transition explicit: retained-writer equals would-block, then all-writers-closed equals EOF. Nonblocking mode makes this a bounded diagnostic demo instead of an intentional hang. The code preserves the existing descriptor flags when adding O_NONBLOCK and captures errno immediately after the first read. In a real event loop, would-block means wait for readiness rather than repeatedly retrying without pause.",
+      "actions": [
+        "Predict the state change caused only by closing the duplicate."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch40.json → SP40.008 · 40.3 Blocking",
+      "question": {
+        "prompt": "Why is the first result would-block instead of EOF?",
+        "answer": "The empty pipe still has one open write-end reference and could receive future data."
+      },
+      "code": {
+        "filename": "sys_ch40_retained_writer.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cerrno>\n#include <fcntl.h>\n#include <iostream>\n#include <unistd.h>\nint main() {\n    int ends[2];\n    if (pipe(ends) != 0) return 1;\n    const int extra_writer = dup(ends[1]);\n    if (extra_writer < 0) { close(ends[0]); close(ends[1]); return 1; }\n    const int flags = fcntl(ends[0], F_GETFL);\n    bool okay = flags >= 0 && fcntl(ends[0], F_SETFL, flags | O_NONBLOCK) == 0;\n    okay = close(ends[1]) == 0 && okay;\n    if (!okay) { close(extra_writer); close(ends[0]); return 1; }\n    char byte = '?';\n    const auto first = read(ends[0], &byte, 1);\n    const int first_error = errno;\n    okay = close(extra_writer) == 0 && okay;\n    const auto second = read(ends[0], &byte, 1);\n    okay = close(ends[0]) == 0 && okay;\n    const bool waiting = first == -1 &&\n        (first_error == EAGAIN || first_error == EWOULDBLOCK);\n    if (!okay || !waiting || second != 0) return 1;\n    std::cout << \"retained-writer=would-block\\n\";\n    std::cout << \"all-writers-closed=EOF\\n\";\n}\n",
+        "expectedStdout": "retained-writer=would-block\nall-writers-closed=EOF\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Capacity and atomic-write size answer different questions",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Capacity bounds queued bytes",
+        "PIPE_BUF concerns certain write atomicity guarantees",
+        "Neither gives arbitrary message framing to readers"
+      ],
+      "narration": "A pipe has finite capacity, so a producer can wait when the consumer falls behind. PIPE_BUF names a different property: the size bound used in documented atomicity guarantees for appropriately sized writes. It is not the pipe's total storage capacity. Even when a qualifying write is not interleaved with another writer's bytes, a reader's calls need not match the application's message boundaries. A protocol still needs framing, such as a length or delimiter with clear escaping rules. Large multiwriter writes can interleave under the interface rules. Design record size and synchronization deliberately rather than treating each write call as one guaranteed read record.",
+      "actions": [
+        "Ask whether one write necessarily equals one read message."
+      ],
+      "sourceRef": "content/systems-programming/ch40.json → SP40.006 · 40.2 Pipe buffers",
+      "question": {
+        "prompt": "Does PIPE_BUF tell the total number of bytes the pipe can currently hold?",
+        "answer": "No. It relates to write atomicity guarantees, while capacity is a separate property."
+      }
+    },
+    {
+      "title": "Start communication partners before waiting",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "A producer can block when the pipe fills",
+        "A consumer must run to drain it",
+        "Waiting for the producer before starting the consumer can deadlock"
+      ],
+      "narration": "A tiny producer may finish before the pipe fills, hiding a flawed launch order. A larger producer can fill the buffer and block until a reader consumes data. If the parent is waiting for that producer before it launches the consumer, neither can make progress: the producer needs the missing consumer, and the parent waits for the blocked producer. Start the pipeline stages before waiting for their completion. Then close unused parent endpoints so EOF remains possible. A regression test should use a payload large enough to expose the ordering assumption, with a timeout in the test harness to diagnose hangs safely rather than relying on small happy-path output.",
+      "actions": [
+        "Trace the dependency cycle in the incorrect launch order."
+      ],
+      "sourceRef": "content/systems-programming/ch40.json → SP40.020 · 40.9 Pipelines",
+      "question": {
+        "prompt": "Why can a pipeline work for two lines but hang for a larger payload?",
+        "answer": "The small payload fits in the pipe, while the large producer blocks waiting for a consumer that has not yet been started."
+      }
+    },
+    {
+      "title": "dup2 changes a chosen descriptor atomically",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "The target entry becomes another reference to the source object",
+        "Separate close then dup creates a race window",
+        "oldfd equal to newfd requires careful cleanup"
+      ],
+      "narration": "A shell uses dup2 to connect an already-open source or destination to a specific standard descriptor. The operation replaces the target reference as specified, avoiding a separate close-and-allocate sequence in which another action could take the desired number. There is a subtle equal-number case: if source and target are already the same valid descriptor, dup2 leaves that descriptor in place. Cleanup must not then blindly close the source number, because it is also the intended standard stream. Correct setup code checks whether the numbers differ before closing a redundant source. The resource graph, not variable names, determines whether an entry is still needed.",
+      "actions": [
+        "Trace both distinct-number and equal-number cases."
+      ],
+      "sourceRef": "content/systems-programming/ch40.json → SP40.014 · 40.6 dup2",
+      "question": {
+        "prompt": "Why can close(oldfd) after every successful dup2 be wrong?",
+        "answer": "When oldfd equals newfd, it closes the intended destination itself rather than a redundant separate entry."
+      }
+    },
+    {
+      "title": "Redirection order changes which object is copied",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Apply shell redirections in syntax order",
+        "Duplicating stderr copies stdout’s current target",
+        "Later stdout changes do not retroactively retarget that duplicate"
+      ],
+      "narration": "Consider two requests: redirect stdout to a file and duplicate stdout onto stderr. If stdout changes first, stderr receives a reference to the file too. If stderr first duplicates the old stdout and stdout changes afterward, stderr still points to the old destination. Duplicating a descriptor creates a relationship at that moment; it is not a live alias that follows future table replacements. A shell must therefore preserve the defined order rather than sort redirections by descriptor number. Keep diagnostics separate unless the requested syntax joins them. If opening the output fails, report setup failure instead of executing the target with an unintended destination.",
+      "actions": [
+        "Compare the two redirection orders using object targets rather than integers alone."
+      ],
+      "sourceRef": "content/systems-programming/ch40.json → SP40.016 · 40.7 Input redirection",
+      "question": {
+        "prompt": "Does a descriptor duplicated from stdout automatically follow a later replacement of stdout?",
+        "answer": "No. It retains its own reference to the object selected at duplication time."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Broken readers and retained writers fail differently",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "No readers can lead to SIGPIPE or EPIPE",
+        "Retained writers can prevent EOF",
+        "A descriptor table makes both conditions reviewable"
+      ],
+      "narration": "When every read end is closed, a later write has a different problem from an empty pipe with a live writer. Under ordinary policy it may raise SIGPIPE, or report EPIPE when the signal policy allows the error to be observed. A retained write end instead keeps a reader from concluding that no more data can arrive. These failures point in opposite ownership directions. Review the endpoints in each parent and child after setup, after exec, and during failure cleanup. For a longer pipeline, a child must close unrelated stages' endpoints too. One forgotten reference anywhere can change the observable lifecycle of the whole stream.",
+      "actions": [
+        "Use a per-process endpoint table to locate the extra writer."
+      ],
+      "sourceRef": "content/systems-programming/ch40.json → SP40.008 · 40.3 Blocking",
+      "question": {
+        "prompt": "Which missing cleanup should you suspect when a consumer never gets EOF?",
+        "answer": "An open write-end reference retained somewhere, possibly in the parent or an unrelated child."
+      }
+    },
+    {
+      "title": "Recall the stream state and the launch state together",
+      "eyebrow": "SYSTEMS 40 / PIPE STATE AND DESCRIPTOR OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Data precedes EOF even after writers close",
+        "Every endpoint reference participates in lifetime",
+        "Correct pipelines run partners before waiting and clean unused ends"
+      ],
+      "narration": "The pipe's byte state and the processes' lifecycle must agree. Buffered data remains readable after the last writer closes, while an empty buffer with a live writer is not EOF. The first demo showed data then EOF; the second showed would-block then EOF when one extra writer disappeared. Redirection changes descriptor references before program replacement, and pipeline launch must let producers and consumers run together before waiting. These are ownership and ordering rules, not timing tricks. When extending a shell or task runner, preserve them with exact-output tests, endpoint tables, bounded failure tests, and checks that every created child is eventually reaped.",
+      "actions": [
+        "Explain both demos as state transitions, then map them onto a two-process pipeline."
+      ],
+      "sourceRef": "content/systems-programming/ch40.json → SP40.020 · 40.9 Pipelines",
+      "question": {
+        "prompt": "What two dimensions should a pipeline debugger inspect before blaming scheduling?",
+        "answer": "The buffered-data state and the ownership/lifetime of every relevant descriptor reference."
+      }
+    }
+  ]
+}

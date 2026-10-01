@@ -8,8 +8,12 @@ import {hash} from './content-store.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 process.chdir(root);
 const offline=process.argv.includes('--offline');
+await import('./build-design-patterns-slides.mjs');
+await import('./build-systems-slides.mjs');
+
+await import('./build-systems-discussion-aids.mjs');
 const entries=JSON.parse(await fs.readFile('lectures/manifest.json','utf8'));
-for(const e of entries)if(!/^lectures\/[a-z0-9-]+\/ch\d+\.json$/.test(e.path))throw Error('Invalid lecture shard path');
+for(const e of entries)if(!/^lectures\/[a-z0-9-]+\/ch-?\d+\.json$/.test(e.path))throw Error('Invalid lecture shard path');
 const renderer=(await fs.readFile('src/slides.js','utf8')).replace('/*__SLIDES_CATALOG__*/[]',()=>JSON.stringify(entries));
 const css=await fs.readFile('src/slides.css','utf8');
 const safe=text=>text.replace(/<\/script/gi,'<\\/script');
@@ -17,7 +21,7 @@ if(offline){
  await import('./build-offline.mjs');
  let html=await fs.readFile('dist-offline/index.html','utf8');
  if(!html.includes('/*__SLIDES_JS__*/'))throw Error('Offline app is missing the Slides insertion marker');
- const decks=Object.fromEntries(await Promise.all(entries.map(async e=>[e.path,JSON.parse(await fs.readFile(e.path,'utf8'))])));
+ const decks=Object.fromEntries(await Promise.all(entries.map(async e=>{const d=JSON.parse(await fs.readFile(e.path,'utf8'));for(const s of d.slides){if(s.visual?.path)s.visual.image='data:image/svg+xml;base64,'+(await fs.readFile(s.visual.path)).toString('base64');}return [e.path,d];})));
  html=html.replace('/*__SLIDES_JS__*/',()=>safe(renderer)).replace('</head>',()=>`<style>${css}</style><script type="application/json" id="study-slides">${safe(JSON.stringify(decks))}</script></head>`);
  await fs.writeFile('dist-offline/index.html',html);
  console.log(`Added ${entries.length} offline lecture shard(s). Online compilation still requires internet.`);
@@ -30,8 +34,10 @@ if(offline){
  await fs.cp('lectures','dist/lectures',{recursive:true});
  // Keep every existing integrity entry and refresh only changed/new files.
  const integrity=JSON.parse(await fs.readFile('dist/integrity.json','utf8'));
- const changed=['app.js','styles.css','lectures/manifest.json',...entries.map(x=>x.path)];
+ async function lectureFiles(dir='lectures'){const out=[];for(const e of await fs.readdir(dir,{withFileTypes:true})){const p=path.posix.join(dir,e.name);if(e.isDirectory())out.push(...await lectureFiles(p));else out.push(p);}return out;}
+ const changed=['app.js','styles.css',...await lectureFiles()];
  for(const file of changed){const bytes=await fs.readFile(path.join('dist',file));const item={file,bytes:bytes.length,sha256:hash(bytes)};const index=integrity.files.findIndex(x=>x.file===file);if(index<0)integrity.files.push(item);else integrity.files[index]=item;}
+ integrity.files=integrity.files.filter(x=>x.file!=='integrity.json');
  await fs.writeFile('dist/integrity.json',JSON.stringify(integrity));
  console.log(`Added ${entries.length} lazy-loaded lecture shard(s).`);
 }

@@ -1,0 +1,224 @@
+{
+  "chapter": 26,
+  "title": "Page Faults",
+  "opening": [
+    {
+      "title": "A fault is a request for a decision, not always a disaster",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "concept",
+      "keyPoints": [
+        "Translation could not complete the requested access",
+        "The kernel checks the region’s logical policy",
+        "Recovery and rejection are both possible results"
+      ],
+      "narration": "A page fault means the attempted memory access could not complete under the current translation or protection state. That can be part of normal demand paging, or it can reveal an invalid operation. The kernel must determine the address, requested access, and mapping policy before choosing recovery. A valid anonymous page may receive zero-filled backing; a forbidden write may be rejected. It is therefore misleading to say every page fault means a crash or every page fault means a disk read. Our programs safely model these policy choices without deliberately dereferencing invalid memory or trying to recover from corrupted application state.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch26.json → SP26.010: 26.4 Fault handling",
+      "question": {
+        "prompt": "What information distinguishes a recoverable absence from an invalid address?",
+        "answer": "The operating system’s mapping policy and the requested operation, not the absence indicator alone."
+      }
+    },
+    {
+      "title": "Classify before allocating",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "code",
+      "keyPoints": [
+        "The model separates logical region policy from presence",
+        "Read-only writes are denied",
+        "Anonymous absence and copy-on-write need different work"
+      ],
+      "narration": "The program asks four policy questions without accessing any page. An absent anonymous region yields demand-zero. A write to a read-only region yields deny. A write to a copy-on-write region yields private-write, while a read of a present read-only region can resume. The printed words are decisions in a simplified function, not proof that a kernel allocated memory or raised an exception. The order matters: an invalid region must not be granted storage merely because it lacks a present page. A real handler has more states and synchronization duties, but it preserves the same distinction between logical permission and current backing.",
+      "actions": [
+        "Predict every line, run the complete example, then state exactly which behavior the result establishes."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch26.json → SP26.004: 26.1 Missing pages",
+      "question": {
+        "prompt": "Why must region policy be checked before treating absence as demand paging?",
+        "answer": "An address outside a valid region must be rejected rather than silently given new storage."
+      },
+      "code": {
+        "filename": "sys_ch26_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string_view>\nenum class Region { Invalid, Anonymous, ReadOnly, CopyOnWrite };\nstd::string_view decide(Region region, bool present, bool write) {\n    if (region == Region::Invalid) return \"deny\";\n    if (write && region == Region::ReadOnly) return \"deny\";\n    if (write && region == Region::CopyOnWrite) return \"private-write\";\n    if (!present && region == Region::Anonymous) return \"demand-zero\";\n    return present ? \"resume\" : \"needs-backing-policy\";\n}\nint main() {\n    std::cout << decide(Region::Anonymous,false,false) << '\\n';\n    std::cout << decide(Region::ReadOnly,true,true) << '\\n';\n    std::cout << decide(Region::CopyOnWrite,true,true) << '\\n';\n    std::cout << decide(Region::ReadOnly,true,false) << '\\n';\n}\n",
+        "expectedStdout": "demand-zero\ndeny\nprivate-write\nresume\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Fault-policy decision model; does not trigger or handle hardware faults."
+      }
+    },
+    {
+      "title": "Demand-zero need not involve a storage device",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "concept",
+      "keyPoints": [
+        "Anonymous memory promises initialized zero bytes",
+        "Backing may be supplied on first use",
+        "Fault counts alone do not measure I/O"
+      ],
+      "narration": "A program can reserve anonymous memory without touching every page. When it first accesses a legitimate page, the kernel can supply zero-initialized backing according to the mapping contract. No existing file contents need to be read for that demand-zero case. A file-backed fault is different, and even then the required data may already be in the operating system’s cache. Counting all faults together therefore mixes operations with very different costs. When a workload gets slower, distinguish fault type, amount of backing work, and storage waiting before blaming the device. The same number of page faults can correspond to very different elapsed time.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch26.json → SP26.016: Worked example — Demand-zero allocation",
+      "question": {
+        "prompt": "Does a thousand page faults prove a thousand SSD reads?",
+        "answer": "No. Faults may be satisfied through zero-filled memory, already cached data, or other paths that require no device read."
+      }
+    },
+    {
+      "title": "Private writing copies only the model page that needs separation",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "code",
+      "keyPoints": [
+        "Two owners initially share two model pages",
+        "First write detaches one page",
+        "A later write to the exclusive page needs no second copy"
+      ],
+      "narration": "Our page objects contain two integers each. Parent and child initially share both objects. The first child write to page zero sees another owner and creates a private copy. A second write to that same page changes the exclusive copy without another allocation, leaving the copy counter at one. The final output is parent seven, child eleven, copies one; the untouched second page remains shared. This is an ownership model in one C++ process, not an actual fork or hardware page fault. It illustrates the private-modification guarantee and why one should not promise that every later write requires a new physical copy.",
+      "actions": [
+        "Predict every line, run the complete example, then state exactly which behavior the result establishes."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch26.json → SP26.012: 26.5 Copy-on-write",
+      "question": {
+        "prompt": "Why does the second child write not increment the model’s copy count?",
+        "answer": "The child already exclusively owns the detached page, so no other owner needs protection from that mutation."
+      },
+      "code": {
+        "filename": "sys_ch26_page_detach.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\n#include <memory>\n#include <vector>\nusing Page = std::array<int,2>;\nusing Pages = std::vector<std::shared_ptr<Page>>;\nvoid write(Pages& pages, unsigned page, int value, unsigned& copies) {\n    auto& owner = pages.at(page);\n    if (!owner.unique()) { owner = std::make_shared<Page>(*owner); ++copies; }\n    owner->at(0) = value;\n}\nint main() {\n    Pages parent{std::make_shared<Page>(Page{7,8}),std::make_shared<Page>(Page{20,21})};\n    Pages child = parent;\n    unsigned copies = 0;\n    write(child,0,9,copies);\n    write(child,0,11,copies);\n    std::cout << \"parent=\" << parent[0]->at(0) << \" child=\" << child[0]->at(0)\n              << \" copies=\" << copies << '\\n';\n    std::cout << \"untouched-shared=\" << std::boolalpha << (parent[1] == child[1]) << '\\n';\n}\n",
+        "expectedStdout": "parent=7 child=11 copies=1\nuntouched-shared=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Single-threaded ownership model with two-integer pages; allocation count is not a hardware page-copy count."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Copy-on-write separates logical permission from the current hardware bit",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "concept",
+      "keyPoints": [
+        "A logically writable private region may be temporarily read-only",
+        "A write can trigger private backing preparation",
+        "Truly read-only code must remain protected"
+      ],
+      "narration": "A copy-on-write region may be logically allowed to change even though its current hardware mapping denies a direct store. That temporary protection lets the kernel intervene when a private version becomes necessary. A permanently read-only code mapping can use a similar-looking protection bit but has a different policy: a write is an error. The handler therefore needs more than the leaf writable bit to decide what recovery is allowed. Our classification program uses an explicit region kind to make that missing policy visible. Real kernels maintain richer metadata and coordinate it with mappings and other threads.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch26.json → SP26.006: 26.2 Protection faults",
+      "question": {
+        "prompt": "Why can the same kind of hardware write fault lead to either recovery or rejection?",
+        "answer": "The region’s logical policy may allow private modification or may forbid writing entirely."
+      }
+    },
+    {
+      "title": "Resume only after the required invariant is restored",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate the requested access",
+        "Obtain appropriate backing and update translation state",
+        "Retry or reject the faulting operation according to the platform"
+      ],
+      "narration": "The conceptual recovery path checks policy, obtains suitable backing, updates translation information, and then allows the operation to resume when permitted. Each step establishes a condition needed by the next. Resuming too early would repeat the unresolved access or expose wrong storage. Rejecting an invalid access is not a failure of demand paging; it is enforcement of the boundary. Real implementations also handle concurrent mapping changes and several threads faulting on related storage. Our models intentionally omit those races. A function that returns a policy word does not claim to perform page-table updates, translation invalidation, or instruction restart.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch26.json → SP26.010: 26.4 Fault handling",
+      "question": {
+        "prompt": "Why is returning from a handler without fixing a recoverable mapping insufficient?",
+        "answer": "The original access still lacks the required translation or permission, so the recovery invariant has not been established."
+      }
+    },
+    {
+      "title": "The shared_ptr demonstration has its own lifetime contract",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "concept",
+      "keyPoints": [
+        "Owner references allow replacement of the caller’s handle",
+        "Null owners must be rejected before dereference",
+        "Shared ownership does not synchronize mutation"
+      ],
+      "narration": "In the source lab, private_write receives a shared_ptr by reference so it can replace the caller’s owner when detaching. A by-value parameter would replace only the local handle and leave the caller referring to the earlier object. The function rejects a null owner before examining or dereferencing it. These are C++ ownership rules within the teaching model. Shared_ptr’s ownership bookkeeping does not make simultaneous writes to the pointed-to integer safe, and testing uniqueness is not a full concurrent copy-on-write protocol. The examples are single-threaded and bounded. If concurrent access becomes a requirement, design synchronization and publication separately rather than assuming the smart pointer supplies them.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch26.json → SYS26.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why does the source helper need an owner reference rather than only a copied owner?",
+        "answer": "Detachment must update the caller’s handle so later reads use the new private object."
+      }
+    },
+    {
+      "title": "A source model is not a measurement of kernel copying",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "concept",
+      "keyPoints": [
+        "An allocation counter counts model operations",
+        "Private observations are the semantic promise",
+        "Real kernels may optimize exclusive backing"
+      ],
+      "narration": "Our model increments copies when make_shared creates another page object. That is an exact observation about this C++ program. It is not a count of physical pages copied by the operating system. After a real fork, the kernel may determine that a backing page no longer needs separation and simply change permissions instead. It may also use mechanisms whose granularity differs from our tiny model pages. The stable concept is that a private writer must not alter another logically independent view. Keep semantic tests and implementation measurements separate so a correct optimization is not mistaken for violating an overly specific classroom story.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch26.json → SP26.018: Worked example — Copy-on-write after fork",
+      "question": {
+        "prompt": "What does parent unchanged and child changed establish without measuring physical copies?",
+        "answer": "It establishes private-modification behavior for the observed values, not the kernel’s precise copying algorithm."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Do not use arbitrary invalid accesses as normal error handling",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "concept",
+      "keyPoints": [
+        "Check object and buffer contracts before access",
+        "Use return codes for expected resource errors",
+        "A fault may leave application state unsafe to recover"
+      ],
+      "narration": "A parser expecting malformed input should validate its lengths and return an error rather than deliberately writing beyond a buffer and hoping a signal handler can recover. A protection fault can happen after other mutations already occurred, and corrupted state may no longer support ordinary execution safely. The chapter therefore separates normal system-call error handling from attempts to repair arbitrary invalid pointer use. Our fault models use enum values and policy functions so they can be exercised safely and deterministically. When testing production code, use appropriate memory diagnostics and targeted bounds checks rather than treating a crash as the required validation path.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch26.json → SP26.010: 26.4 Fault handling",
+      "question": {
+        "prompt": "Why is catching a normal resource-error result easier to reason about than continuing after an arbitrary bad pointer write?",
+        "answer": "The normal interface states its failure contract; the bad write may already have corrupted state or violated language rules."
+      }
+    },
+    {
+      "title": "Review the observation before explaining the cost",
+      "eyebrow": "SYSTEMS / CHAPTER 26",
+      "kind": "concept",
+      "keyPoints": [
+        "Name the fault type and mapping policy",
+        "Distinguish copying, zero-fill, and device I/O",
+        "Keep ownership and synchronization promises explicit"
+      ],
+      "narration": "To explain a page-fault report, start with what the counter actually means. Identify whether the mapping was legitimate, whether the access was a read or write, and whether recovery needed zero-fill, private separation, cached file data, or storage I/O. Then ask how that work sits on the application’s critical path. A single fault count cannot answer all these questions. The source model provides a small ownership lesson; our added examples provide policy and page-granularity lessons. Together they support debugging without pretending to implement a kernel. Extend tests by checking repeated private writes and untouched shared pages, then measure actual platform behavior separately.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch26.json → SP26.020: Guided lab and review",
+      "question": {
+        "prompt": "Which test distinguishes first-write detachment from unnecessary copying on every write?",
+        "answer": "Write twice through the same exclusive detached owner and verify its identity remains stable on the second write."
+      }
+    }
+  ]
+}

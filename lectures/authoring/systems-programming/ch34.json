@@ -1,0 +1,223 @@
+{
+  "chapter": 34,
+  "title": "File Descriptors — ownership and exact transfer progress",
+  "opening": [
+    {
+      "title": "A descriptor integer is a table index, not the whole resource",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "The process table points to an open object",
+        "Copying the integer creates no new reference",
+        "Ownership decides who must close each real entry"
+      ],
+      "narration": "A descriptor such as three names an entry in the current process's descriptor table. It is not the file contents, and it is not a C++ object whose lifetime follows an integer variable. Assigning that number to another int only creates an alias for the same table entry. Closing the entry invalidates both copied numbers as handles. dup is different: it asks the kernel for another entry that refers to the same open object. A function must therefore say whether it borrows a descriptor or owns a reference that it must close. The type int alone does not communicate that contract.",
+      "actions": [
+        "Contrast a copied number with a duplicated descriptor."
+      ],
+      "sourceRef": "content/systems-programming/ch34.json → SP34.004 · 34.1 Descriptor tables",
+      "question": {
+        "prompt": "Does int copy = fd give copy an independent close obligation?",
+        "answer": "No. It copies the number only. dup creates a distinct descriptor-table reference."
+      }
+    },
+    {
+      "title": "Two descriptors can consume one shared position",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "code",
+      "keyPoints": [
+        "dup creates a second entry",
+        "Both entries share the current file offset",
+        "Reading through each returns the next different byte"
+      ],
+      "narration": "This real POSIX example creates a temporary file holding XYZ, flushes its output, and moves the position to zero. It duplicates the descriptor, then reads one byte through the original and one through the duplicate. The results are X and Y because both descriptors refer to one open file description with one current offset. Querying that offset returns two. Closing the duplicate does not close the original entry, so the stream can still be closed normally afterward. The program checks operations and never prints descriptor numbers, which can vary between runs. The stable output demonstrates a relationship, not a particular allocation of table slots.",
+      "actions": [
+        "Predict bytes and final offset before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch34.json → SP34.026 · Worked example — Duplicated descriptors share an open file description",
+      "question": {
+        "prompt": "Why is the second byte Y rather than X?",
+        "answer": "The first read advanced the shared open-file offset from zero to one."
+      },
+      "code": {
+        "filename": "sys_ch34_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstdio>\n#include <iostream>\n#include <unistd.h>\nint main() {\n    FILE* file = std::tmpfile();\n    if (!file) return 1;\n    bool okay = std::fwrite(\"XYZ\", 1, 3, file) == 3;\n    okay = std::fflush(file) == 0 && okay;\n    const int fd = fileno(file);\n    if (fd < 0 || lseek(fd, 0, SEEK_SET) != 0) okay = false;\n    const int other = okay ? dup(fd) : -1;\n    char first = '?', second = '?';\n    if (other < 0) okay = false;\n    if (okay && read(fd, &first, 1) != 1) okay = false;\n    if (okay && read(other, &second, 1) != 1) okay = false;\n    const auto position = fd >= 0 ? lseek(fd, 0, SEEK_CUR) : -1;\n    if (other >= 0 && close(other) != 0) okay = false;\n    okay = std::fclose(file) == 0 && okay;\n    if (!okay || position != 2) return 1;\n    std::cout << \"bytes=\" << first << second << \" offset=\" << position << '\\n';\n}\n",
+        "expectedStdout": "bytes=XY offset=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "The standard streams describe roles, not devices",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Descriptor 0 supplies ordinary input",
+        "Descriptor 1 carries useful results",
+        "Descriptor 2 carries diagnostics"
+      ],
+      "narration": "A program reading standard input must not assume a keyboard. Descriptor zero may refer to a file or a pipe. Likewise, standard output might feed another program, so a progress message inserted into a binary result can corrupt that next program's input. Standard error gives diagnostics a separate role, though a shell can redirect both outputs to the same destination. These conventions help small utilities compose. They also mean output failure is part of program failure: a correct calculation whose result could not be written is not automatically a successful command. Preserve the useful result stream and report setup or transfer problems through the intended diagnostic path.",
+      "actions": [
+        "Imagine the output being parsed as a binary record sequence."
+      ],
+      "sourceRef": "content/systems-programming/ch34.json → SP34.008 · 34.3 Standard output",
+      "question": {
+        "prompt": "Why can printing progress to standard output break a correct filter?",
+        "answer": "The progress text becomes part of the data stream consumed by the next program."
+      }
+    },
+    {
+      "title": "An error after progress does not remove the prefix",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "code",
+      "keyPoints": [
+        "A transfer can succeed partially before a later failure",
+        "Retrying the whole payload duplicates earlier bytes",
+        "Resume at the known completed offset when the contract allows"
+      ],
+      "narration": "The model sends ABC before a simulated interruption in the larger operation. The destination already contains those bytes. Restarting the entire string appends ABCDEF again, producing ABCABCDEF. Resuming from the recorded offset three appends only DEF and produces ABCDEF. The program prints both outcomes so the duplication is visible. This is a deterministic model of partial progress, not an actual system call failure injected into a file. A real helper must distinguish positive write counts, interruptions with their documented effects, and failures after prior calls. Its reported result should preserve how much progress the caller can safely rely on.",
+      "actions": [
+        "Predict the incorrect repeated prefix before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch34.json → SP34.016 · 34.7 write",
+      "question": {
+        "prompt": "Why is retrying the complete buffer after known partial progress unsafe?",
+        "answer": "The already-transferred prefix can be duplicated; continue from the completed count when retry is valid."
+      },
+      "code": {
+        "filename": "sys_ch34_partial_progress.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\nint main() {\n    const std::string payload = \"ABCDEF\";\n    const std::size_t completed = 3;\n    const std::string delivered = payload.substr(0, completed);\n    // Model a later failure after the prefix has already been accepted.\n    const auto wrong_restart = delivered + payload;\n    const auto resumed = delivered + payload.substr(completed);\n    std::cout << \"before retry=\" << delivered << '\\n';\n    std::cout << \"wrong restart=\" << wrong_restart << '\\n';\n    std::cout << \"resume=\" << resumed << '\\n';\n}\n",
+        "expectedStdout": "before retry=ABC\nwrong restart=ABCABCDEF\nresume=ABCDEF\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Serialized transfer-progress model; no kernel error is induced."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Read only the bytes the call reports",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "A positive short read is success",
+        "Zero with a positive request marks EOF here",
+        "Negative results require error-specific handling"
+      ],
+      "narration": "A read into a four-kilobyte buffer can return seven bytes. Only those seven bytes belong to this result; the rest of the array may hold old data or uninitialized storage. Processing all four kilobytes would manufacture input the endpoint never supplied. A zero result for a positive request indicates end of file for the stream uses in this chapter. A negative result reports failure and requires inspecting the error. EINTR and nonblocking EAGAIN do not mean the same thing: one may call for retry under the cancellation policy, while the other calls for waiting for readiness rather than a tight CPU-consuming loop.",
+      "actions": [
+        "Point to the returned count as the boundary of valid input."
+      ],
+      "sourceRef": "content/systems-programming/ch34.json → SP34.014 · 34.6 read",
+      "question": {
+        "prompt": "After read returns seven, how many bytes may this iteration process?",
+        "answer": "Exactly seven returned bytes, regardless of the buffer’s capacity."
+      }
+    },
+    {
+      "title": "Write loops need a progress invariant",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Advance the pointer by each positive count",
+        "Reduce remaining bytes by the same count",
+        "Treat no progress under a positive request explicitly"
+      ],
+      "narration": "A complete-transfer loop keeps two quantities aligned: bytes already sent and bytes remaining. If a five-byte request writes two, the next call begins two bytes later and asks for three. Reusing the original pointer duplicates data; reducing the count without advancing the pointer loses the tail. For the small blocking transfers in the source, a zero-byte result with work still pending is treated as a no-progress failure. Production helpers must also respect supported request-size limits and cancellation policy. The invariant is simple enough to state in a test: completed plus remaining equals the original length, and completed identifies the next unsent byte.",
+      "actions": [
+        "Trace a five-byte payload through writes of two, one, and two."
+      ],
+      "sourceRef": "content/systems-programming/ch34.json → SP34.016 · 34.7 write",
+      "question": {
+        "prompt": "What must change together after a positive short write?",
+        "answer": "The next data position advances by the count, and remaining length decreases by the same count."
+      }
+    },
+    {
+      "title": "Opening a destination can already change it",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Flags choose access and creation behavior",
+        "O_TRUNC can destroy prior contents",
+        "Close-on-exec should be established deliberately"
+      ],
+      "narration": "Opening is not always a harmless lookup. With truncation requested, an existing file's contents can be discarded as part of setup. A safe tool chooses those flags based on the user's operation rather than copying a familiar example blindly. Creation also needs a permission mode interpreted with the process's mask and other applicable rules. A returned minus one means failure, not a descriptor to pass onward. On the reference platform, opening with close-on-exec avoids a separate flag-setting window in multithreaded launch code. Review setup and cleanup as one ownership path: every successful acquired entry needs a clear release, including later failure branches.",
+      "actions": [
+        "Identify destructive flags before considering the main processing loop."
+      ],
+      "sourceRef": "content/systems-programming/ch34.json → SP34.012 · 34.5 open",
+      "question": {
+        "prompt": "Why can a failed command still have damaged output before doing its main calculation?",
+        "answer": "Its setup may have opened an existing destination with O_TRUNC before the later failure."
+      }
+    },
+    {
+      "title": "Closing follows a platform contract, not a blind retry rule",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Linux may release the number even when close reports error",
+        "Retry can target a newly reused descriptor",
+        "Close is not proof of durable storage"
+      ],
+      "narration": "A descriptor number can be reused after its entry is released. On Linux, blindly retrying close after an error can therefore close an unrelated resource that has since received the same number. The source explicitly teaches the Linux rule and notes that portability specifications differ for interruption behavior. Do not turn a read retry loop into a universal cleanup pattern. Ownership should end once according to the selected platform contract, while any reported output error is preserved for the caller. Closing also does not establish the same promise as a durable-update protocol. Releasing access and guaranteeing persistence are separate responsibilities with different operations and tests.",
+      "actions": [
+        "State the Linux boundary before discussing retry behavior."
+      ],
+      "sourceRef": "content/systems-programming/ch34.json → SP34.018 · 34.8 close",
+      "question": {
+        "prompt": "Why can repeating close(fd) be more dangerous than repeating a permitted interrupted read?",
+        "answer": "The descriptor number may already have been released and reassigned to another resource."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Test endpoints that violate convenient assumptions",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Include empty and binary input",
+        "Force several transfers and short progress",
+        "Verify cleanup and output failure reporting"
+      ],
+      "narration": "A copy utility that passes with a small line of text may still fail on a zero byte, a buffer boundary, or a short write. Test empty input, embedded zeros, and payloads larger than one buffer. A deterministic fake transport is useful for forcing exact partial counts without relying on kernel timing. Actual descriptor tests then verify integration with real endpoints. Keep those layers labeled: a model proves bookkeeping for supplied return values, while a real run checks one environment. A borrowed descriptor test should also ensure the function leaves ownership with its caller. These cases protect behavior that ordinary happy-path output rarely exercises.",
+      "actions": [
+        "Choose one model test and one actual endpoint test."
+      ],
+      "sourceRef": "content/systems-programming/ch34.json → SP34.022 · Worked example — A complete-transfer copy loop",
+      "question": {
+        "prompt": "Why include embedded zero bytes in a copying test?",
+        "answer": "A byte copy must not accidentally treat input as a null-terminated C string."
+      }
+    },
+    {
+      "title": "Recall the resource, the count, and the owner",
+      "eyebrow": "SYSTEMS 34 / DESCRIPTORS AND TRANSFER CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "A descriptor names a process-table entry",
+        "A transfer count defines actual progress",
+        "An owner releases each acquired entry once"
+      ],
+      "narration": "The central habit is to read each operation's contract literally. open acquires an entry or reports failure. read and write report actual byte counts, not a promise that the requested amount moved. dup acquires another entry while retaining shared underlying state. close releases according to the platform's rules. Place those facts beside the code so a future helper does not confuse borrowed and owned handles or restart a partially completed transfer. Standard input and output make a program composable only when bytes remain exact and failure remains visible. The same discipline will support pipes and child-process redirection in later chapters.",
+      "actions": [
+        "Ask learners to write a one-sentence contract for a borrowed copy source."
+      ],
+      "sourceRef": "content/systems-programming/ch34.json → SP34.004 · 34.1 Descriptor tables",
+      "question": {
+        "prompt": "What three questions should accompany an fd parameter in a function contract?",
+        "answer": "Who owns it, what endpoint/operation assumptions apply, and how progress or failure is reported."
+      }
+    }
+  ]
+}

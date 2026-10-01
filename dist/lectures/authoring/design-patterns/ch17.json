@@ -1,0 +1,258 @@
+{
+  "chapter": 17,
+  "title": "Memento — saved values, private state, and restoration",
+  "opening": [
+    {
+      "title": "Undo must restore a valid pair, not two guesses",
+      "eyebrow": "MEMENTO / THE PROBLEM",
+      "kind": "concept",
+      "keyPoints": [
+        "The interval is inclusive and stays within 0 through 100",
+        "The low endpoint never exceeds the high endpoint",
+        "A history manager should not expose private state"
+      ],
+      "narration": "A chart selection is an interval with two endpoints. Restoring only its low endpoint could combine an old low with a new high and create a state that never existed. The real requirement is to remember a valid pair and restore that pair together under the object's rules. For a local procedure, two copied integers may be sufficient. The design pressure arrives when the selection has private state and several callers need history. Making those fields public just to help undo weakens the rest of the program. We need the state owner to create a saved record while allowing the history manager to store that record without understanding its contents.",
+      "actions": [
+        "Ask learners to state the invariant before suggesting storage."
+      ],
+      "sourceRef": "manuscript/ch17.json → The problem: remember an interval without breaking its rules",
+      "question": {
+        "prompt": "What exactly is the state boundary of the chapter snapshot?",
+        "answer": "The selected interval’s low and high endpoints. It does not include chart pixels, mouse position, external files, or history length."
+      }
+    },
+    {
+      "title": "Copying two local values is a sound baseline",
+      "eyebrow": "FIRST RUNNABLE DESIGN",
+      "kind": "code",
+      "keyPoints": [
+        "Remember the pair before the change",
+        "A copied value does not follow later edits",
+        "Restore both values from the same saved moment"
+      ],
+      "narration": "The baseline works with ordinary local integers because there is no private object boundary to protect yet. old_low and old_high copy the original interval. The selection then moves to twenty and forty, and the two saved values still hold two and five. Restoring both returns the original pair. This establishes the core behavior before introducing any pattern: saved state must be independent of future edits. The code does not provide range checking or a history container, so do not mistake this tiny demonstration for the full Selection design. Its purpose is to show why copying values works. The later snapshot type adds control over who can create and inspect those saved records.",
+      "actions": [
+        "Predict the changed and restored pairs before Run."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch17.json → The problem: remember an interval without breaking its rules",
+      "question": {
+        "prompt": "Why does changing low to twenty leave old_low at two?",
+        "answer": "old_low holds an independent copied integer, not a reference to low."
+      },
+      "code": {
+        "filename": "dp_ch17_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    int low = 2;\n    int high = 5;\n    // Copies retain this moment, independently of later edits.\n    const int old_low = low;\n    const int old_high = high;\n    low = 20;\n    high = 40;\n    std::cout << \"changed: \" << low << ':' << high << '\\n';\n    low = old_low;\n    high = old_high;\n    std::cout << \"restored: \" << low << ':' << high << '\\n';\n}\n",
+        "expectedStdout": "changed: 20:40\nrestored: 2:5\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "A reference is not a photograph of the past",
+      "eyebrow": "SAFE FAILURE DEMONSTRATION",
+      "kind": "code",
+      "keyPoints": [
+        "A reference is another name for the live value",
+        "The alias changes when the current value changes",
+        "A snapshot must own the state it promises to remember"
+      ],
+      "narration": "This program keeps both an alias and a copy. int& names an existing integer, so aliased_low remains tied to low. When low becomes twenty, reading the alias also gives twenty. copied_low still gives two. Every access here is safe because the original integer stays alive; the failure is logical, not a dangling-reference trick. A snapshot built from references to the live endpoints would have the same defect. It would appear to save successfully while forgetting the past as soon as the selection changed. Memento needs independent state or carefully shared immutable state. Borrowing mutable current state is not enough just because the wrapper is named Snapshot.",
+      "actions": [
+        "Run and explain why both outputs are valid C++ but only one satisfies history."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch17.json → Let the state owner define the snapshot boundary",
+      "question": {
+        "prompt": "Which saved value could restore the original low endpoint after this change?",
+        "answer": "copied_low. aliased_low reads the new current value and no longer represents the old state."
+      },
+      "code": {
+        "filename": "dp_ch17_alias_is_not_snapshot.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    int low = 2;\n    int& aliased_low = low;\n    const int copied_low = low;\n    low = 20;\n    std::cout << \"reference remembers: \" << aliased_low << '\\n';\n    std::cout << \"value remembers: \" << copied_low << '\\n';\n    // Using the alias for restoration would merely assign 20 again.\n    low = copied_low;\n    std::cout << \"restored: \" << low << '\\n';\n}\n",
+        "expectedStdout": "reference remembers: 20\nvalue remembers: 2\nrestored: 2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Let the object define its saved record",
+      "eyebrow": "PATTERN BOUNDARY",
+      "kind": "concept",
+      "keyPoints": [
+        "Selection creates and restores valid snapshots",
+        "Snapshot hides the endpoint representation",
+        "History stores records without opening them"
+      ],
+      "narration": "Memento is a saved record controlled by the object whose state it represents. Selection is often called the originator: it knows how to produce and restore the record. History is the caretaker: it keeps snapshots and chooses which one to use. Those names describe responsibilities, not required base classes. In the chapter, History never reaches into the two endpoint fields. That separation matters when Selection later gains another part of its state. The change can stay inside Selection and Snapshot rather than spreading through every undo manager. A snapshot still needs a declared boundary. Hiding fields does not answer whether a new property should be restored; the product's undo promise must answer that question.",
+      "actions": [
+        "Ask what changes if a selection later includes a display mode."
+      ],
+      "sourceRef": "manuscript/ch17.json → Let the state owner define the snapshot boundary",
+      "question": {
+        "prompt": "Why should History avoid reading the endpoint fields even if it could copy them?",
+        "answer": "Selection owns the representation and invariants. Opaque records keep history independent of changes to that representation."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Private construction protects the saved-state boundary",
+      "eyebrow": "C++ ACCESS RULES",
+      "kind": "concept",
+      "keyPoints": [
+        "Snapshot fields and constructor are private",
+        "friend class Selection grants specific access",
+        "Public copying lets History store opaque values"
+      ],
+      "narration": "Snapshot is nested within Selection, but the key access permission is explicit: friend class Selection allows Selection to use Snapshot's private constructor and fields. Friendship is not inheritance, ownership, or permission for every nearby class. Outside callers cannot manufacture an arbitrary invalid endpoint pair as a Snapshot. They can copy an existing snapshot because its copy operations are public. That distinction lets a vector manage records while keeping their contents opaque. The compiler enforces these access restrictions when building the program. The valid-pair guarantee also relies on Selection::set validating all conditions before changing either live endpoint; access control alone does not make arbitrary implementation code correct.",
+      "actions": [
+        "Separate permission to copy a record from permission to construct arbitrary contents."
+      ],
+      "sourceRef": "manuscript/ch17.json → Let the state owner define the snapshot boundary",
+      "question": {
+        "prompt": "Can History create a Snapshot containing low nine and high three through the private constructor?",
+        "answer": "No. Only the granted friend can call that constructor. History can store copies of snapshots Selection has produced."
+      }
+    },
+    {
+      "title": "Validation happens before either endpoint changes",
+      "eyebrow": "STATE INVARIANT",
+      "kind": "concept",
+      "keyPoints": [
+        "Reject low below zero",
+        "Reject high above one hundred or low above high",
+        "A rejected set leaves the previous pair intact"
+      ],
+      "narration": "The interval invariant is a relationship between the two integers, not a rule on either integer alone. Selection::set checks the proposed pair before assigning low_ or high_. If it rejected only after writing low_, an invalid request such as nine and three could damage the current state even though the caller receives an exception. The actual source throws first and leaves the earlier pair untouched. This behavior makes snapshots trustworthy: save reads a state that successful operations preserve as valid. While stepping through the code, identify where validation ends and mutation begins. That boundary is often more useful in a review than counting how many guard statements a function contains.",
+      "actions": [
+        "Trace the invalid request and identify the first assignment that must not execute."
+      ],
+      "sourceRef": "manuscript/ch17.json → The problem: remember an interval without breaking its rules",
+      "question": {
+        "prompt": "After rejecting set(9,3) while the selection is [2,5], what should save remember?",
+        "answer": "[2,5]. Rejection must leave both prior endpoints unchanged."
+      }
+    },
+    {
+      "title": "Restore a value; do not consume the record",
+      "eyebrow": "RESTORATION CONTRACT",
+      "kind": "concept",
+      "keyPoints": [
+        "const Snapshot& borrows an unchanged record",
+        "Integer copies restore the pair without allocation",
+        "This implementation permits cross-selection restoration"
+      ],
+      "narration": "restore takes a const reference, so it borrows the record during the call and does not edit it through that reference. The two integer assignments do not allocate or throw, which gives this small restoration a clear exception-safety story. It does not make the assignments atomic to another thread; the example is single-threaded. The same snapshot can be restored repeatedly, and another Selection can restore it because all instances share the same range rules. If records belonged to one document or session, the design would need an identity token and a checked rejection policy. Do not silently impose that different policy on this source: portable saved values are an intentional tested behavior here.",
+      "actions": [
+        "Distinguish repeated restore of one value from consuming an undo-history entry."
+      ],
+      "sourceRef": "manuscript/ch17.json → Restoration should have a clear failure story",
+      "question": {
+        "prompt": "Does restoring a snapshot remove or invalidate that snapshot?",
+        "answer": "No. restore borrows it unchanged. History’s choice to pop a record is a separate policy."
+      }
+    },
+    {
+      "title": "Keep the recovery record until restoration succeeds",
+      "eyebrow": "HISTORY ORDER",
+      "kind": "concept",
+      "keyPoints": [
+        "Empty history returns false",
+        "Restore the newest record first",
+        "Remove it only after successful restoration"
+      ],
+      "narration": "History owns a vector of snapshots and borrows the Selection it manages. undo first handles the normal empty case by returning false. Otherwise it restores the last record and then pops it. That order means the recovery record remains available until the operation it supports has succeeded. In this integer example, restoration cannot throw, but the order communicates a useful rule for future state. If restoration later copied strings one field at a time, allocation could fail midway. Selection would need a stronger strategy, such as building a complete proposed state and committing it safely. History should not guess how to repair partially restored private fields; that responsibility stays with the state owner.",
+      "actions": [
+        "Ask what a future throwing restore would lose if the record were popped first."
+      ],
+      "sourceRef": "manuscript/ch17.json → The history manager keeps records without opening them",
+      "question": {
+        "prompt": "Why should pop_back follow restore rather than precede it?",
+        "answer": "A failed restoration should not first destroy the record needed for recovery. The current nonthrowing integer restore also preserves this clear ordering for maintenance."
+      }
+    },
+    {
+      "title": "Bounded history needs a commit point too",
+      "eyebrow": "MEMORY AND FAILURE",
+      "kind": "concept",
+      "keyPoints": [
+        "Retain the newest three records",
+        "Build changes in a proposed vector",
+        "Swap only after the new history is ready"
+      ],
+      "narration": "A capacity limit is visible behavior: it determines how far a user can undo. The extension keeps the three newest remembered states. It copies the current records to proposed, removes the oldest there if necessary, adds the new record, and swaps proposed into the live history. Allocation failure before that swap leaves the old history intact. This is a small example of preparing a new state before committing it. It costs a copy, which is reasonable for a teaching history of two-integer records. A fixed-capacity buffer may be faster for large or frequent updates, but its overwrite order needs equal care. Performance changes should preserve the same eviction and failure contract.",
+      "actions": [
+        "Have learners trace the proposed vector before the final swap."
+      ],
+      "sourceRef": "manuscript/ch17.json → Bound memory growth without weakening the contract",
+      "question": {
+        "prompt": "After remembering [1,2], [2,3], [3,4], [4,5], which record has been evicted?",
+        "answer": "[1,2]. Undo visits [4,5], [3,4], then [2,3], and then reports no history."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "A snapshot, a delta, or an undo command?",
+      "eyebrow": "DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Full values make independence easy to reason about",
+        "Deltas can save space but depend on context",
+        "Commands remember actions and their reversal data"
+      ],
+      "narration": "For two integers, copying complete state is clear and cheap. A large document may need a different tradeoff. A delta stores only a change, but rebuilding a state can depend on earlier records remaining available. Shared immutable data can avoid repeated copies, provided later edits never mutate the data old snapshots share. A Command remembers an action and enough information to reverse its successful effect. These designs can also be combined: a command may ask an object for a snapshot before changing it. Choose based on measured state size, edit frequency, and the undo promise. Replacing a tiny value record with a complicated history graph can increase both bugs and explanation cost without a practical benefit.",
+      "actions": [
+        "Compare restoring one standalone pair with replaying several changes."
+      ],
+      "sourceRef": "manuscript/ch17.json → Bound memory growth without weakening the contract",
+      "question": {
+        "prompt": "What is the main new dependency introduced by storing only deltas?",
+        "answer": "Restoration may require a valid earlier state or chain of earlier records. Each delta is not necessarily an independent complete snapshot."
+      }
+    },
+    {
+      "title": "Do not call a memory snapshot a complete backup",
+      "eyebrow": "LIMITS AND DIAGNOSIS",
+      "kind": "concept",
+      "keyPoints": [
+        "Only state inside the boundary is restored",
+        "External effects are not reversed automatically",
+        "Persistent records need a format and version policy"
+      ],
+      "narration": "Restoring the selected interval does not unsend an exported chart. The saved record covers local endpoints only. It also disappears when the process ends because this program defines no persistent file format. A durable backup would need serialization, validated loading, and a policy for changes between software versions. These limits are not failures of Memento; they are limits of the promise actually implemented. When undo looks wrong, ask first whether the missing state was inside the snapshot boundary, whether it was copied or merely aliased, and whether the history still retained the desired record. Those questions distinguish a faulty implementation from an unsupported expectation.",
+      "actions": [
+        "Ask learners to name one external effect that endpoint restoration cannot reverse."
+      ],
+      "sourceRef": "manuscript/ch17.json → A snapshot is a value, not a rewind button for the world",
+      "question": {
+        "prompt": "Will a Selection snapshot restore the number of entries already removed from History?",
+        "answer": "No. History length is outside this snapshot’s state boundary."
+      }
+    },
+    {
+      "title": "Explain remembered state without exposing it",
+      "eyebrow": "RECALL AND TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "The originator knows the representation",
+        "The caretaker owns opaque history records",
+        "Restoration preserves the originator’s invariant"
+      ],
+      "narration": "Retell the design from the user's action. Before an edit, the state owner creates a valid saved record. A history manager stores that value without learning its fields. After the edit, the manager can ask the owner to restore the record. The owner alone knows how to make that transition while preserving its rules. That explanation captures Memento more accurately than saying undo copies some data. Transfer the lesson to a game checkpoint: decide whether score, position, random-generator state, and inventory belong in one boundary. Omitting a related part can produce a state that never existed. Including unrelated external actions can promise a reversal the program cannot deliver.",
+      "actions": [
+        "Give a checkpoint example and ask learners to defend its state boundary."
+      ],
+      "sourceRef": "manuscript/ch17.json → A snapshot is a value, not a rewind button for the world",
+      "question": {
+        "prompt": "What must be decided before writing a snapshot type for a larger object?",
+        "answer": "Which state must be restored together, who may create valid records, how restoration can fail, and how record lifetime and retention work."
+      }
+    }
+  ]
+}

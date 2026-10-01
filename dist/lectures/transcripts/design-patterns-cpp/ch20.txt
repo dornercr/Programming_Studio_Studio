@@ -1,0 +1,819 @@
+Design Patterns in C++
+Chapter 20: Strategy
+Dr. Charles Dorner
+
+1. One batch, more than one useful answer
+Problem and first design
+
+SAY
+A room monitor stores a batch of readings. The everyday display needs an average. A review display needs the highest reading. The data and input rules do not change when the operator changes the display. Each batch contains between one and one thousand readings, and every reading is between zero and one thousand. Neither calculation may edit the batch. The immediate problem is choosing an answer, not building a class family. Start by identifying the stable work: checking the batch and presenting a result. Then name the changing work: the calculation that produces that result. Strategy becomes useful when those calculations need to vary independently.
+
+DO
+Ask what should stay the same when the display switches.
+Separate input rules from calculation choices.
+
+SOURCE
+manuscript/ch20.json → One screen, two useful readings
+
+------------------------------------------------------------
+
+2. Give the number a precise meaning
+Problem and first design
+
+SAY
+Before writing the algorithm, agree on what the result means. This monitor uses integer values. Integer division drops the fractional part, which rounds down because every accepted value is nonnegative. The average of one and two is therefore one, not one point five. Zero is a valid reading, so returning zero for a missing batch would confuse missing data with real data. The batch limit also bounds the sum at one million on the documented platform with a sufficiently wide int. These meaning-level rules form part of the contract. An interface returning int cannot tell the compiler whether a result is a maximum, a rounded average, or a made-up answer.
+
+DO
+Predict average for {1, 2} and highest for {0}.
+Ask why an empty batch differs from a batch containing zero.
+
+SOURCE
+manuscript/ch20.json → A contract larger than a function signature
+
+------------------------------------------------------------
+
+3. Two choices can fit in an ordinary function
+Problem and first design
+
+SAY
+The baseline keeps validation and two calculations in one function. const std::vector<int>& means it borrows the caller's vector and cannot change elements through that reference. The ampersand avoids making a whole vector copy. A range-based for loop reads each sample; the colon means take each element from the container on its right. After validation, highest selects max_element, whose iterator points to the largest value. The star reads that value. Otherwise the function adds the samples and divides by their count. For two stable choices this is straightforward. Run it before redesigning, because a pattern should preserve known behavior while changing where responsibilities live.
+
+DO
+Predict the two lines before running.
+Identify which work is shared by both branches.
+
+SOURCE
+Lecture demonstration for manuscript/ch20.json → One screen, two useful readings
+
+------------------------------------------------------------
+
+4. The right number can still break the caller
+Problem and first design
+
+SAY
+A new request asks for the middle reading. Sorting is an easy way to find it, but sorting the original vector changes the order that another screen may need. The first function here returns the right middle value while breaking the no-mutation rule. We give it valid odd-sized data so this demonstration isolates that one fault. The corrected function sorts a copy and leaves its caller's order alone. Both print four as the middle, but the first input order changes. This is why a result-only test is weak. As choices gain distinct settings and data needs, separating calculations behind a shared contract helps keep their obligations visible.
+
+DO
+Predict both middle values and both post-call orders.
+Ask which assertion catches the bug when the numeric result is correct.
+
+SOURCE
+Lecture demonstration for manuscript/ch20.json → The specific limit: unrelated changes share one function
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+A monitor with average and highest rules. Monitor centralizes validation while Estimate isolates the changing calculation. Owning the selected rule avoids a caller-lifetime dependency and permits replacement after construction.
+
+Accept 1–1000 integer readings, each from 0 through 1000. Choose average or highest during execution; reject a missing strategy. Keep input unchanged and keep the previous strategy after a rejected replacement.
+
+Every constructed Monitor owns a non-null strategy. Every strategy call receives a nonempty bounded batch. read does not change input; a rejected select leaves the old rule installed. These are the rules that define a correct extension, even if it has the right C++ types. A switch plus two free functions is easier for a permanently small choice set. A callable is also sufficient for stateless rules. The object interface becomes useful as policies gain settings or are supplied through a common runtime API.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json
+
+------------------------------------------------------------
+
+6. One screen, two useful readings
+Requirements and mechanism
+
+SAY
+A room monitor receives a small batch of whole-number readings. Each reading is from 0 through 1000. A batch contains 1 through 1000 readings. The ordinary screen shows the average, rounded down. During a review, an operator wants the highest reading instead. Both views use the same batch. Neither view may edit the stored readings. The input limits keep arithmetic predictable and make a missing batch an error rather than a made-up zero.
+
+Start with a free function that adds each value and divides by the number of values. Add an ordinary if statement when the second view arrives. This is reasonable for two small, stable choices. The excerpt assumes the caller already checked the batch. The bool chooses which calculation to run. It does not explain why that choice belongs in this function.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → One screen, two useful readings
+
+------------------------------------------------------------
+
+7. The specific limit: unrelated changes share one function
+Requirements and mechanism
+
+SAY
+Now a third team wants the middle reading after sorting. A fourth wants a calibrated result with stored settings. Each addition changes the same selection function. A new branch can accidentally skip shared validation. Sorting the original batch to find the middle also changes data that another screen expected to keep in arrival order. These are concrete costs, not proof that every if statement is bad.
+
+We need a small interchangeable rule, called a strategy. The monitor keeps the stable work: check inputs, then ask its current rule for one answer. Each rule owns its calculation. The caller chooses the rule because the caller knows what the operator requested. This arrangement is the Strategy pattern. Its purpose is replaceable behavior. The number of classes is a consequence of that need, not the goal.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → The specific limit: unrelated changes share one function
+
+------------------------------------------------------------
+
+8. A contract larger than a function signature
+Requirements and mechanism
+
+SAY
+Estimate declares value. The const reference borrows a vector and forbids changing its elements through that reference. The final const describes the Estimate object used for the call: value promises not to change its ordinary members. These are two separate const promises. The function returns a new integer value, so its result does not borrow storage from the vector.
+
+The interface also has a written contract. Its caller supplies a nonempty validated batch, and the rule returns a whole-number estimate without changing that batch. Average and Highest rely on that precondition. Calling either concrete rule directly with an empty vector violates the contract: Average divides by zero; Highest would dereference an end iterator. The monitor is the intended public entry point for untrusted data. An interface does not cause the compiler to check these meaning-level rules.
+
+Average uses integer division. With 1, 2, and 9, the sum is 12 and the answer is 4. With 1 and 2, the answer is 1. This is deliberate downward rounding for nonnegative values. At the largest accepted batch, the sum is at most 1,000,000, which fits the required ordinary int implementations with at least 32 bits. If the environment had only a 16-bit int, this chapter's arithmetic requirements would need a wider type. Highest uses max_element, which returns an iterator pointing at the largest element; the leading star reads the pointed-to integer.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → A contract larger than a function signature
+
+------------------------------------------------------------
+
+9. What the compiler fixes and execution selects
+Requirements and mechanism
+
+SAY
+During compilation, the compiler checks the override signatures and that Estimate has the requested operation. A virtual call through rule_ selects the implementation belonging to the actual object during execution. Replacing Average with Highest changes the selected object, not the code of Monitor::read. A compiler may optimize a call whose target it can prove, but the program must keep the same observable behavior.
+
+A unique_ptr is the sole owning handle. Monitor receives that handle by value and moves it into rule_. std::move permits ownership transfer; it does not call the estimate or copy its readings. The arrow in rule_->value reaches the object owned by the handle and calls its method. On replacement, the previous strategy is destroyed. Monitor explicitly deletes copying; those user-declared copy operations also suppress its implicit move operations. The monitor itself therefore keeps a stable identity, while its strategy can be replaced. This avoids leaving a moved-from monitor with an empty rule. The virtual destructor makes destruction through the base type reach the complete derived object. Data is borrowed only for the duration of read; ownership of the strategy lasts until replacement or monitor destruction.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → What the compiler fixes and execution selects
+
+------------------------------------------------------------
+
+10. Failure boundaries and a smaller alternative
+Requirements and mechanism
+
+SAY
+select checks the proposed handle before assigning it. A null request throws, while the old strategy remains usable. read validates every reading before calling the strategy. These boundaries make failure local: a bad sample cannot partly sort or partly accumulate shared state inside the strategy. The current calculations themselves have no external effects. A future rule that writes a file would need a stronger contract about partial failure.
+
+For a single stateless operation, a function pointer, a lambda, or std::function can express Strategy with less class code. A template parameter is attractive when the rule is fixed at compilation and speed or inlining matters. The virtual interface earns its place when selection occurs during execution, rule objects hold settings, or several operations belong to one rule. Do not add a strategy for each constant. A named parameter can represent a threshold without creating a new type.
+
+In a long-lived monitor, replacement also raises a timing question: can one thread replace a rule while another calls read? This example is single-threaded and makes no such guarantee. A mutex, immutable shared snapshot, or an event-loop rule could define a safe policy. Merely using a smart pointer does not synchronize access to the member that holds it.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → Failure boundaries and a smaller alternative
+
+------------------------------------------------------------
+
+11. Keep the workflow; replace its calculation
+Mechanism in C++
+
+SAY
+The Strategy pattern gives the changing calculation its own object. Monitor is the context, the object that uses a selected rule. Estimate is the strategy interface, the common promise that each rule supplies value. Average and Highest are concrete strategies because they implement that promise with actual calculations. The caller chooses a strategy because it knows the operator's request. Monitor checks the input and delegates through Estimate instead of testing every algorithm name. Delegation means asking another object to do part of the work. The chapter's Middle extension can therefore add a calculation without editing the stable validation path in Monitor::read.
+
+DO
+Map each responsibility to one source class.
+Ask which file or class would change for a new calibrated estimate.
+
+SOURCE
+manuscript/ch20.json → The specific limit: unrelated changes share one function
+
+------------------------------------------------------------
+
+12. Two const promises protect different objects
+Mechanism in C++
+
+SAY
+Read the signature from the inside out. The parameter const std::vector<int>& borrows the vector without giving the function permission to alter it through that reference. The const after the closing parenthesis is a different promise: value does not change ordinary members of the strategy object through this call. A result of type int is a copied number, not a reference into the vector. These language checks support the design, but they do not prove that the algorithm returns a correct estimate. They also do not supply input validation automatically. Average and Highest assume that the intended caller, Monitor, has already checked size and sample range.
+
+DO
+Point separately to parameter const and trailing const.
+Ask learners which object each const describes.
+
+SOURCE
+manuscript/ch20.json → A contract larger than a function signature
+
+------------------------------------------------------------
+
+13. Selection changes an object, not the monitor code
+Mechanism in C++
+
+SAY
+Monitor owns its rule with unique_ptr<Estimate>. A new Average is created, and its owning handle is transferred into the monitor. Later, selecting Highest transfers another handle into the same member and destroys the old Average. std::move enables the transfer; it does not calculate an answer or move the batch. During compilation, override checks that each concrete value function matches the interface. During execution, rule_->value calls the implementation belonging to the actual installed object. Estimate's virtual destructor makes destruction through the base owning pointer reach the complete concrete object. The monitor stays in place while one part of its behavior changes.
+
+DO
+Trace the owner of Average before and after select.
+Ask what happens to Average when Highest replaces it.
+
+SOURCE
+manuscript/ch20.json → What the compiler fixes and execution selects
+
+------------------------------------------------------------
+
+14. Guard the boundary before handing off work
+Mechanism in C++
+
+SAY
+select first checks whether the proposed owner is empty. If it is, the function throws before touching the current rule. This ordering matters: rejecting a bad replacement should not destroy a working configuration. read likewise checks the size and every reading before asking the strategy to calculate. With these pure calculations, a failed validation cannot leave a half-completed external effect. But a future strategy that writes a file would need a stronger contract; the pattern does not supply rollback. Notice that error handling belongs to the stable workflow when every rule shares it. Duplicating validation in each strategy would invite inconsistent boundaries.
+
+DO
+Locate the null check before move assignment.
+Predict the reading after a rejected null replacement of Highest.
+
+SOURCE
+manuscript/ch20.json → Failure boundaries and a smaller alternative
+
+------------------------------------------------------------
+
+15. Arithmetic and mutation remain strategy obligations
+Mechanism in C++
+
+SAY
+A strategy is interchangeable only if it keeps the whole contract, not merely the function name. Average relies on bounded input so its sum fits the selected integer type. Highest relies on a nonempty range before reading max_element's result. Middle copies the batch, sorts the copy, and uses the center value for odd sizes. For even sizes it averages the two central values using integer arithmetic. With the chapter's limits, adding those two values is bounded by two thousand. The original input order remains unchanged. These are testable obligations that differ inside each implementation while fitting the same public meaning of a valid whole-number estimate.
+
+DO
+Trace Middle on {9, 1, 2, 4}; identify the two center values.
+Ask which assertions apply to all strategies and which are strategy-specific.
+
+SOURCE
+manuscript/ch20.json → A contract larger than a function signature
+
+------------------------------------------------------------
+
+16. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Context → Monitor. Keep the selected algorithm and delegate the varying part of its work.
+
+Strategy interface → Estimate::value. State the input and result contract that every selectable algorithm follows.
+
+Concrete Strategies → Average and Highest. Implement different valid algorithms behind the same calling interface.
+
+Client → main. Understand the desired policy and choose which strategy the context should use.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → C20.07 concepts
+
+------------------------------------------------------------
+
+17. Strategy: a context owns its selected algorithm
+UML and source walkthrough
+
+SAY
+The ownership arrow runs from Monitor to its owned Estimate object. Inheritance arrows run from each concrete rule toward Estimate. They do not show execution order. Teaching comments describe responsibilities; they are not extra program members. At execution, Monitor validates the batch and calls the one installed object.
+
+Monitor centralizes validation while Estimate isolates the changing calculation. Owning the selected rule avoids a caller-lifetime dependency and permits replacement after construction.
+
+A new rule can be reviewed and tested independently of monitor validation. Keep the written preconditions next to the interface so future implementers do not silently add incompatible meanings.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch20/main.cpp:1-82; content/design-patterns-cpp/ch20.json → diagrams.20
+
+------------------------------------------------------------
+
+18. Strategy — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Monitor centralizes validation while Estimate isolates the changing calculation. Owning the selected rule avoids a caller-lifetime dependency and permits replacement after construction.
+
+A new rule can be reviewed and tested independently of monitor validation. Keep the written preconditions next to the interface so future implementers do not silently add incompatible meanings.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch20/main.cpp:1-82; content/design-patterns-cpp/ch20.json → diagrams.20
+
+------------------------------------------------------------
+
+19. Replace a rule without losing the old one
+UML and source walkthrough
+
+SAY
+This operation accepts ownership of a proposed strategy. The public Monitor entry point for changing behavior. Validation must precede the change so failure leaves a usable monitor.
+
+Declare the replacement operation; it has no returned value. Receive the proposed owning handle by value and open the body. The comment names the failure guarantee. Test whether the incoming handle is empty. Begin constructing an invalid-argument exception. Supply rule as the message and throw if no rule was supplied. Move the valid handle into the member; destroy the previous rule.
+
+rule_ always owns an object after successful construction. Moving first and testing later can erase a working rule.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch20/main.cpp:39-45
+
+------------------------------------------------------------
+
+20. Check data before calling the chosen calculation
+UML and source walkthrough
+
+SAY
+The shared input gate runs before the variable behavior. The latter half of Monitor::read, after the batch-size check. Both calculations can rely on one common input contract.
+
+Visit each integer in the vector; the colon means “from this range.” Test both ends of the allowed numeric interval. Begin constructing an invalid-argument exception. Use sample as the error description and throw it. Close the range loop after checking all elements. The comment identifies the boundary between checking and calculating. Call the installed strategy through its owning handle and return its integer.
+
+No value outside 0–1000 reaches the strategy through read. Skipping the size check before this block would still allow an empty batch.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch20/main.cpp:50-56
+
+------------------------------------------------------------
+
+21. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Monitor centralizes validation while Estimate isolates the changing calculation. Owning the selected rule avoids a caller-lifetime dependency and permits replacement after construction.
+
+main checks both calculations, singleton batches at 0 and 1000, empty input, a negative sample, and null replacement while retaining Highest. These checks are meaningful examples, not exhaustive proof over all bounded batches or concurrent access.
+
+A new rule can be reviewed and tested independently of monitor validation. Keep the written preconditions next to the interface so future implementers do not silently add incompatible meanings. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch20/main.cpp
+
+------------------------------------------------------------
+
+22. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. data={1,2,9}; rule=Average. Construction transfers the Average owner into the monitor.
+
+Step 2. sum=12; size=3; result=4. read validates first; Average divides after adding.
+
+Step 3. rule=Highest; result=9. select replaces the rule, then the same read method delegates again.
+
+Step 4. select(nullptr) throws; rule remains Highest. The null check runs before member assignment.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → trace
+
+------------------------------------------------------------
+
+23. Debug the promise: Assign a null handle before checking it.
+Execute and debug
+
+SAY
+Assign a null handle before checking it. The next read attempts to call through a null pointer, producing undefined behavior. The object no longer meets its non-null invariant.
+
+main checks both calculations, singleton batches at 0 and 1000, empty input, a negative sample, and null replacement while retaining Highest. These checks are meaningful examples, not exhaustive proof over all bounded batches or concurrent access.
+
+A new rule can be reviewed and tested independently of monitor validation. Keep the written preconditions next to the interface so future implementers do not silently add incompatible meanings.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → example.failures
+
+------------------------------------------------------------
+
+24. Debug the promise: Implement average as sum += sample / data.size().
+Execute and debug
+
+SAY
+Implement average as sum += sample / data.size(). For {1,2,9}, the result becomes 0 + 0 + 3 = 3 instead of 4. Integer division discards each remainder before the additions can combine it.
+
+main checks both calculations, singleton batches at 0 and 1000, empty input, a negative sample, and null replacement while retaining Highest. These checks are meaningful examples, not exhaustive proof over all bounded batches or concurrent access.
+
+A new rule can be reviewed and tested independently of monitor validation. Keep the written preconditions next to the interface so future implementers do not silently add incompatible meanings.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → example.failures
+
+------------------------------------------------------------
+
+25. Trace 1: Strategy: Average truncation
+Trace experiments
+
+SAY
+Strategy: Average truncation. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Integer average truncates five divided by two to two.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → dpx-c20-trace-1; companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+26. Trace 2: Strategy: Highest reading
+Trace experiments
+
+SAY
+Strategy: Highest reading. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The selected strategy is maximum, not minimum or mean.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → dpx-c20-trace-2; companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 3: Strategy: Runtime replacement
+Trace experiments
+
+SAY
+Strategy: Runtime replacement. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Replacing the owned strategy changes the next calculation.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → dpx-c20-trace-3; companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 4: Strategy: Null replacement preserves rule
+Trace experiments
+
+SAY
+Strategy: Null replacement preserves rule. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Validate a proposed strategy before replacing the old owner.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → dpx-c20-trace-4; companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 5: Strategy: Odd median
+Trace experiments
+
+SAY
+Strategy: Odd median. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A sorted copy is two, four, eight; the central value is four.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → dpx-c20-trace-5; companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 6: Strategy: Even median
+Trace experiments
+
+SAY
+Strategy: Even median. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The two central values are four and six, whose mean is five.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → dpx-c20-trace-6; companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 7: Strategy: Input preserved
+Trace experiments
+
+SAY
+Strategy: Input preserved. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Middle sorts a copy, leaving caller order untouched.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → dpx-c20-trace-7; companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 8: Strategy: Empty input rejected
+Trace experiments
+
+SAY
+Strategy: Empty input rejected. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Monitor validates the shared precondition before invoking any strategy.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → dpx-c20-trace-8; companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+33. Exercise 20.1: Guided modification
+Practice and extension
+
+SAY
+Change main so Average reads {2,3,8}. State the expected result without changing the rounding rule.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Add all values before integer division.
+
+After the discussion, compare the reasoning. The sum is 13, and 13 / 3 is 4. Keep the existing tests and add this case; replacing the arithmetic with floating-point division would change the stated integer contract.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch20.json → exercises.20.1
+
+------------------------------------------------------------
+
+34. Exercise 20.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+After constructing Monitor with Average, execute read({2,8}), select(make_unique<Highest>()), read({2,8}), select(make_unique<Average>()), read({1,2}). List the three returned values. Assume std:: qualifiers as in main.cpp.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Only select changes the installed object.
+
+After the discussion, compare the reasoning. The results are 5, 8, and 1. Each read borrows its temporary vector for the duration of the call. The last average truncates 3 / 2. Old strategy objects are destroyed as their owners are replaced.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch20.json → exercises.20.2
+
+------------------------------------------------------------
+
+35. Exercise 20.3: Diagnose a bug
+Practice and extension
+
+SAY
+A proposed Average computes sum += sample / static_cast<int>(data.size()) inside the loop. For {2,2,2}, identify its actual answer and repair it.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Trace each integer division separately.
+
+After the discussion, compare the reasoning. It returns 0 because each 2 / 3 is 0. Add the three integers first, then divide 6 by 3 to return 2. The repair also keeps the bounded-sum argument simple.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch20.json → exercises.20.3
+
+------------------------------------------------------------
+
+36. Exercise 20.4: Choose a design
+Practice and extension
+
+SAY
+A command-line tool has one fixed average calculation and exits after one batch. A live application accepts independently configured calculation objects. Choose a free function, template, or virtual Strategy for each and explain the deciding fact.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Ask when the rule must be selected and whether it has identity or settings.
+
+After the discussion, compare the reasoning. Use a free function for the one fixed calculation. The live application can justify virtual Strategy because it receives objects during execution. A template is reasonable if the live application actually fixes each rule at compilation and never swaps it; selection time, not application size, decides.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch20.json → exercises.20.4
+
+------------------------------------------------------------
+
+37. Exercise 20.5: Extend without regressions
+Practice and extension
+
+SAY
+Implement the companion Middle strategy. Keep Monitor unchanged, preserve input order, return the sorted middle item for odd sizes, and the downward-rounded average of the two middle items for even sizes.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Sort a local vector copy; the valid range makes two-item addition safe.
+
+After the discussion, compare the reasoning. The solution copies data, sorts the copy, uses size()/2, and branches on size()%2. {9,1,2} returns 2; {9,1,2,4} returns 3. Tests retain Average, Highest, rejection, and boundary behavior.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch20.json → exercises.20.5
+
+------------------------------------------------------------
+
+38. Exercise 20.6: Justify a decision
+Practice and extension
+
+SAY
+A reviewer proposes borrowing Estimate& inside Monitor to avoid heap allocation. Give a reasoned approval condition and a reasoned rejection condition.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Ownership is about who must keep an object alive.
+
+After the discussion, compare the reasoning. Approve when the caller clearly outlives every monitor use and replacement can be represented safely, for example by a reference_wrapper. Reject a reference to a local strategy returned from a setup function: it would dangle. A good explanation states the lifetime contract and the allocation tradeoff; simply saying references are faster is insufficient.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch20.json → exercises.20.6
+
+------------------------------------------------------------
+
+39. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add Middle as an Estimate implementation. Select it after the existing checks. Do not change Monitor or the original batch. Preserve every starter check and append the new deterministic output line shown by the solution.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: Odd unsorted {9,1,2} returns 2. Even unsorted {9,1,2,4} returns 3. Singleton {0} and repeated {1000,1000} preserve boundaries. The original {1,2,9} remains unchanged.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch20/main.cpp
+
+------------------------------------------------------------
+
+40. Extension solution and design review
+Practice and extension
+
+SAY
+Middle sorts a value copy, so its work cannot reorder the caller’s vector. It checks parity before indexing the lower middle element. A selection algorithm can reduce sorting work for large inputs, but the copied-and-sorted version is clearer at this chapter’s scale and satisfies the same contract.
+
+A new rule can be reviewed and tested independently of monitor validation. Keep the written preconditions next to the interface so future implementers do not silently add incompatible meanings.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch20/main.cpp
+
+------------------------------------------------------------
+
+41. Application case 1: defend your choice
+Practice and extension
+
+SAY
+A monitor validates readings and then delegates to a replaceable average or highest estimator. What pattern fits?
+
+Strategy. The context centralizes shared checks while a selected algorithm supplies the calculation.
+
+State. The choice describes a calculation policy, not a lifecycle mode.
+
+Singleton. The request explicitly allows replacement rather than one global rule.
+
+Composite. No tree of leaf and group estimators is required.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → C20.21 scenario
+
+------------------------------------------------------------
+
+42. Application case 2: defend your choice
+Practice and extension
+
+SAY
+For {1,2,9}, average adds sample / size for each integer sample. What result does that incorrect algorithm produce?
+
+Undefined behavior merely because division is present. The nonempty three-element input makes these divisions defined.
+
+4 in all cases. Reordering integer arithmetic changes truncation.
+
+12. That is the sum before division, not this loop’s result.
+
+3 instead of 4. Each division truncates first: 0 + 0 + 3. Sum before dividing to get 12 / 3.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch20.json → C20.22 scenario
+
+------------------------------------------------------------
+
+43. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Use Strategy when a stable task needs replaceable behavior. The caller selects the policy; the context enforces shared preconditions. Value, borrowed reference, and owning handle have different lifetime rules. Dynamic dispatch chooses behavior during execution; it does not validate meaning. A function or callable is often the right smaller design.
+
+A new rule can be reviewed and tested independently of monitor validation. Keep the written preconditions next to the interface so future implementers do not silently add incompatible meanings.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch20.json → summary
+
+------------------------------------------------------------
+
+44. Choose the smallest useful strategy form
+Recall and transfer
+
+SAY
+Replaceable behavior does not always require a virtual base class. A function pointer or callable can represent one small stateless calculation with less code. A template parameter can fix the rule during compilation and allow direct optimization. An owned interface becomes useful when callers select during execution, when a rule holds settings, or when several related operations belong to the rule. The chapter uses runtime replacement to make these responsibilities visible. It does not prove that an interface is fastest or shortest. When reviewing a real monitor, ask how often choices change, who owns their settings, and whether the extra indirection buys a clearer maintenance boundary.
+
+DO
+Compare a fixed embedded average with an operator-selectable desktop display.
+Require a stated change requirement before selecting a mechanism.
+
+SOURCE
+manuscript/ch20.json → Failure boundaries and a smaller alternative
+
+------------------------------------------------------------
+
+45. A smart pointer does not synchronize a monitor
+Recall and transfer
+
+SAY
+The chapter's monitor is single-threaded. Suppose one thread reads while another replaces the strategy. Both touch the same owning member, and the old strategy may be destroyed while another call expects to use it. A smart pointer handles object ownership; it does not make unsynchronized access to that member safe. We should not run a racing demonstration, because its behavior is undefined. Diagnose the shared access first, then choose a policy such as one event-loop thread, a mutex, or an immutable shared snapshot with a defined handoff. Also remember that the concrete rule may have its own state. Thread safety must cover the whole interaction, not only the pointer type.
+
+DO
+Ask learners to distinguish sole ownership from safe concurrent access.
+Have them propose a policy without changing the chapter’s single-threaded claim.
+
+SOURCE
+manuscript/ch20.json → Failure boundaries and a smaller alternative
+
+------------------------------------------------------------
+
+46. Explain Strategy as a maintenance boundary
+Recall and transfer
+
+SAY
+To explain Strategy without reciting a class diagram, begin with the changing request: one monitor needs several ways to summarize the same validated readings. Keep shared rules in Monitor. Put each calculation behind Estimate. Let the caller select the rule, and state clearly who owns it. Then verify more than one sample output. Include empty and out-of-range batches, a rejected null selection, odd and even Middle inputs, and unchanged input order. For a new calibration rule, decide whether its settings are construction data or mutable state and whether its result still satisfies the shared contract. A new class earns its place only when it preserves that boundary while making change easier.
+
+DO
+Ask for a one-minute explanation using no pattern vocabulary until the final sentence.
+Have learners propose one contract test for a future calibrated strategy.
+
+SOURCE
+manuscript/ch20.json → The specific limit: unrelated changes share one function

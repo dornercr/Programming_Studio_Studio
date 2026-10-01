@@ -1,0 +1,703 @@
+Systems Programming and Machine Organization
+Chapter 19: Kernel Fundamentals
+Dr. Charles Dorner
+
+1. Authority and execution mode are different facts
+Problem and first experiment
+
+SAY
+An administrator can be allowed to perform powerful operations, but an ordinary application launched by that administrator still runs its instructions in user mode. Its credentials affect what the kernel may authorize; they do not convert every arithmetic instruction into kernel execution. This distinction separates software policy from hardware privilege. The processor prevents user code from directly performing protected machine operations, and a controlled service interface lets the kernel consider a request. Entering that interface is only the beginning of validation. The request can still be rejected because of its arguments, resource rights, or limits.
+
+DO
+Ask learners to distinguish identity, authorization, and processor mode.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.006
+
+------------------------------------------------------------
+
+2. Start with a policy decision you can explain
+Problem and first experiment
+
+SAY
+Our small policy model asks one question: does the caller identity match the object's owner? The object belongs to seventeen, so the first query with seventeen prints true and the second with twenty-three prints false. Passing the object by const reference lets the function inspect the existing record without copying or modifying it. This is deliberately not a real kernel or a complete authorization system. It has no identity authentication or protected storage. The demonstration isolates the logical decision that a trusted boundary might make, while the lecture separately explains why real enforcement must stop an untrusted caller from simply rewriting the owner record.
+
+DO
+Predict the two decisions, then name the missing enforcement mechanism.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch19.json → SP19.010
+
+------------------------------------------------------------
+
+3. A real descriptor can allow reading while rejecting writing
+Problem and first experiment
+
+SAY
+This Linux/POSIX example makes actual operating-system requests. Opening /dev/null read-only returns a descriptor with a read access mode. Reading one byte returns zero because this device supplies immediate end-of-file. Trying to write through that same read-only descriptor fails, and the saved error code is EBADF. The output therefore prints read-eof true and write-denied true. No outside network or user file is modified. The program captures errno immediately after the failed call and closes its descriptor before reporting results. The important distinction is that possessing a valid descriptor does not authorize every possible operation on the referenced object.
+
+DO
+Predict the read result separately from the write result.
+Locate the immediate errno capture.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch19.json → SP19.018
+
+------------------------------------------------------------
+
+4. Kernel entry is a request, not automatic permission
+Problem and first experiment
+
+SAY
+Imagine a process asks to copy twelve bytes into an eight-byte region. The fact that control has entered the kernel does not make twelve acceptable. Trusted code must still validate the relevant object, requested operation, accessible buffer range, and policy limits. The source workshop's range model focuses on this local arithmetic duty; our descriptor example adds a separate operation-rights duty. Neither check replaces the other. Real systems combine several layers because a request can be authorized for a resource but malformed in its size, or well-formed in size but unauthorized for that resource. Keep each failure cause explicit in the interface.
+
+DO
+Classify unauthorized, out-of-range, and unavailable as separate failure causes.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.004
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A kernel-like function must reject a request for more than 8 bytes. The caller cannot bypass the length check in this model.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Model a protected service that accepts a length only when a numeric offset and extent fit inside a 16-byte allowed region. Reject both oversized lengths and invalid starting offsets.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Checking only in user code is insufficient when a privileged service receives requests from untrusted callers.
+
+A related failure in the generalized operation is concrete: Check offset+length <= extent without checking overflow. A very large length can wrap the sum.
+
+The repair changes the operation at the point where the rule can be enforced: Check offset <= extent, then compare length with extent-offset. State what an empty range at the end means.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The trusted boundary checks the whole requested range, not only its length. The offset check comes first so extent-offset cannot underflow. This numeric model still cannot verify a real caller pointer or prevent a concurrent change to a mapping; an actual kernel copy operation must use the OS’s access rules and failure handling.
+
+A plausible alternative: An ordinary function boundary is enough for cooperating code inside one trust domain. Privilege separation solves a stronger problem.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.03
+
+------------------------------------------------------------
+
+8. Chapter 19 — Kernel Fundamentals
+Systems mechanisms and source lecture
+
+SAY
+A running application can calculate addresses, perform arithmetic, and call functions, but it does not have unrestricted authority over the machine. The kernel establishes the environment in which those actions occur. It manages resources shared by mutually untrusting programs and provides controlled ways to request services that a program cannot perform directly. The important boundary is not between “ordinary code” and “special code.” It is between execution contexts with different permissions. Kernel code is software, but hardware mechanisms give that software the authority to configure mappings, handle devices, and control execution. This chapter describes the Linux/x86-64 model; other architectures and kernels divide these responsibilities differently. [ R3 , R10 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.001, SP19.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+19.1 Kernel 19.2 User mode 19.3 Kernel mode 19.4 Privilege levels ...plus 7 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.003
+
+------------------------------------------------------------
+
+10. Kernel
+Systems mechanisms and source lecture
+
+SAY
+The kernel is the privileged core of an operating system. Its responsibilities include scheduling runnable work, maintaining virtual memory, mediating file and device access, and implementing interprocess communication. It also maintains bookkeeping: which descriptors a process owns, which pages may be written, and which operations the process’s credentials permit. Not every operating-system service must execute inside the kernel. A command interpreter, a graphical desktop, and many service managers are user-space programs. The design boundary varies among monolithic kernels, microkernels, and other arrangements. Regardless of architecture, a request must be validated at the point where it crosses a trust boundary. Moving an operation into a service does not eliminate the need for access control.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.004, SP19.005
+
+------------------------------------------------------------
+
+11. User mode
+Systems mechanisms and source lecture
+
+SAY
+User mode is an execution mode with restricted authority. In the usual x86-64 Linux arrangement, application instructions execute at current privilege level 3. An application may access its permitted memory and execute ordinary arithmetic, branch, and data-movement instructions. It cannot simply rewrite the active page-table root or disable hardware interrupts. User mode is not synonymous with “untrusted person” or “unimportant program.” A privileged administrator’s ordinary application still runs in user mode. Its credentials may cause the kernel to approve more requests, but those credentials do not turn every application instruction into a ring-0 instruction. Distinguish software authorization from hardware execution privilege .
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.006, SP19.007
+
+------------------------------------------------------------
+
+12. Kernel mode
+Systems mechanisms and source lecture
+
+SAY
+Kernel mode allows execution of operations needed to control protected machine state. On the reference platform, the kernel normally executes at privilege level 0. Entry into this mode occurs through configured mechanisms rather than by an application choosing an arbitrary destination and declaring itself privileged. Kernel mode does not make software infallible. Invalid pointers, synchronization bugs, and incorrect bounds checks remain possible. Their consequences can be more severe because the kernel has broader authority. Nor does kernel mode imply that every virtual address is mapped or that every memory access succeeds. The currently installed mappings and protection features still matter.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.008, SP19.009
+
+------------------------------------------------------------
+
+13. Privilege levels
+Systems mechanisms and source lecture
+
+SAY
+A privilege level is a hardware-defined part of execution state. x86 provides four numbered rings, although ordinary Linux application/kernel separation primarily uses rings 3 and 0. Virtualization adds another dimension of control; “hypervisor” is not adequately explained by pretending that x86 simply has a normal ring numbered minus one. Privilege checks apply to particular operations and accesses. Accessing a supervisor-only page and executing a privileged instruction are different checks, although both can prevent user code from performing unauthorized work. Software credentials form an additional policy layer. A successful mode transition therefore does not automatically authorize the requested operation: the kernel still checks arguments, ownership, capabilities, and resource limits.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.010, SP19.011
+
+------------------------------------------------------------
+
+14. Protected resources
+Systems mechanisms and source lecture
+
+SAY
+Protected resources include physical memory mappings, device registers, scheduling state, privileged processor controls, and objects governed by operating-system policy. A disk block may contain another user’s data. A device command may affect the entire machine. A page-table edit may expose memory that was intended to remain isolated. Applications receive controlled references rather than raw authority whenever possible. A file descriptor identifies an entry in a process’s descriptor table; it is not a physical disk address. The kernel interprets the descriptor in the caller’s context and applies the object’s rules. This indirection makes it possible to share resources selectively while preserving a central place to enforce policy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.012, SP19.013
+
+------------------------------------------------------------
+
+15. Dangerous instructions
+Systems mechanisms and source lecture
+
+SAY
+Some instructions alter machine-wide or privileged execution state. Examples include operations involving control registers or interrupt-enable state. Hardware restricts these instructions so that an ordinary process cannot take over the machine by executing a short instruction sequence. An attempted prohibited operation raises an architectural exception rather than granting the requested authority. [ R3 ] Other instructions are not privileged but can still be dangerous when used incorrectly. An ordinary store can corrupt a program’s own heap. Integer division can fault for an invalid divisor. “Unprivileged” means permitted at the current hardware privilege level, not harmless. Labs in this book inspect and model privileged behavior; they do not require running privileged instructions or changing kernel settings.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.014, SP19.015
+
+------------------------------------------------------------
+
+16. Hardware protection
+Systems mechanisms and source lecture
+
+SAY
+Hardware protection supplies mechanisms such as permission checks on translations and controlled entry points for exceptions and system calls. The kernel configures these mechanisms, and the processor enforces them during execution. Software policy and hardware enforcement are complementary: a policy without enforcement can be bypassed, while a mechanism without correct policy can faithfully enforce the wrong permissions. Protection operates at particular granularities. A writable page normally permits stores throughout the mapped writable region; it does not know that a C++ vector currently contains only five elements. Consequently, process isolation does not provide complete object-level memory safety. Bounds, lifetime, and concurrency correctness remain responsibilities of the language implementation and program design.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.016, SP19.017
+
+------------------------------------------------------------
+
+17. Following a protected request
+Systems mechanisms and source lecture
+
+SAY
+Suppose a process wants to read bytes from an already-open file. The following trace separates computation, transfer, authorization, and completion: Notice what this model does not promise. A successful descriptor lookup does not mean all requested bytes are available. A successful read need not touch a physical disk because data may already be cached. A kernel entry does not necessarily switch to a different process. These are separate events with separate causes. The interfaces in Part VIII make the result-handling obligations concrete. [ R11 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.018, SP19.019
+
+------------------------------------------------------------
+
+18. Why user code cannot program a device directly
+Systems mechanisms and source lecture
+
+SAY
+A user process may want to reconfigure a device register, but unrestricted access could corrupt other processes or the system. Hardware privilege checks prevent ordinary user-mode instructions from accessing protected control state. The program requests the operation through an OS interface, and trusted kernel code performs or rejects it according to policy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.020, SP19.021
+
+------------------------------------------------------------
+
+19. Protecting kernel memory
+Systems mechanisms and source lecture
+
+SAY
+Page-table permissions mark kernel mappings inaccessible to ordinary user-mode accesses. A user pointer that numerically resembles a kernel address does not grant permission to read it. If the CPU checks the access in user mode and protection forbids it, control transfers to the kernel’s fault path rather than completing the load.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.022, SP19.023
+
+------------------------------------------------------------
+
+20. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 19. Classify these operations as ordinary user computation, a request requiring kernel mediation, or an operation whose implementation depends on the library and state: adding two integers; opening a file; formatting text in a user buffer; allocating a small block from an existing allocator arena; changing a mapping’s permissions. Explain why a library function call is not automatically a system call. Review 1. Why does an administrator’s process still need system calls? Review 2. Why can a buffer overflow occur without violating any page permission?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.024, SP19.025
+
+------------------------------------------------------------
+
+21. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is kernel fundamentals. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.026
+
+------------------------------------------------------------
+
+22. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Protected Control Transfer.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.027
+
+------------------------------------------------------------
+
+23. A descriptor is a controlled reference, not a disk address
+Reason about the implementation
+
+SAY
+The integer returned by open is not the byte address of a disk block or a direct pointer to kernel memory. It selects an entry in the calling process's descriptor table. The kernel uses that entry to find an object and the associated access state. This layer of indirection makes it possible to grant limited access to a file or pipe without exposing arbitrary device commands. It also explains why printing a descriptor number tells little about the object's location. In the demonstration, the access mode stays meaningful even though the descriptor is a small ordinary integer in user memory.
+
+DO
+Draw process descriptor entry, kernel object, and permitted operations as separate concepts.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.012
+
+------------------------------------------------------------
+
+24. Page protection does not know your vector length
+Reason about the implementation
+
+SAY
+A writable memory page may contain several arrays, bookkeeping fields, and unused storage. Hardware can allow a store anywhere in that page while C++ still forbids a write beyond one array's end. That is why a buffer overflow can corrupt a neighboring object without immediately causing a protection fault. Process isolation protects one boundary, while object-level memory safety protects another. Do not infer that a successful load proves a pointer is valid under the source language. Our earlier chapters' range and lifetime checks remain essential even in a system with strong user/kernel separation and carefully configured page permissions.
+
+DO
+Compare an eight-byte array boundary with a much larger writable page boundary.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.016
+
+------------------------------------------------------------
+
+25. Privileged does not mean error-proof
+Reason about the implementation
+
+SAY
+Kernel mode grants access to protected operations needed to manage the machine, but it does not make an incorrect pointer correct. Trusted code can still miscalculate a range, use a dead object, or race with another execution path. Such defects can have broader consequences because the code controls shared resources. Nor does kernel mode mean every numeric virtual address is mapped and readable. Address translation and protection configuration still matter. The right lesson is not to distrust every operation indiscriminately, but to keep strong contracts at the places where authority and data meet. More authority makes precise validation more valuable, not less.
+
+DO
+Ask how a bad user pointer differs from a trusted object pointer.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.008
+
+------------------------------------------------------------
+
+26. A library call is not automatically a system call
+Reason about the implementation
+
+SAY
+Calling a C or C++ function changes control flow within the process, but does not by itself imply a kernel transition. Formatting text into a supplied buffer can remain in user space. Allocating a small object may use an existing allocator region without a new mapping request. Opening a file normally needs operating-system mediation. Even one high-level output operation may buffer data and make a system request later. When measuring or debugging, distinguish the source-level function boundary from actual kernel entries. This avoids attributing every library overhead or state change to the operating system and helps identify what evidence a trace tool should collect.
+
+DO
+Classify addition, formatting, file opening, and allocator reuse separately.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.024
+
+------------------------------------------------------------
+
+27. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A kernel-like function must reject a request for more than 8 bytes. The caller cannot bypass the length check in this model.
+
+Request 4. accepted. The request meets the length contract.
+
+Request 12. rejected. The trusted side enforces its boundary instead of assuming its caller behaved.
+
+Separate model from protection. This is an ordinary function in one process. Real user/kernel isolation depends on hardware privilege and OS-controlled entry paths; a C++ access specifier is not that isolation.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch19/main.cpp
+
+------------------------------------------------------------
+
+28. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Request 4. accepted. The request meets the length contract.
+
+Request 12. rejected. The trusted side enforces its boundary instead of assuming its caller behaved.
+
+Separate model from protection. This is an ordinary function in one process. Real user/kernel isolation depends on hardware privilege and OS-controlled entry paths; a C++ access specifier is not that isolation.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch19/main.cpp
+
+------------------------------------------------------------
+
+29. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The trusted boundary checks the whole requested range, not only its length. The offset check comes first so extent-offset cannot underflow. This numeric model still cannot verify a real caller pointer or prevent a concurrent change to a mapping; an actual kernel copy operation must use the OS’s access rules and failure handling.
+
+Check offset <= extent, then compare length with extent-offset. State what an empty range at the end means.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch19/main.cpp:1-10
+
+------------------------------------------------------------
+
+30. Model a protected request boundary
+Code, diagrams, and debugging
+
+SAY
+Model a protected request boundary. This lambda accepts a requested length using size_t, the unsigned type for object sizes. It is only a model of a protection boundary.
+
+A kernel-like function must reject a request for more than 8 bytes. The caller cannot bypass the length check in this model.
+
+The request meets the length contract. The trusted side enforces its boundary instead of assuming its caller behaved. Real user/kernel isolation depends on hardware privilege and OS-controlled entry paths; a C++ access specifier is not that isolation.
+
+This lambda accepts a requested length using size_t, the unsigned type for object sizes. It is only a model of a protection boundary.
+
+The ?: conditional expression selects accepted when length is at most eight and rejected otherwise. Real kernel validation also depends on address range, access rights, and lifetime.
+
+The lambda definition ends. Defining a function does not execute its body; the later two calls exercise different requests.
+
+The modeled service rejects requests above its bound. A caller-supplied length is not itself proof of a valid buffer.
+
+Checking only in user code is insufficient when a privileged service receives requests from untrusted callers. In the extended lab: Check offset+length <= extent without checking overflow. A very large length can wrap the sum.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch19/main.cpp:6-8
+
+------------------------------------------------------------
+
+31. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Check offset+length <= extent without checking overflow. A very large length can wrap the sum.
+
+Check offset <= extent, then compare length with extent-offset. State what an empty range at the end means.
+
+The reference solution makes the contract executable with assertions. The trusted boundary checks the whole requested range, not only its length. The offset check comes first so extent-offset cannot underflow. This numeric model still cannot verify a real caller pointer or prevent a concurrent change to a mapping; an actual kernel copy operation must use the OS’s access rules and failure handling.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.06
+
+------------------------------------------------------------
+
+32. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch19/starter.cpp. Implement the first acceptance case for validate a privileged-style range request. State the function inputs and result before adding code. First case: Offset 4,length 8 is allowed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.07
+
+------------------------------------------------------------
+
+33. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch19/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.08
+
+------------------------------------------------------------
+
+34. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Check offset+length <= extent without checking overflow. A very large length can wrap the sum. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.09
+
+------------------------------------------------------------
+
+35. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+What is missing before this could safely copy real user memory? Compare the selected design with this plausible alternative: An ordinary function boundary is enough for cooperating code inside one trust domain. Privilege separation solves a stronger problem.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.10
+
+------------------------------------------------------------
+
+36. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch19/starter.cpp. Model a protected service that accepts a length only when a numeric offset and extent fit inside a 16-byte allowed region. Reject both oversized lengths and invalid starting offsets. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch19/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.11
+
+------------------------------------------------------------
+
+37. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Validate a privileged-style range request belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.12
+
+------------------------------------------------------------
+
+38. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Model a protected service that accepts a length only when a numeric offset and extent fit inside a 16-byte allowed region. Reject both oversized lengths and invalid starting offsets.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch19/starter.cpp
+
+------------------------------------------------------------
+
+39. Review the extension solution
+Practice and extension
+
+SAY
+The trusted boundary checks the whole requested range, not only its length. The offset check comes first so extent-offset cannot underflow. This numeric model still cannot verify a real caller pointer or prevent a concurrent change to a mapping; an actual kernel copy operation must use the OS’s access rules and failure handling. Repair principle: Check offset <= extent, then compare length with extent-offset. State what an empty range at the end means.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Check offset <= extent, then compare length with extent-offset. State what an empty range at the end means.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch19/solution.cpp
+
+------------------------------------------------------------
+
+40. Application case: Kernel Fundamentals
+Practice and extension
+
+SAY
+An ordinary user program needs a privileged OS service.
+
+What is the normal boundary?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.CASE
+
+------------------------------------------------------------
+
+41. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The trusted boundary checks the whole requested range, not only its length. The offset check comes first so extent-offset cannot underflow. This numeric model still cannot verify a real caller pointer or prevent a concurrent change to a mapping; an actual kernel copy operation must use the OS’s access rules and failure handling.
+
+Choose a simpler approach when its narrower contract is enough. An ordinary function boundary is enough for cooperating code inside one trust domain. Privilege separation solves a stronger problem.
+
+When this system changes, retain a check that exposes the known failure: Check offset+length <= extent without checking overflow. A very large length can wrap the sum. Check offset <= extent, then compare length with extent-offset. State what an empty range at the end means.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch19.json → SYS19.14
+
+------------------------------------------------------------
+
+42. Unprivileged instructions can still harm their own program
+Recall and transfer
+
+SAY
+An unprivileged instruction is allowed at the current execution level; it is not a guarantee of harmless behavior. A normal store can overwrite the wrong object inside the process, and an invalid integer division can trigger an architectural exception. Conversely, instructions that change protected control state are blocked for ordinary user code. This course examines those restrictions through documented traces and safe models rather than attempting to disable interrupts or rewrite machine-wide controls. A security review therefore needs both questions: does this operation have the required authority, and does it correctly use the data and resources already available to it?
+
+DO
+Ask for one harmful ordinary instruction use that requires no kernel privilege.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.014
+
+------------------------------------------------------------
+
+43. Review protected requests as several independent contracts
+Recall and transfer
+
+SAY
+Return to the descriptor demonstration and explain its complete boundary. The process opens a device with read-only access, receives a process-local reference, handles end-of-file as a read result, recognizes a denied write, and releases the descriptor. These are distinct responsibilities. A larger service must add its own input, ownership, lifetime, and concurrency rules rather than treating kernel mediation as a complete safety certificate. The source range lab should likewise preserve rejection before arithmetic or mutation. In maintenance work, keeping each contract separate makes tests more precise: a permission regression is not hidden inside a generic failed-request assertion.
+
+DO
+Have learners give a one-minute trace from request arguments to cleanup.
+
+SOURCE
+content/systems-programming/ch19.json → SP19.024

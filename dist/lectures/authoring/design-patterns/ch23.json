@@ -1,0 +1,601 @@
+{
+  "chapter": 23,
+  "title": "Capstone: one monitor, several interacting guarantees",
+  "opening": [
+    {
+      "title": "Make several promises hold at once",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "cover",
+      "keyPoints": [
+        "Normalize mixed units before judging them",
+        "Commit complete batches or preserve old history",
+        "Replace future policy without rewriting past decisions",
+        "Dr. Charles Dorner"
+      ],
+      "narration": "The capstone is a workshop temperature monitor built from the earlier lessons. The important challenge is not recognizing three pattern names. It is making several promises hold together. Values arrive in two units, rules may change between batches, rejected batches must leave no partial history, and reports must remember decisions made at intake. We will ask which boundary protects each promise, then follow one request across them. This is a teaching program with supplied in-memory values. It does not read real sensors or control a heater. Its deliberately small scope lets us inspect every state change and test an exact report without hiding behind external devices.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 The job: trust the whole path, not just the temperature formula",
+      "question": {
+        "prompt": "What makes an integration correct beyond each small component working alone?",
+        "answer": "The components must agree on shared contracts, including units, ordering, state, ownership, failure behavior, and the meaning of stored history."
+      }
+    },
+    {
+      "title": "Turn the job into an explicit contract",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Positive identifiers increase across the whole session",
+        "Temperatures normalize to \u221240 through 125 \u00b0C",
+        "At most eight accepted readings",
+        "Ingest only while running; replace only idle or paused"
+      ],
+      "narration": "Before choosing classes, write the limits. Every identifier must be positive and greater than the last accepted identifier, including earlier items in the same batch. Accepted Celsius temperatures must lie between minus forty and one hundred twenty-five, with both endpoints allowed. The monitor holds at most eight records. A batch can be admitted only in the running state, and a rule can be replaced only while idle or paused. Stopped is final for this monitor object. These rules are not claims about all real sensors; they define this program. They give us concrete questions to ask of conversion, policy, state methods, and commit behavior.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 The job: trust the whole path, not just the temperature formula",
+      "question": {
+        "prompt": "Can a batch with identifiers 4 and 4 be accepted after an existing history ending at 3?",
+        "answer": "No. The second identifier fails the strictly increasing rule within the same batch, so the entire batch must leave history unchanged."
+      }
+    },
+    {
+      "title": "The simplest comparison can answer the wrong question",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "code",
+      "keyPoints": [
+        "A threshold of 80 means 80 \u00b0C",
+        "100 \u00b0F is about 37.8 \u00b0C",
+        "A valid numeric comparison can use the wrong unit"
+      ],
+      "narration": "The first small design compares a number to eighty and prints a label. That works if every number is already valid Celsius. When one hundred arrives tagged Fahrenheit, the same branch prints ALERT even though the normalized temperature is about thirty-seven point eight Celsius. The compiler sees two numbers and a valid comparison. It cannot infer the missing physical meaning. This complete demonstration prints both decisions so the error is visible. The repair is to normalize before classifying. We use decimal constants in the conversion so division has floating-point meaning, and we present one decimal place only for display, not as an extra rounding step before the decision.",
+      "actions": [
+        "Predict the three printed lines before running the program.",
+        "Ask which wrong assumption is present even though every C++ expression is valid."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage one: the useful ten-line idea and its first failures",
+      "question": {
+        "prompt": "Why does the first line say ALERT while the final line says ok?",
+        "answer": "The first comparison treats the raw Fahrenheit number as Celsius. The second compares the normalized Celsius value to the Celsius threshold."
+      },
+      "code": {
+        "filename": "dp_ch23_units_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iomanip>\n#include <iostream>\n\nint main() {\n    const double fahrenheit = 100.0;\n    const double limit_celsius = 80.0;\n    // Deliberate baseline defect: compare unlike units.\n    std::cout << \"raw comparison=\"\n              << (fahrenheit >= limit_celsius ? \"ALERT\" : \"ok\") << '\\n';\n    const double celsius = (fahrenheit - 32.0) * 5.0 / 9.0;\n    std::cout << std::fixed << std::setprecision(1)\n              << \"normalized=\" << celsius << \" C\\n\";\n    std::cout << \"normalized comparison=\"\n              << (celsius >= limit_celsius ? \"ALERT\" : \"ok\") << '\\n';\n}\n",
+        "expectedStdout": "raw comparison=ALERT\nnormalized=37.8 C\nnormalized comparison=ok\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "One normalization boundary prevents three local guesses",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "RawSample still carries an outside unit tag",
+        "Sample carries a field named celsius",
+        "Rules and reports consume the internal representation"
+      ],
+      "narration": "Suppose ingest, a report tool, and a replay tool each copy the conversion formula. The next unit change now requires three edits, and each caller might handle an unknown tag differently. SampleAdapter earns its place by making one boundary responsible for converting and validating outside values. RawSample includes an identifier, a number, and a unit character. Sample includes the identifier and a field named celsius. That field name carries a useful internal promise. This capstone uses Adapter\u2019s translation responsibility as a value-conversion helper. It does not reproduce an inheritance-based Target and wrapped Adaptee structure merely to make the diagram look more elaborate.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage two: name the data before spreading behavior",
+      "question": {
+        "prompt": "Why is naming the internal field celsius stronger than calling it value?",
+        "answer": "It makes the representation contract visible to later code, reducing the chance that rules or reports silently interpret the same number in different units."
+      }
+    },
+    {
+      "title": "Rejecting a request is not the same as rolling it back",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "code",
+      "keyPoints": [
+        "Direct mutation can leave the first item behind",
+        "A private candidate keeps live history unchanged",
+        "Publish the candidate only after every item passes"
+      ],
+      "narration": "Here we isolate the batch problem using integer identifiers rather than the full monitor. The history begins with ten, and the proposed batch contains eleven followed by an invalid zero. The direct version appends eleven before throwing, so its count becomes two. The staged version copies the old history, changes only the copy, and swaps after the whole batch passes. Because zero causes an exception first, the live count stays one. Catching the exception did not undo the direct append. The guarantee comes from where mutation occurs. This simplified program models the capstone\u2019s commit design without adding units, policies, or states yet.",
+      "actions": [
+        "Mark the first live mutation in each version.",
+        "Predict both counts, then run and explain why the catch blocks are not rollback mechanisms."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage one: the useful ten-line idea and its first failures",
+      "question": {
+        "prompt": "Why does catching the same error leave different counts?",
+        "answer": "The direct version has already mutated live history. The staged version changed only a local candidate, which is destroyed when the exception leaves the function."
+      },
+      "code": {
+        "filename": "dp_ch23_partial_commit.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <vector>\n\nvoid direct_append(std::vector<int>& live, const std::vector<int>& batch) {\n    for (int id : batch) {\n        if (id <= 0) throw std::invalid_argument(\"bad id\");\n        live.push_back(id); // Defect: a later error leaves a partial batch.\n    }\n}\nvoid staged_append(std::vector<int>& live, const std::vector<int>& batch) {\n    auto candidate = live;\n    for (int id : batch) {\n        if (id <= 0) throw std::invalid_argument(\"bad id\");\n        candidate.push_back(id);\n    }\n    live.swap(candidate); // Commit only after all items pass.\n}\nint main() {\n    std::vector<int> direct{10};\n    std::vector<int> staged{10};\n    const std::vector<int> batch{11, 0};\n    try { direct_append(direct, batch); }\n    catch (const std::invalid_argument&) {}\n    try { staged_append(staged, batch); }\n    catch (const std::invalid_argument&) {}\n    std::cout << \"direct count=\" << direct.size() << '\\n';\n    std::cout << \"staged count=\" << staged.size() << '\\n';\n}\n",
+        "expectedStdout": "direct count=2\nstaged count=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Each structure must pay for one requirement",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Adapter normalizes the external representation",
+        "Strategy varies the future alert decision",
+        "Facade centralizes a report request",
+        "An enum handles this small lifecycle"
+      ],
+      "narration": "Now we can justify the main boundaries. Mixed units motivate adaptation. Replaceable alert rules motivate Strategy: Monitor owns an AlertRule and calls alert without inspecting the concrete rule type. Repeated report construction motivates ReportFacade, which gathers stored rows, counts alerts, and formats one result. The lifecycle needs explicit states and guarded transitions, but not a class for every state. This distinction matters in a capstone: integrating lessons means selecting useful structures and explaining deliberate omissions. A private staged vector provides exception safety; it is not automatically Command or Memento. A suggestive class name or a familiar arrow is never enough to establish a pattern\u2019s mechanism.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Use the taught patterns to make specific decisions",
+      "question": {
+        "prompt": "Which pattern has the strongest direct object-polymorphism match here?",
+        "answer": "Strategy: Monitor owns an AlertRule, calls its virtual alert operation, and can replace its concrete implementation without changing ingestion."
+      },
+      "comparisons": [
+        {
+          "label": "Adapter responsibility",
+          "text": "SampleAdapter converts values; it does not require Target inheritance in this program."
+        },
+        {
+          "label": "Strategy mechanism",
+          "text": "An owned AlertRule provides an interchangeable virtual operation."
+        },
+        {
+          "label": "State machine",
+          "text": "An enum and guarded methods enforce transitions without State subclasses."
+        }
+      ]
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Reject invalid numbers before ordinary range checks",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Reject nonpositive identifiers",
+        "Reject nonfinite raw and converted values",
+        "Only C and F are accepted unit tags",
+        "Range comparisons alone do not reject NaN"
+      ],
+      "narration": "A finite value is an ordinary bounded number, rather than infinity or NaN, which means not a number. NaN is an important trap: both a less-than comparison and a greater-than comparison against ordinary limits are false. An implementation that only asks whether a value is below minus forty or above one hundred twenty-five may therefore let NaN pass. SampleAdapter first uses std::isfinite on the incoming number, then validates the converted result as well. Very large finite arithmetic can overflow to infinity during conversion. Unknown tags are rejected rather than guessed. These checks establish the assumptions that alert rules and reports rely on later.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage two: name the data before spreading behavior",
+      "question": {
+        "prompt": "Why does checking c < \u221240 or c > 125 not fully validate c?",
+        "answer": "For NaN both comparisons are false. The implementation must also reject nonfinite values with std::isfinite."
+      }
+    },
+    {
+      "title": "Thresholds and tolerances are written policy",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "AtLeast uses an inclusive \u2265 comparison",
+        "OutsideBand later treats both endpoints as acceptable",
+        "Conversion uses floating-point operands",
+        "Do not add an unexplained epsilon"
+      ],
+      "narration": "The first rule, AtLeast, marks a reading when its Celsius value is greater than or equal to the stored limit. The equal case is part of the contract, so eighty Celsius at a limit of eighty is an alert. A different policy may use different endpoint behavior; the later OutsideBand extension allows its low and high endpoints. For conversion, five divided by nine with integer operands would be zero, so the real source uses decimal constants and a visible operation order. Real instruments may need a tolerance near a physical limit, but that is a separate written policy. An unexplained epsilon changes which values the program admits or classifies.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage three: two real changes justify one replaceable rule",
+      "question": {
+        "prompt": "If someone changes AtLeast from >= to >, which small test exposes the regression?",
+        "answer": "A sample exactly equal to the limit. AtLeast(80) must mark 80 \u00b0C as an alert."
+      }
+    },
+    {
+      "title": "The rule\u2019s signature carries several different promises",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "const Sample& borrows one normalized sample",
+        "Trailing const restricts changes through the rule object",
+        "virtual dispatch selects the current concrete rule",
+        "noexcept does not mean \u201ccannot be wrong\u201d"
+      ],
+      "narration": "Read the rule declaration one piece at a time. The result is bool, a true-or-false decision. const Sample ampersand borrows the normalized sample and prevents changing it through this parameter. The const after the parameter list limits ordinary changes to the rule through the call. virtual permits dispatch through the base interface, and a concrete rule uses override to check the match at compile time. noexcept promises that an exception will not escape the operation. It does not prove that the implementation returns the correct answer or has no outside effects. If an exception escapes a noexcept function, the program terminates rather than producing an ordinary rejected batch.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage three: two real changes justify one replaceable rule",
+      "question": {
+        "prompt": "Can ingest catch an exception that escapes a noexcept AlertRule::alert and then safely roll back?",
+        "answer": "No. An exception escaping that noexcept operation triggers termination. Ordinary exception rollback is not a recovery plan for a rule that violates this contract."
+      }
+    },
+    {
+      "title": "Local rollback cannot undo an outside side effect",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "AtLeast only compares values",
+        "An external counter or message would escape staging",
+        "Future stateful policies need a reviewed transaction boundary"
+      ],
+      "narration": "Staging protects records_, but it cannot unsend a message. Imagine a future rule increments an external alert counter before a later sample in the batch fails conversion. The live history rolls back, yet the counter has already changed. Even a const noexcept member function could perform such an outside effect through an alias or external service. That is why the capstone\u2019s rule contract also requires judging a sample to have no outside side effects. AtLeast satisfies this by comparing two values. If a later policy truly needs history or notification, design that new responsibility explicitly and decide when its effects become committed.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage three: two real changes justify one replaceable rule",
+      "question": {
+        "prompt": "Does a const noexcept signature alone prove the batch has no external side effects?",
+        "answer": "No. The behavioral contract must forbid those effects, and implementations must be reviewed and tested against it."
+      }
+    },
+    {
+      "title": "Four names eliminate impossible flag combinations",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "idle \u2192 running on start",
+        "running \u2194 paused on pause/resume",
+        "running or paused \u2192 stopped on stop",
+        "No transition leaves stopped"
+      ],
+      "narration": "Three booleans such as started, paused, and stopped create combinations that may have no sensible meaning. A finite-state machine uses one named state and a table of permitted changes instead. The source begins idle, starts running, may pause and resume, and can stop from either active state. Stopped is final for that object. Each method checks the old state before assigning the new state, so an invalid call leaves the old state intact. This is an enum-based state machine, not the polymorphic State pattern. Four short gates do not justify separate state objects; larger independent state behavior might change that decision later.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage four: permitted actions belong to an explicit state",
+      "question": {
+        "prompt": "What should resume do while the monitor is idle?",
+        "answer": "Reject the request with logic_error and leave the state idle. It must not repair the caller\u2019s mistake by silently starting."
+      }
+    },
+    {
+      "title": "Empty input still obeys the operation\u2019s state contract",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "An empty batch is a no-op only while running",
+        "State is checked before processing elements",
+        "Stopped stays final even for an empty batch"
+      ],
+      "narration": "An empty batch can tempt an implementer to return immediately before checking anything else. In this program, that would break the public contract. Ingest is a running-state operation, so even an empty batch must be rejected while idle, paused, or stopped. While running, it is allowed and adds nothing. This example shows why edge cases should be judged against the whole operation rather than only the loop body. A different application could define empty input as universally harmless, but it would be a different contract. The source\u2019s order of checks makes its chosen meaning clear and testable.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage four: permitted actions belong to an explicit state",
+      "question": {
+        "prompt": "Why is `if (batch.empty()) return;` before the state check incorrect here?",
+        "answer": "It would accept ingest calls in states where ingest is forbidden, including stopped. Empty input does not waive the state precondition."
+      }
+    },
+    {
+      "title": "Trace ingestion as a sequence of protected boundaries",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Check state and capacity before staging",
+        "Convert each raw item to a Sample",
+        "Compare against the last staged identifier",
+        "Classify, append privately, then commit once"
+      ],
+      "narration": "Follow the actual order, because a reordered check can change behavior. Ingest first rejects the wrong state and excess capacity. It then copies accepted records into staged. For each raw item, conversion establishes a valid Celsius Sample. The identifier must exceed the last staged identifier, not merely the last identifier from the old history. That catches duplicates introduced earlier in this same batch. The current rule classifies the normalized sample, and a Record containing both the sample and its decision is appended privately. Only a fully completed loop reaches the final swap. At every earlier rejection, accepted history remains the same.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage five: validation, a proposed history, and a commit point",
+      "question": {
+        "prompt": "Why compare against staged.back() instead of only records_.back()?",
+        "answer": "The staged history includes earlier items from the current batch, so it detects duplicates and decreasing identifiers within that batch."
+      }
+    },
+    {
+      "title": "The commit point is a small operation with a large meaning",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Before swap: records_ is the old accepted history",
+        "After swap: records_ is the complete new history",
+        "The local staged vector then destroys old storage",
+        "This is a scoped strong exception guarantee"
+      ],
+      "narration": "The commit point is the operation that makes the prepared change visible as accepted state. Here records_.swap(staged) exchanges the vectors after every item has passed. With the standard allocator used in this source, vector swap is nonthrowing. Before that line, records_ still holds the old history; after it, records_ holds the entire new history. The local staged vector now owns the old storage and releases it as the function ends. If copying, conversion, ordering checks, or appending throws earlier, local cleanup discards the candidate. This is the strong exception guarantee for stored history under ordinary C++ exception flow, not durable recovery from a process crash.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage five: validation, a proposed history, and a commit point",
+      "question": {
+        "prompt": "Why is a nonthrowing final commit step important?",
+        "answer": "Once preparation has succeeded, the operation needs a reliable point that publishes the whole change without failing halfway through publication."
+      },
+      "theory": {
+        "what": "A private candidate followed by one nonthrowing swap gives the history a single publication point.",
+        "where": "Monitor::ingest, after the loop has converted and checked every item.",
+        "why": "A rejected batch must not leave a valid prefix of that batch in accepted history.",
+        "invariant": "Observable accepted history is either the old history or the complete accepted new history.",
+        "risk": "External side effects, contract-violating rules, termination, and process crashes are outside this local exception guarantee."
+      }
+    },
+    {
+      "title": "Capacity arithmetic relies on an earlier invariant",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Accepted history never exceeds eight records",
+        "Compute spare capacity as cap minus current size",
+        "Compare batch size to spare capacity",
+        "Do not silently drop excess readings"
+      ],
+      "narration": "The capacity check compares the incoming batch size with cap minus the current number of records. That subtraction is safe because the monitor already preserves the invariant that accepted history never exceeds eight records. Unsigned subtraction would be dangerous if that invariant were not true: a value below zero could wrap to a very large result. The check rejects the whole oversized batch before staging. It does not accept the first few readings or discard the rest. This is another place where a local line relies on a wider guarantee. When increasing capacity or adding a bulk-import path, preserve that guarantee at every entry point.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage five: validation, a proposed history, and a commit point",
+      "question": {
+        "prompt": "Why would directly modifying records_ through an unchecked import weaken the capacity check?",
+        "answer": "It could create a history larger than cap, invalidating the subtraction\u2019s assumption and potentially allowing unsigned wraparound."
+      }
+    },
+    {
+      "title": "The monitor owns one rule and rejects a missing one",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "unique_ptr makes the owning relationship explicit",
+        "Construction establishes a usable rule",
+        "Replacement checks state and null before assignment",
+        "Virtual destruction reaches the concrete rule"
+      ],
+      "narration": "Monitor receives an owning unique_ptr by value and moves it into its rule_ member. The constructor rejects a missing rule, so a successfully constructed monitor has a usable policy. Replacement also checks the allowed state and the proposed pointer before assigning. If either check fails, the current member remains valid. The incoming parameter itself owns the proposed replacement during the call, so it is cleaned up if the call rejects it. On successful assignment, the old member-owned rule is destroyed. AlertRule\u2019s virtual destructor makes deletion through the base owning pointer reach the concrete destructor correctly. These are lifetime facts, not merely class-diagram relationships.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage six: ownership and reports without hidden lifetime traps",
+      "question": {
+        "prompt": "If a paused monitor receives replace_rule(nullptr), what must remain true afterward?",
+        "answer": "The request is rejected and the monitor still owns its previous valid rule; the non-null invariant must not be lost."
+      }
+    },
+    {
+      "title": "A stable session identity can justify deleting move",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Monitor copying and moving are compile-time errors",
+        "A default move could empty the source rule owner",
+        "The moved-from source might still say running",
+        "Moving an owning handle is a different operation"
+      ],
+      "narration": "It may seem natural to let every modern C++ type move, but the monitor\u2019s invariant makes that choice nontrivial. An automatic move could transfer rule_ out of the source while leaving its state_ equal to running. Calling ingest on that moved-from source could then follow an empty pointer. This source chooses a simpler contract: a Monitor object has a stable identity and cannot be copied or moved. The deleted operations and static assertions enforce that at compile time. Moving a unique_ptr that owns a Monitor would transfer the handle without moving the Monitor object itself. Those are different operations with different effects on invariants.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage six: ownership and reports without hidden lifetime traps",
+      "question": {
+        "prompt": "Why does \u201cunique_ptr is movable\u201d not automatically mean this Monitor should be movable?",
+        "answer": "Moving its member could invalidate the source Monitor\u2019s non-null rule invariant while leaving the source callable. The whole object needs its own explicit move contract."
+      }
+    },
+    {
+      "title": "A vector reference and an element reference have different risks",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "records() borrows the vector object",
+        "A commit can replace the vector\u2019s element storage",
+        "Do not keep element references or iterators across ingest",
+        "The report finishes its short borrow before mutation"
+      ],
+      "narration": "The records accessor returns a const reference to the vector object stored inside Monitor. That vector object continues to exist while the monitor lives, even when its contents are swapped. A reference to one element is different. Ingest can swap out the old storage, which is then destroyed with staged, so an old element reference or iterator may become invalid. The report avoids this trap by borrowing only for the duration of summary and returning an independent string. This is single-threaded code: const access does not supply synchronization. Adding concurrent reporting and ingestion requires a separate decision about locking or snapshots.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage six: ownership and reports without hidden lifetime traps",
+      "question": {
+        "prompt": "After ingest commits, why can a retained reference to records_ remain valid while a retained reference to its former first Record does not?",
+        "answer": "The vector member object still exists, but its former element storage has been swapped out and destroyed. Object identity and element lifetime are different."
+      }
+    },
+    {
+      "title": "The report presents accepted history, not a new policy run",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Borrow stored records and count their saved flags",
+        "Return owned text with stable formatting",
+        "Classic locale fixes formatting conventions",
+        "A free function is a reasonable small alternative"
+      ],
+      "narration": "ReportFacade gathers the report request into one operation. It borrows the monitor, traverses stored records, counts saved alert flags, and builds an independent string. The string uses a classic locale and one digit after the decimal point so the expected report does not depend on ordinary machine formatting settings. It does not run the current strategy over old readings. That distinction preserves the report\u2019s meaning as a record of intake decisions. A free function could reasonably provide the same small facade boundary; the static class form is not the core benefit. The useful contract is one stable request with a clear owned result and a short, safe borrow.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Stage six: ownership and reports without hidden lifetime traps",
+      "question": {
+        "prompt": "Should a report after a policy change call the new rule for every old sample?",
+        "answer": "No. This report shows saved intake decisions. Re-evaluation would need a separate clearly named operation with a different meaning."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "History records what was decided then",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "code",
+      "keyPoints": [
+        "80 \u00b0C arrived under an inclusive 80 \u00b0C rule",
+        "The new rule uses 100 \u00b0C",
+        "Saved history stays alert; a new 90 \u00b0C reading is ok"
+      ],
+      "narration": "This small program separates historical data from a current calculation. One record stores eighty Celsius and the true decision made under an eighty-degree limit. After the limit becomes one hundred, re-running the old value would produce false, but that is not what happened at intake. The program prints one saved alert, zero incorrectly recomputed old alerts, and no alert for a future ninety-degree reading. Both comparisons are mathematically valid. The difference is the question being answered. A report of past decisions must preserve its saved flags; a what-if analysis under today\u2019s policy can be offered separately without silently rewriting history.",
+      "actions": [
+        "Predict all three results before running.",
+        "Ask learners to name a separate report feature that could legitimately re-evaluate old readings."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Debug the integration by finding the earliest broken promise",
+      "question": {
+        "prompt": "What does changing the rule legitimately change?",
+        "answer": "Future intake decisions. It does not change the saved alert flags on records already accepted under an earlier policy."
+      },
+      "code": {
+        "filename": "dp_ch23_history_meaning.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <vector>\n\nstruct Record {\n    double celsius;\n    bool alert_at_intake;\n};\nint main() {\n    double limit = 80.0;\n    std::vector<Record> history{{80.0, 80.0 >= limit}};\n    limit = 100.0; // New policy is for future intake.\n    int stored = 0;\n    int recomputed = 0;\n    for (const auto& row : history) {\n        stored += row.alert_at_intake ? 1 : 0;\n        recomputed += row.celsius >= limit ? 1 : 0;\n    }\n    std::cout << \"stored alerts=\" << stored << '\\n';\n    std::cout << \"recomputed alerts=\" << recomputed << '\\n';\n    std::cout << \"future alert=\" << (90.0 >= limit) << '\\n';\n}\n",
+        "expectedStdout": "stored alerts=1\nrecomputed alerts=0\nfuture alert=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "OutsideBand is an extension of the decision boundary",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Require finite \u221240 \u2264 low \u2264 high \u2264 125",
+        "Alert below low or above high",
+        "Both endpoints remain acceptable",
+        "Keep Monitor and its old checks unchanged"
+      ],
+      "narration": "The lab asks for a second kind of AlertRule called OutsideBand. It accepts two finite Celsius limits in order and marks readings strictly below the low limit or strictly above the high limit. For the band twenty through sixty, the readings nineteen, twenty, sixty, and sixty-one should give alert, ok, ok, alert. A zero-width band is valid: exactly its one endpoint is acceptable. The existing virtual alert request already expresses this decision, so Monitor need not change. Preserve all earlier checks and add tests for construction failures, endpoints, late batch rejection, replacement back to AtLeast, and unchanged old flags. That is useful extension evidence, not merely an extra subclass.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Implementation lab",
+      "question": {
+        "prompt": "What comparisons preserve acceptable endpoints for OutsideBand?",
+        "answer": "s.celsius < low_ || s.celsius > high_. Using <= or >= would incorrectly alert at an allowed endpoint."
+      }
+    },
+    {
+      "title": "Find the earliest broken promise, not the last symptom",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "Record the state, count, last identifier, and current rule",
+        "Trace normalization before classification",
+        "Locate the first live mutation",
+        "Compare the complete report before and after rejection"
+      ],
+      "narration": "Suppose a bad batch adds a fourth row even though the call reports an unknown unit. Do not start by changing the error message. Write the old state and complete report, then follow the first item through conversion, classification, and append. If it reaches records_ before the second item fails, the first broken promise is partial mutation before full acceptance. For another failure, an eighty-degree row loses its alert after replacement; that points to re-evaluating saved history. Debugging the earliest broken promise narrows the search more effectively than examining only the final incorrect count. Keep a failing test that captures the whole visible effect of the defect.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Debug the integration by finding the earliest broken promise",
+      "question": {
+        "prompt": "A rejected batch leaves the record count unchanged but changes a saved alert flag. Is checking only the count sufficient?",
+        "answer": "No. The strong history guarantee covers contents as well as size. Compare the complete stored data or report."
+      }
+    },
+    {
+      "title": "Different checks protect different parts of the contract",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "static_assert verifies forbidden copy and move",
+        "Runtime checks cover values, state, and exact report",
+        "Lifetime probes observe destruction through valid borrows",
+        "A passing suite has a stated scope"
+      ],
+      "narration": "The source uses compile-time type-trait assertions to verify that Monitor cannot be copied or moved. Running checks then test value rules, state transitions, rollback, rule replacement, and exact report text. The check helper throws when a condition is false, so these checks do not disappear when a release build defines NDEBUG, unlike ordinary assert. LifetimeRule changes a borrowed flag when destroyed; the flag remains alive around the monitored scope, making the observation valid. The rejects helper expects a logic_error-family exception. These tests exercise specified cases. They do not exhaust allocator failures, all numeric inputs, concurrency, or crash recovery, so report their evidence with those limits.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Debug the integration by finding the earliest broken promise",
+      "question": {
+        "prompt": "Why does the source use a throwing check function for required executable verification rather than rely only on assert?",
+        "answer": "An assert expression can be removed when NDEBUG is defined. The throwing check remains active and can make a release executable fail on a broken requirement."
+      }
+    },
+    {
+      "title": "A small capacity makes staging affordable; growth changes the cost",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "For n stored and b new: work is proportional to n + b",
+        "Temporary storage is also proportional to n + b",
+        "Repeated single inserts into an unbounded history can accumulate quadratic copying",
+        "Choose a new transaction design from measured workloads"
+      ],
+      "narration": "Copying accepted history makes the exception guarantee easy to inspect, and eight records make its cost tightly bounded. With n existing records and b new ones, staging and processing require work and temporary storage proportional to n plus b. Now imagine removing the cap and ingesting one reading at a time. The successive copies grow as one, two, three, and so on; total work can become quadratic in the final history size. That does not make today\u2019s bounded design wrong. It identifies a future pressure. A journal, chunked storage, or separately validated batch might help, but each needs a new proof of ordering, ownership, and commit behavior.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 What the compiler can prove and what execution must establish",
+      "question": {
+        "prompt": "Why is \u201cremove cap = 8\u201d more than a harmless constant change for a large deployment?",
+        "answer": "It can expose repeated full-history copies as a major time and memory cost. The workload and commit strategy need review while preserving the existing guarantees."
+      }
+    },
+    {
+      "title": "Do not force the remaining patterns into the monitor",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "No commands are queued or replayed as request objects",
+        "No public restore operation makes a Memento necessary",
+        "Four simple transition gates need no State hierarchy",
+        "The three selected boundaries already have concrete jobs"
+      ],
+      "narration": "A capstone is not a checklist of every pattern name learned so far. This monitor does not need Command merely because it has methods, or Memento merely because it copies a vector. It does not need a State hierarchy merely because the enum is named State. Those patterns solve particular pressures such as storing requests, restoring snapshots through a caretaker, or delegating substantial state-specific behavior. Our program has different, smaller needs. Explain why the selected Adapter responsibility, Strategy operation, and Facade request are useful, then state why the alternatives are unnecessary today. Choosing less structure with a clear argument is a sign of understanding, not an incomplete design.",
+      "actions": [
+        "Ask learners to state the relevant invariant before revealing the answer.",
+        "Connect the proposed change to the corresponding source boundary."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 Use the taught patterns to make specific decisions",
+      "question": {
+        "prompt": "Would naming the staging vector \u201cmemento\u201d establish the Memento pattern?",
+        "answer": "No. A name does not create the pattern\u2019s roles or intent. Here the vector is a private transaction candidate and there is no snapshot restore interface or caretaker relationship."
+      }
+    },
+    {
+      "title": "Defend the next feature before changing code",
+      "eyebrow": "CHAPTER 23 \u00b7 TRANSACTIONAL TEMPERATURE MONITOR",
+      "kind": "concept",
+      "keyPoints": [
+        "New units belong at the conversion boundary",
+        "New decisions belong behind AlertRule",
+        "New presentation belongs at the reporting boundary",
+        "Ordering, state, capacity, and atomicity need broader review"
+      ],
+      "narration": "Consider four proposed changes. A new external unit first affects adaptation and its validation tests. A new alert decision should fit AlertRule only if it can keep the existing nonthrowing, side-effect-free contract. A new display format can sit beside the report service while preserving the meaning of stored flags. A change to ordering, capacity, state gates, or all-or-nothing batches affects the monitor\u2019s core contract and deserves broader review. This is the practical outcome of the course: identify what varies, locate its boundary, and defend the guarantees across that boundary. A useful design makes likely changes local while keeping the hard shared promises visible.",
+      "actions": [
+        "Have learners place each of the four proposed changes at a source boundary.",
+        "Ask for one invariant and one regression test that must survive each change."
+      ],
+      "sourceRef": "manuscript/ch23.json \u2192 What the compiler can prove and what execution must establish",
+      "question": {
+        "prompt": "A proposed rule needs to send a network alert while judging each sample. Can it be added as an ordinary AlertRule implementation under the current contract?",
+        "answer": "No. Its outside effect violates the side-effect-free rule contract and could survive a rejected batch. Design notification after a successful commit or define a wider transaction model."
+      }
+    }
+  ]
+}

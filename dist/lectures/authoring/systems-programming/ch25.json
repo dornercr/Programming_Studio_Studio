@@ -1,0 +1,224 @@
+{
+  "chapter": 25,
+  "title": "Translation Hardware",
+  "opening": [
+    {
+      "title": "Finding the bytes starts with finding their mapping",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "concept",
+      "keyPoints": [
+        "Translation and data retrieval are separate work",
+        "The MMU checks mappings and permissions",
+        "C++ bounds remain a separate contract"
+      ],
+      "narration": "A load asks for a value, but the processor must interpret the address under the current address-space context before using the backing location. The memory-management unit, or MMU, supports that translation and protection work. A translation lookaside buffer, or TLB, remembers useful translations so a full table walk is not required every time. These structures do not understand the bounds of a C++ vector. An access can pass page checks and still violate the language’s object rules. Keep the explanation layered: language validity, translation permission, and data availability answer different questions about the same apparent load.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch25.json → SP25.004: 25.1 MMU",
+      "question": {
+        "prompt": "Does a TLB hit prove a vector index was in bounds?",
+        "answer": "No. Cached page translation does not establish the language-level bounds of the vector object."
+      }
+    },
+    {
+      "title": "Count translation work without pretending to time hardware",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "code",
+      "keyPoints": [
+        "One model entry remembers the last page",
+        "Repeated page access hits that entry",
+        "Data residency is an independent input"
+      ],
+      "narration": "The model touches pages four, four, nine, and four. With one translation entry, the first four misses and fills the entry; the second hits; nine misses and replaces four; the last four misses again. The program therefore reports three walks. A separate input says whether data is cached, producing hit, miss, hit, and hit independently of the translation outcomes. These are deliberately selected states, not measurements from a CPU. They show that a TLB hit can accompany a data miss and a TLB miss can accompany a data hit. A real trace would require hardware-specific observation and a careful measurement method.",
+      "actions": [
+        "Predict the complete output, run the model, and distinguish its result from a real hardware observation."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch25.json → SP25.010: 25.4 TLB misses",
+      "question": {
+        "prompt": "Which access demonstrates a TLB hit with a data miss?",
+        "answer": "The second access to page four reuses the translation while its separately supplied data-residency state is false."
+      },
+      "code": {
+        "filename": "sys_ch25_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\n#include <optional>\nint main() {\n    const std::array<unsigned,4> pages{4,4,9,4};\n    const std::array<bool,4> data_cached{true,false,true,true};\n    std::optional<unsigned> entry;\n    unsigned walks = 0;\n    for (std::size_t i=0; i<pages.size(); ++i) {\n        const bool hit = entry && *entry == pages[i];\n        if (!hit) { ++walks; entry = pages[i]; }\n        std::cout << \"page=\" << pages[i] << \" tlb=\" << (hit ? \"hit\" : \"miss\")\n                  << \" data=\" << (data_cached[i] ? \"hit\" : \"miss\") << '\\n';\n    }\n    std::cout << \"walks=\" << walks << '\\n';\n}\n",
+        "expectedStdout": "page=4 tlb=miss data=hit\npage=4 tlb=hit data=miss\npage=9 tlb=miss data=hit\npage=4 tlb=miss data=hit\nwalks=3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "One-entry translation-cache model with explicitly supplied independent data-cache states."
+      }
+    },
+    {
+      "title": "A TLB miss is not automatically a page fault",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "concept",
+      "keyPoints": [
+        "A valid table walk can fill the missing cache entry",
+        "Faults involve an unresolved or forbidden access",
+        "The two events need different diagnostic evidence"
+      ],
+      "narration": "If the translation cache lacks page twelve but the page table contains a valid permitted mapping, the processor can obtain the mapping and continue. That is a translation miss without a page fault. If the walk instead finds no usable mapping or discovers a forbidden operation, software handling may be required. Mixing the terms makes performance reports misleading: many TLB misses can occur while no disk read or recoverable page fault occurs at all. The chapter’s model explicitly increments walks and returns no mapping only when the table lacks an entry. Interpret those counters according to their definitions rather than treating every slow access as the same event.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch25.json → SP25.010: 25.4 TLB misses",
+      "question": {
+        "prompt": "Can a page-table walk complete successfully after a TLB miss?",
+        "answer": "Yes. A valid permitted table entry can supply the translation without a page fault."
+      }
+    },
+    {
+      "title": "A cached page number needs an address-space identity",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "code",
+      "keyPoints": [
+        "The same page number can map different frames",
+        "Page-only lookup reuses the wrong context",
+        "Include address-space identity in the model key"
+      ],
+      "narration": "Both modeled processes request virtual page one, but process A maps it to frame seven and B maps it to frame nine. The intentionally incomplete cache keys only by page, so B receives the earlier seven. The corrected cache keys by the pair of address-space identifier and page, so B receives nine. The output names both results. This program uses maps to expose identity; it does not configure a hardware TLB or measure context-switch behavior. Real hardware and kernels use architecture-specific tagging and invalidation mechanisms. The general invariant is the same: a cached result must belong to the context under which it is reused.",
+      "actions": [
+        "Predict the complete output, run the model, and distinguish its result from a real hardware observation."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch25.json → SP25.006: 25.2 TLB",
+      "question": {
+        "prompt": "Why does increasing cache capacity fail to repair the page-only key?",
+        "answer": "The identity is incomplete; extra capacity does not distinguish two address spaces using the same page number."
+      },
+      "code": {
+        "filename": "sys_ch25_context_key.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <map>\n#include <utility>\nint main() {\n    // Same virtual page; two deliberately different address spaces.\n    std::map<unsigned,unsigned> wrong{{1,7}};\n    using Key = std::pair<unsigned,unsigned>; // address-space id, page\n    const std::map<Key,unsigned> correct{{{10,1},7},{{20,1},9}};\n    std::cout << \"B-page-only=\" << wrong.at(1) << '\\n';\n    std::cout << \"B-context-key=\" << correct.at({20,1}) << '\\n';\n}\n",
+        "expectedStdout": "B-page-only=7\nB-context-key=9\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Map-based identity model, not an actual hardware TLB or address-space switch."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Caching permissions makes invalidation part of correctness",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "concept",
+      "keyPoints": [
+        "Translation entries can retain access information",
+        "Table updates can make cached results stale",
+        "Revocation must cover every path using the old entry"
+      ],
+      "narration": "Suppose a cached entry allows writing, then the page table is changed to deny it. A lookup that keeps reusing the older permission can violate the intended protection policy even if its frame number is unchanged. Cached translations therefore need invalidation rules, not just eviction rules for capacity. The source lab clears its model TLB explicitly and observes an extra walk on the next lookup. That is a useful model of invalidation’s effect, but it does not implement multicore shootdowns or hardware update ordering. In a real kernel, mapping changes and cache coordination belong to one carefully defined operation.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch25.json → SP25.006: 25.2 TLB",
+      "question": {
+        "prompt": "Can a cache entry be wrong even if its frame number still matches the table?",
+        "answer": "Yes. Its cached permissions or other relevant translation state may be stale."
+      }
+    },
+    {
+      "title": "Translation reach counts pages, not useful bytes alone",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "concept",
+      "keyPoints": [
+        "Nominal reach = entries × page size",
+        "Scattered tiny values can touch many pages",
+        "Packing may improve translation locality"
+      ],
+      "narration": "A teaching TLB with sixty-four entries and four-kibibyte pages has a nominal reach of two hundred fifty-six kibibytes. But a loop reading one byte from each of one thousand twenty-four pages needs many more translations even though the useful payload is only one kibibyte. Putting those bytes in a compact array could greatly reduce the page working set. The nominal product is only a first estimate: associativity, separate instruction and data structures, and mixed page sizes affect real behavior. Count the pages touched during the relevant reuse interval, not merely the number of useful bytes returned to the algorithm.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch25.json → SP25.012: 25.5 Translation caching",
+      "question": {
+        "prompt": "Why can a one-kibibyte useful-byte workload exceed a sixty-four-entry translation cache?",
+        "answer": "Its bytes may be spread across more than sixty-four different pages."
+      }
+    },
+    {
+      "title": "Retaining entries across switches requires context discipline",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "concept",
+      "keyPoints": [
+        "Some translations may survive a switch",
+        "Tagging prevents unrelated mappings from colliding logically",
+        "No universal full-flush claim follows from the word switch"
+      ],
+      "narration": "Our incomplete-key demonstration explains why retaining entries without context would be unsafe. It does not prove that every context switch must clear the entire translation cache. Architecture-supported address-space identifiers and kernel policies can retain useful entries while distinguishing contexts. Other operations still require invalidation when mappings change. Therefore, a performance explanation should not assume either universal flushing or unlimited safe retention. Ask which hardware, which switch, and which mapping update is involved. The model teaches the need for identity; the implementation details determine the actual cost. This distinction keeps a portable software lesson from turning into an incorrect claim about every processor.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch25.json → SP25.006: 25.2 TLB",
+      "question": {
+        "prompt": "Why is “every process switch flushes every TLB entry” too strong?",
+        "answer": "Hardware and kernel mechanisms may tag and retain relevant entries while preserving address-space separation."
+      }
+    },
+    {
+      "title": "A cache model needs a stated replacement policy",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "concept",
+      "keyPoints": [
+        "The source map has no capacity limit",
+        "Our one-entry model replaces on every different page",
+        "Neither model predicts a real processor’s full policy"
+      ],
+      "narration": "The source lab stores translations in a map and never evicts them except on explicit clear. That cleanly demonstrates hits, misses, absent mappings, and invalidation. It is not a model of a finite hardware TLB’s replacement behavior. Our added one-entry demonstration supplies a capacity and an obvious replacement rule to make repeated misses visible. When extending either model, state the number of entries and the eviction policy before comparing hit rates. A change in those assumptions can alter the result without any arithmetic error. Avoid presenting a model counter as measured hardware evidence simply because both are called walks.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch25.json → SYS25.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why can the source map retain translations that a real finite TLB would evict?",
+        "answer": "The model has no capacity bound or replacement policy; its purpose is lookup and invalidation semantics."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Diagnose the level that actually missed",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "concept",
+      "keyPoints": [
+        "Translation miss: mapping lookup work",
+        "Data-cache miss: byte retrieval work",
+        "Page fault: software handles an unresolved access"
+      ],
+      "narration": "A slow memory access can involve several events, and one event does not uniquely identify the others. A TLB miss may lead to a successful table walk. The requested data may already be cached. A data-cache miss may occur with a perfectly good cached translation. A page fault may require no disk I/O if the kernel supplies a demand-zero page. When investigating a workload, record which event the measurement source counts and what denominator it uses. Then design a controlled change, such as packing data into fewer pages, to test the translation hypothesis rather than merely hoping any locality change helps.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch25.json → SP25.014: Worked example — Translation and data are separate events",
+      "question": {
+        "prompt": "Which hypothesis does packing one byte from each of many pages into a compact array most directly test?",
+        "answer": "It reduces the page working set and therefore tests translation-locality pressure, while also potentially changing data locality."
+      }
+    },
+    {
+      "title": "Keep cached answers tied to their full contract",
+      "eyebrow": "SYSTEMS / CHAPTER 25",
+      "kind": "concept",
+      "keyPoints": [
+        "Cache key includes relevant context",
+        "Cached data includes permission meaning",
+        "Invalidation preserves agreement with authoritative mappings"
+      ],
+      "narration": "Translation hardware illustrates a reusable systems lesson: a cached answer is safe only when its key, contents, and lifetime match the authoritative state. Page number alone can omit address-space identity. Frame number alone can omit permission changes. An entry that never expires can outlive the mapping it describes. The compiler cannot discover these semantic omissions in a map key or struct. Tests should switch contexts with equal page numbers, look up an absent mapping, repeat a successful lookup, and invalidate before looking again. Those cases give evidence about the model’s promises while leaving real hardware timing to a separate measurement task.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch25.json → SP25.020: Guided lab and review",
+      "question": {
+        "prompt": "What three questions should precede reusing a cached translation?",
+        "answer": "Does it match this address-space context, permit this operation, and remain valid after relevant mapping changes?"
+      }
+    }
+  ]
+}

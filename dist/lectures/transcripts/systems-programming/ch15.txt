@@ -1,0 +1,732 @@
+Systems Programming and Machine Organization
+Chapter 15: Assembly Arithmetic
+Dr. Charles Dorner
+
+1. Arithmetic has a width and an interpretation
+Problem and first experiment
+
+SAY
+An addition does not only produce a number; it operates in a width and may report facts about bits that do not fit. Adding two eight-bit patterns can yield the same low eight result bits whether we interpret the inputs as signed or unsigned, while the meaning of overflow differs. Unsigned carry asks whether the mathematical unsigned sum exceeded the largest representable unsigned value. Signed overflow asks whether the signed result lies outside its signed range. At the source level, C++ gives unsigned arithmetic a modular rule but does not generally define signed overflow as wrapping. Keep the hardware description and language contract separate.
+
+DO
+Use eight bits so every bit and range boundary remains visible.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.004
+
+------------------------------------------------------------
+
+2. Model carry and signed overflow independently
+Problem and first experiment
+
+SAY
+This demonstration computes eight-bit flag meanings using wider unsigned arithmetic, so no invalid signed operation occurs. For 250 plus ten, the full unsigned sum is 260 and the low eight bits are four. Carry is true, but signed overflow is false because the input pattern 250 means minus six in signed eight-bit interpretation and minus six plus ten is four. For 127 plus one, the unsigned sum fits eight bits, so carry is false. Both signed inputs are positive but the result's sign bit becomes one, so signed overflow is true. The program models these conditions; it does not read processor flags.
+
+DO
+Predict result, carry, and signed-overflow for both rows.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch15.json → SP15.004
+
+------------------------------------------------------------
+
+3. Replacing division with a shift changes negative rounding
+Problem and first experiment
+
+SAY
+The program prints two possible answers for reducing minus seven by a factor of two. Signed division truncates toward zero, giving minus three. In C++20, a right shift of a signed negative value by one rounds toward negative infinity, giving minus four. The positive input seven produces three either way, which explains why a positive-only test can miss the changed behavior. All shift counts here are one and within the integer width. This is a valid language-level demonstration, not undefined overflow. A strength-reduction rewrite must preserve the required result for the entire accepted input domain, including its negative boundary cases.
+
+DO
+Predict the negative row before running the positive row.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch15.json → SP15.020
+
+------------------------------------------------------------
+
+4. Division consumes a prepared double-width dividend
+Problem and first experiment
+
+SAY
+In the chapter's signed sixty-four-bit division, the dividend is not only RAX. The instruction reads the double-width pair RDX:RAX. For an ordinary negative value in RAX, sign extension fills the high half with ones so the pair represents that same negative number. Clearing the high half instead changes the dividend into a very large positive number. After division, RAX holds the quotient and RDX the remainder. This matters when another argument originally arrived in RDX: a pointer needed after the division must be preserved elsewhere. The instruction's implicit operands are part of its contract even when they are not written in the operand list.
+
+DO
+Trace the pointer, dividend halves, quotient, and remainder separately.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.010
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Divide -17 by 5 and verify how C++17 relates the quotient and remainder.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Return quotient and remainder for int inputs. Reject division by zero and the minimum int divided by -1, whose quotient cannot fit in int.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Assuming division rounds down would predict -4, which is wrong for this C++ expression. Assembly signed division also requires the correct dividend preparation.
+
+A related failure in the generalized operation is concrete: Check only divisor != 0. The minimum-int/-1 case is still not representable.
+
+The repair changes the operation at the point where the rule can be enforced: Check the exceptional signed boundary as well as zero. Perform the checks before evaluating either arithmetic expression.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The guards run before either / or %, since both need a valid divisor and representable quotient. optional marks rejection separately from a legitimate zero quotient. For valid cases, quotient*divisor+remainder equals the dividend; the remainder follows the dividend’s sign unless it is zero.
+
+A plausible alternative: Write / and % first. Let the compiler select a valid machine sequence for known divisors.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.03
+
+------------------------------------------------------------
+
+8. Chapter 15 — Assembly Arithmetic
+Systems mechanisms and source lecture
+
+SAY
+Machine arithmetic operates on fixed-width patterns and updates architectural state. Signed and unsigned interpretations sometimes share the same low-bit result but differ in comparisons, extension, division, and overflow interpretation. The source-language rules still determine which arithmetic a compiler may assume is valid.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.001, SP15.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+15.1 Addition 15.2 Subtraction 15.3 Multiplication 15.4 Division ...plus 9 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.003
+
+------------------------------------------------------------
+
+10. Addition
+Systems mechanisms and source lecture
+
+SAY
+addq source, destination adds 64-bit operands and stores the low 64 bits in the destination. It updates condition flags, including carry and signed overflow indicators. A register-memory form also performs the relevant memory access. The low-bit addition result can serve either signed or unsigned interpretation. Carry indicates unsigned overflow beyond the width; overflow indicates that the signed result cannot be represented. These flags answer different questions. An assembly routine exposing checked arithmetic must return or branch on the appropriate condition rather than assuming the caller can inspect flags after an ordinary C call.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.004, SP15.005
+
+------------------------------------------------------------
+
+11. Subtraction
+Systems mechanisms and source lecture
+
+SAY
+subq source, destination computes destination minus source. This operand order is easy to reverse when switching between AT&T and Intel syntax. The result updates flags used by both arithmetic and comparisons. Subtraction underlies cmp , which computes flags without retaining the result. For unsigned order, carry-related conditions describe borrow behavior. For signed order, the sign and overflow relationship matters. A raw negative-looking high bit is not enough to establish the result of a signed comparison after overflow-sensitive subtraction.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.006, SP15.007
+
+------------------------------------------------------------
+
+12. Multiplication
+Systems mechanisms and source lecture
+
+SAY
+The imul family supports signed multiplication in several forms. Two-operand forms retain the low-width result, while one-operand forms can produce a double-width result using implicit registers. Unsigned mul also uses implicit accumulator registers for full-width products. The low w bits of a product are the same under signed and unsigned modular interpretations of the input patterns. The high half and overflow interpretation differ. A compiler can therefore use a signed-named multiply instruction for some unsigned low-result calculations. Read the instruction’s actual result width and use, not only its mnemonic’s historical label.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.008, SP15.009
+
+------------------------------------------------------------
+
+13. Division
+Systems mechanisms and source lecture
+
+SAY
+For 64-bit signed idivq , the dividend is in %rdx:%rax , the divisor is the explicit operand, the quotient is returned in %rax , and the remainder in %rdx . cqto sign-extends %rax into %rdx when dividing an ordinary signed 64-bit dividend. The instruction faults for a zero divisor or an unrepresentable quotient. It does not return an ordinary error code. Validate the input contract before executing it when building a checked interface. For unsigned divq of a 64-bit value, a zero high half is typically prepared, but only when that matches the intended double-width dividend.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.010, SP15.011
+
+------------------------------------------------------------
+
+14. Increment/decrement
+Systems mechanisms and source lecture
+
+SAY
+inc and dec add or subtract one. They update several arithmetic flags but do not update the carry flag. This difference can matter when a later instruction consumes carry from an earlier operation. A compiler may choose add $1 or sub $1 instead, depending on code size, dependencies, and target tuning. Do not use instruction spelling as the sole measure of efficiency. The surrounding flag dependencies and pipeline behavior can be more important than the apparent simplicity of “increment.”
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.012, SP15.013
+
+------------------------------------------------------------
+
+15. AND
+Systems mechanisms and source lecture
+
+SAY
+and computes a bitwise intersection and updates status flags based on the result, while clearing carry and overflow in the ordinary instruction semantics. It is useful for masking and alignment calculations. Masking an address down to a boundary is a numeric operation, not a proof that the resulting address is an owned object. In allocator code, the masked or rounded address must still lie inside the managed region. In security-sensitive parsing, masking a length may silently truncate an invalid input rather than reject it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.014, SP15.015
+
+------------------------------------------------------------
+
+16. OR
+Systems mechanisms and source lecture
+
+SAY
+or combines set bits and updates flags from the result. It can set selected flag bits in an ordinary data word or combine nonoverlapping fields. Like other non-atomic memory read-modify-write instructions, an ordinary or to shared memory is not automatically a valid language-level synchronization operation. A locked machine instruction can provide particular atomic hardware behavior, but handwritten synchronization also needs compiler and language ordering guarantees. Prefer standard atomic interfaces for application code so the compiler understands the concurrency contract.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.016, SP15.017
+
+------------------------------------------------------------
+
+17. XOR
+Systems mechanisms and source lecture
+
+SAY
+xor toggles differing bits. A common zeroing idiom is xorl %eax, %eax , which produces a full zero in %rax because a 32-bit register write clears the high half. It also changes flags, so it cannot be inserted between a comparison and a branch without considering that dependency. A zeroing idiom may be recognized specially by the microarchitecture, but its correctness follows from the architectural XOR result. A programmer should first establish that zero is the required value and that flag changes are harmless. Performance tuning follows only after those conditions are satisfied.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.018, SP15.019
+
+------------------------------------------------------------
+
+18. Shifts
+Systems mechanisms and source lecture
+
+SAY
+Logical shifts move bits and fill with zeros; arithmetic right shift replicates the sign bit. In AT&T syntax, shl or sal names left shift, shr logical right shift, and sar arithmetic right shift. Traditional variable counts use %cl . x86 masks shift counts according to operand width, but C and C++ source shifts with out-of-range counts are not thereby made valid. Hardware behavior is not a substitute for language preconditions. Likewise, arithmetic right shift of a negative value rounds differently from signed division by a positive power of two when the value is not evenly divisible. [ R3 , R36 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.020, SP15.021
+
+------------------------------------------------------------
+
+19. Signed division with explicit preparation
+Systems mechanisms and source lecture
+
+SAY
+The requirement is to divide -29 by 6. The mathematical quotient truncated toward zero is -4, and the remainder is -5 because -29 = (-4)*6 + (-5) . Companion listing: ch15/divide.S Companion listing: ch15/main.c Before idivq , %rax holds the two’s-complement pattern for -29 and %rdx is all ones. This pair represents the sign-extended dividend. Afterward %rax is -4 and %rdx is -5. Clearing %rdx instead would describe a large positive double-width number, not -29, and could cause a quotient-overflow fault.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.022, SP15.023
+
+------------------------------------------------------------
+
+20. Shifting to multiply
+Systems mechanisms and source lecture
+
+SAY
+For unsigned integers where overflow behavior is acceptable, shifting left by 3 multiplies by 8: 7 << 3 = 56 . A compiler may replace multiplication by a power of two with a shift when semantics permit. For signed values, overflow and negative operands require more care because language rules constrain valid transformations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.024, SP15.025
+
+------------------------------------------------------------
+
+21. Signed division setup
+Systems mechanisms and source lecture
+
+SAY
+On x86-64, signed division uses a double-width dividend spread across rdx:rax . Before dividing a signed 64-bit value in rax , cqo sign-extends it into rdx . After idiv , the quotient is in rax and remainder in rdx . Failing to prepare the high half correctly changes the dividend.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.026, SP15.027
+
+------------------------------------------------------------
+
+22. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 15. Extend the routine to store the remainder through a third pointer argument after preserving that pointer away from %rdx , which division overwrites. Test all sign combinations of 29 and 6 and verify a == q*b + r . Review 1. Why does arithmetic right shift of -7 by one differ from -7 / 2 ? Review 2. Why are carry and signed overflow different flags?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.028, SP15.029
+
+------------------------------------------------------------
+
+23. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is assembly arithmetic. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.030
+
+------------------------------------------------------------
+
+24. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Machine Control Flow.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.031
+
+------------------------------------------------------------
+
+25. Guard both forbidden signed-division cases
+Reason about the implementation
+
+SAY
+A checked division interface needs more than a zero check. The most negative signed value has no positive counterpart in the same signed type, so dividing it by minus one produces an unrepresentable quotient. The lab rejects both cases before evaluating the division. For valid cases, the identity dividend equals quotient times divisor plus remainder provides a useful test when the verification arithmetic stays representable. The remainder's sign follows the dividend under the source language rule. Test all sign combinations rather than assuming a positive example explains the negative cases. The hardware fault mechanism is not a substitute for a documented function-level error result.
+
+DO
+Build a test table with zero, positive, negative, and minimum-value cases.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.13
+
+------------------------------------------------------------
+
+26. Subtraction order controls the interpretation
+Reason about the implementation
+
+SAY
+When switching assembly syntax, operand order is an easy source of apparently reasonable wrong answers. In the chapter's AT&T notation, subtract source from destination, not the other way around. A comparison similarly establishes flags as though it performed destination minus source, while leaving the input values themselves unchanged. The later signed or unsigned branch interprets those flags. Write a tiny numeric example before analyzing a longer sequence: subtracting three from ten gives seven, while reversing them gives minus seven. This is not merely a notation preference; the direction changes arithmetic, borrow, and ordering evidence used by following instructions.
+
+DO
+Translate one subtraction into words before evaluating it.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.006
+
+------------------------------------------------------------
+
+27. Masks transform bits; they do not validate a request
+Reason about the implementation
+
+SAY
+A bit mask can isolate a field, clear a flag, or align a numeric address downward. Those are useful transformations, but they do not prove a request was valid. If a protocol permits lengths from zero through fifteen, masking an incoming length with fifteen changes sixteen into zero rather than rejecting it. That may silently authorize a different operation. Similarly, rounding a numeric address to a boundary does not establish ownership of the resulting object. During maintenance, distinguish normalization that the contract allows from validation that must reject bad input. The same short AND instruction can implement either a correct transformation or a hidden policy defect.
+
+DO
+Compare the accepted meaning of input sixteen under validation and masking.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.014
+
+------------------------------------------------------------
+
+28. Small arithmetic instructions still affect dependencies
+Reason about the implementation
+
+SAY
+Instruction spelling alone cannot tell us which replacement is safe. Increment and decrement update several arithmetic flags but preserve carry, while ordinary add or subtract by one updates carry too. A zeroing XOR produces zero efficiently on many processors but also changes flags. If a later branch or multiword arithmetic operation expects earlier carry or comparison evidence, that difference matters. Follow the flags as values that are produced and consumed. Only after the semantic dependencies are correct should a performance discussion compare code size or processor behavior. A shorter instruction that destroys needed state is not an optimization.
+
+DO
+Mark an example carry dependency across an increment.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.012
+
+------------------------------------------------------------
+
+29. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Divide -17 by 5 and verify how C++17 relates the quotient and remainder.
+
+Divide. quotient is -3. Integer division truncates toward zero when the quotient is representable.
+
+Find the remainder. remainder is -2. -3 * 5 + -2 reconstructs -17.
+
+Check prerequisites. divisor is nonzero; quotient fits. Division by zero and an unrepresentable signed quotient are not valid operations.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch15/main.cpp
+
+------------------------------------------------------------
+
+30. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Divide. quotient is -3. Integer division truncates toward zero when the quotient is representable.
+
+Find the remainder. remainder is -2. -3 * 5 + -2 reconstructs -17.
+
+Check prerequisites. divisor is nonzero; quotient fits. Division by zero and an unrepresentable signed quotient are not valid operations.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch15/main.cpp
+
+------------------------------------------------------------
+
+31. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The guards run before either / or %, since both need a valid divisor and representable quotient. optional marks rejection separately from a legitimate zero quotient. For valid cases, quotient*divisor+remainder equals the dividend; the remainder follows the dividend’s sign unless it is zero.
+
+Check the exceptional signed boundary as well as zero. Perform the checks before evaluating either arithmetic expression.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch15/main.cpp:1-11
+
+------------------------------------------------------------
+
+32. Signed division has a quotient and a remainder
+Code, diagrams, and debugging
+
+SAY
+Signed division has a quotient and a remainder. Signed integer division truncates toward zero, so -17 / 5 is -3. Division by zero and the unrepresentable minimum-integer / -1 case must be rejected in a general function.
+
+Divide -17 by 5 and verify how C++17 relates the quotient and remainder.
+
+Integer division truncates toward zero when the quotient is representable. -3 * 5 + -2 reconstructs -17. Division by zero and an unrepresentable signed quotient are not valid operations.
+
+Signed integer division truncates toward zero, so -17 / 5 is -3. Division by zero and the unrepresentable minimum-integer / -1 case must be rejected in a general function.
+
+% computes the remainder belonging to that quotient. Here -17 = (-3)×5 + (-2), so the remainder is -2.
+
+The stream prints quotient and remainder in that order. Neither is a rounded floating-point estimate.
+
+For valid inputs, quotient times divisor plus remainder equals the original dividend. Divisor is nonzero and the quotient is representable.
+
+Assuming division rounds down would predict -4, which is wrong for this C++ expression. Assembly signed division also requires the correct dividend preparation. In the extended lab: Check only divisor != 0. The minimum-int/-1 case is still not representable.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch15/main.cpp:7-9
+
+------------------------------------------------------------
+
+33. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Check only divisor != 0. The minimum-int/-1 case is still not representable.
+
+Check the exceptional signed boundary as well as zero. Perform the checks before evaluating either arithmetic expression.
+
+The reference solution makes the contract executable with assertions. The guards run before either / or %, since both need a valid divisor and representable quotient. optional marks rejection separately from a legitimate zero quotient. For valid cases, quotient*divisor+remainder equals the dividend; the remainder follows the dividend’s sign unless it is zero.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.06
+
+------------------------------------------------------------
+
+34. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch15/starter.cpp. Implement the first acceptance case for guard signed division boundaries. State the function inputs and result before adding code. First case: -17/5 returns quotient -3 and remainder -2.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.07
+
+------------------------------------------------------------
+
+35. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch15/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.08
+
+------------------------------------------------------------
+
+36. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Check only divisor != 0. The minimum-int/-1 case is still not representable. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.09
+
+------------------------------------------------------------
+
+37. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Can a signed right shift be substituted for division by 2 in every C++17 expression? Compare the selected design with this plausible alternative: Write / and % first. Let the compiler select a valid machine sequence for known divisors.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.10
+
+------------------------------------------------------------
+
+38. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch15/starter.cpp. Return quotient and remainder for int inputs. Reject division by zero and the minimum int divided by -1, whose quotient cannot fit in int. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch15/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.11
+
+------------------------------------------------------------
+
+39. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Guard signed division boundaries belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.12
+
+------------------------------------------------------------
+
+40. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Return quotient and remainder for int inputs. Reject division by zero and the minimum int divided by -1, whose quotient cannot fit in int.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch15/starter.cpp
+
+------------------------------------------------------------
+
+41. Review the extension solution
+Practice and extension
+
+SAY
+The guards run before either / or %, since both need a valid divisor and representable quotient. optional marks rejection separately from a legitimate zero quotient. For valid cases, quotient*divisor+remainder equals the dividend; the remainder follows the dividend’s sign unless it is zero. Repair principle: Check the exceptional signed boundary as well as zero. Perform the checks before evaluating either arithmetic expression.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Check the exceptional signed boundary as well as zero. Perform the checks before evaluating either arithmetic expression.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch15/solution.cpp
+
+------------------------------------------------------------
+
+42. Application case: Assembly Arithmetic
+Practice and extension
+
+SAY
+Integer division is used to estimate an average.
+
+What information may be lost?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.CASE
+
+------------------------------------------------------------
+
+43. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The guards run before either / or %, since both need a valid divisor and representable quotient. optional marks rejection separately from a legitimate zero quotient. For valid cases, quotient*divisor+remainder equals the dividend; the remainder follows the dividend’s sign unless it is zero.
+
+Choose a simpler approach when its narrower contract is enough. Write / and % first. Let the compiler select a valid machine sequence for known divisors.
+
+When this system changes, retain a check that exposes the known failure: Check only divisor != 0. The minimum-int/-1 case is still not representable. Check the exceptional signed boundary as well as zero. Perform the checks before evaluating either arithmetic expression.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch15.json → SYS15.14
+
+------------------------------------------------------------
+
+44. Hardware shift masking does not legalize every source shift
+Recall and transfer
+
+SAY
+Some x86 shifts mask their count, so a large hardware count may behave like a smaller one. A C++ expression does not inherit permission to use any count just because the compiler targets that hardware. A negative count or a count at least the promoted left operand's width violates the source-level precondition. Validate an input-controlled count before performing the shift, and remember that integer promotions can change the relevant width. Our demonstration uses the constant one, so that issue is excluded deliberately. Tests should include the largest permitted count and the first rejected count whenever the public interface accepts a variable count.
+
+DO
+Ask learners to state the valid count interval for a thirty-two-bit unsigned operation.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.020
+
+------------------------------------------------------------
+
+45. Maintain arithmetic by preserving its domain
+Recall and transfer
+
+SAY
+To propose an arithmetic rewrite, describe its full domain first. Does it accept negative inputs? Is wraparound intended? Which errors are returned, and which inputs are forbidden? These answers determine whether multiplying by eight can become a shift, whether division can use a simpler sequence, and whether one overflow flag is the right test. The chapter's complete source handles a narrow stated contract; a reusable API needs a stronger boundary when it accepts arbitrary values. A maintenance review should preserve those rules in tests and comments, then evaluate speed on the target. Correct output for seven is not evidence about minus seven or the type minimum.
+
+DO
+Ask for one counterexample that defeats a positive-only equivalence argument.
+
+SOURCE
+content/systems-programming/ch15.json → SP15.028

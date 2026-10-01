@@ -1,0 +1,223 @@
+{
+  "chapter": 4,
+  "title": "Integer Representation: finite ranges and checked arithmetic",
+  "opening": [
+    {
+      "title": "Finite integer domains make boundaries unavoidable",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "An unsigned width has a finite maximum",
+        "Application limits may be smaller than type limits",
+        "Arithmetic rules depend on operand types"
+      ],
+      "narration": "An integer type is not the unbounded set of whole numbers from mathematics. An unsigned type with w value bits represents zero through two to the w minus one. That finite domain matters when a program counts bytes or combines input dimensions. The application may impose a smaller limit, such as a maximum packet size, even when the type could represent a much larger value. Begin by separating mathematical intent, the expression's actual type, and the final allowed domain. A value can fit the machine type and still violate policy. It can also wrap under defined unsigned arithmetic and stop representing the mathematical quantity you intended.",
+      "actions": [
+        "Choose a small application limit and distinguish it from the integer type’s maximum."
+      ],
+      "sourceRef": "content/systems-programming/ch4.json → SP04.004 / 4.1 Unsigned Integers",
+      "question": {
+        "prompt": "Does a representable allocation size automatically meet the application’s resource policy?",
+        "answer": "No. A type limit and an application limit are different constraints. Both may need checking."
+      }
+    },
+    {
+      "title": "The most negative value has no matching positive partner",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Two’s complement has an asymmetric range",
+        "The high bit has a negative positional weight",
+        "Negating the minimum needs a separate case"
+      ],
+      "narration": "In an eight-bit two's-complement model, values run from negative one hundred twenty-eight through positive one hundred twenty-seven. There is one extra negative value because zero occupies one of the nonnegative patterns. The high bit is not a separate minus sign: it contributes negative one hundred twenty-eight. Thus 10000101 means negative one hundred twenty-three, not negative five. This asymmetry explains why negating the minimum signed value cannot produce a representable result in the same type. A machine may produce some bit pattern, but ordinary overflowing signed C++ arithmetic is not justified by that observation. Check the boundary before computing an absolute value or a negation.",
+      "actions": [
+        "Decode 10000101 using positional weights and compare it with negative five."
+      ],
+      "sourceRef": "content/systems-programming/ch4.json → SP04.006 / 4.2 Signed Integers",
+      "question": {
+        "prompt": "Why is flipping only the high bit not a general two’s-complement negation?",
+        "answer": "The high bit is a negative weight, not a sign-magnitude flag. Negation changes the complete representation, and the minimum needs special treatment."
+      }
+    },
+    {
+      "title": "Reject signed overflow before evaluating the operation",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "code",
+      "keyPoints": [
+        "An optional result distinguishes rejection",
+        "The guard precedes signed addition",
+        "Unsigned wrap follows a different rule"
+      ],
+      "narration": "increment accepts seven and returns an optional containing eight. At the largest int, it returns no value before evaluating value plus one, so no signed overflow occurs. The second line reports maximum rejected=true. The final expression deliberately uses unsigned arithmetic: its maximum plus one wraps to zero under the language's modular rule. That zero is defined, but whether wrap is useful depends on the requirement. An optional makes rejection visible without choosing a valid integer as a special error sentinel. The program does not infer the size of int or print a platform-specific maximum. It tests the required relationship at whatever supported width the implementation provides.",
+      "actions": [
+        "Predict the three lines and separate signed rejection from unsigned modular behavior."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch4.json → SP04.010 / 4.4 Integer Arithmetic",
+      "question": {
+        "prompt": "Why is checking after value + 1 too late for the signed boundary case?",
+        "answer": "The invalid signed addition would already have been evaluated. The precondition must be checked before the operation."
+      },
+      "code": {
+        "filename": "sys_ch04_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <limits>\n#include <optional>\nstd::optional<int> increment(int value) {\n    if (value == std::numeric_limits<int>::max()) return std::nullopt;\n    return value + 1;\n}\nint main() {\n    const auto ordinary = increment(7);\n    const auto boundary = increment(std::numeric_limits<int>::max());\n    std::cout << \"ordinary=\" << *ordinary << '\\n';\n    std::cout << std::boolalpha << \"maximum rejected=\"\n              << !boundary.has_value() << '\\n';\n    const unsigned wrapped = std::numeric_limits<unsigned>::max() + 1u;\n    std::cout << \"unsigned wrap=\" << wrapped << '\\n';\n}\n",
+        "expectedStdout": "ordinary=8\nmaximum rejected=true\nunsigned wrap=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "A wrapped size can look reassuringly small",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "code",
+      "keyPoints": [
+        "This is a labeled eight-bit arithmetic model",
+        "Seventeen elements of width sixteen need 272 bytes",
+        "Checking the reduced value accepts the wrong quantity"
+      ],
+      "narration": "The real unsigned multiplication here safely computes two hundred seventy-two. We then explicitly mask to eight bits to model a narrow byte-count calculation, obtaining sixteen. The modeled narrow check accepts sixteen under a sixty-four-byte policy limit and prints true. The exact required size is still two hundred seventy-two. The final division-based check rejects the request and prints false, without multiplying an untrusted large pair. This program does not allocate a too-small buffer or perform an out-of-bounds write. It isolates how a bad arithmetic representation can make later bounds checking approve the wrong quantity. In real allocation code, that mistake can invalidate every later access assumption.",
+      "actions": [
+        "Ask learners to explain each of 272, 16, and 64 before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch4.json → SP04.012 / Worked example — Checking a byte-count calculation",
+      "question": {
+        "prompt": "Why is the narrow size check insufficient even though its comparison is correct?",
+        "answer": "It compares the wrong value: a reduced modular result rather than the mathematical byte requirement."
+      },
+      "code": {
+        "filename": "sys_ch04_narrow_size_model.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    const unsigned count = 17u;\n    const unsigned width = 16u;\n    const unsigned exact = count * width; // 272 fits unsigned.\n    const unsigned eight_bit_model = exact & 255u;\n    const unsigned policy_limit = 64u;\n    std::cout << \"modeled narrow bytes=\" << eight_bit_model << '\\n';\n    std::cout << std::boolalpha << \"narrow check accepts=\"\n              << (eight_bit_model <= policy_limit) << '\\n';\n    std::cout << \"exact bytes=\" << exact << '\\n';\n    std::cout << \"correct check accepts=\"\n              << (count <= policy_limit / width) << '\\n';\n}\n",
+        "expectedStdout": "modeled narrow bytes=16\nnarrow check accepts=true\nexact bytes=272\ncorrect check accepts=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Explicit eight-bit modular model computed safely in unsigned; no small allocation or invalid access occurs."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "A conversion is an operation with its own semantics",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Unsigned conversion reduces modulo its range",
+        "Narrowing can discard information",
+        "Validation should precede a meaning-changing cast"
+      ],
+      "narration": "Converting negative one to an unsigned type does not preserve the idea of an error indication. It produces the value congruent to negative one modulo that unsigned range, which is the maximum. Narrowing a larger nonnegative value can similarly discard high information. These are defined conversions in the relevant unsigned cases, but their results may violate the application's meaning. A cast documents a requested conversion, not a proof that it is safe for the domain. When parsing a length into a wide signed result, first reject negatives and out-of-range values. Then convert the validated count into the size type used by the storage interface.",
+      "actions": [
+        "Trace negative one and a too-large positive value through a hypothetical narrow unsigned conversion."
+      ],
+      "sourceRef": "content/systems-programming/ch4.json → SP04.008 / 4.3 Integer Conversion",
+      "question": {
+        "prompt": "What does a static_cast prove about an untrusted length?",
+        "answer": "Only that the requested conversion is expressed in code. It does not prove the original value is nonnegative, within policy, or preserved by the destination type."
+      }
+    },
+    {
+      "title": "Promotions can change where arithmetic happens",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Small integer operands often promote to int",
+        "The expression type matters before assignment",
+        "A narrow final result does not imply narrow intermediate arithmetic"
+      ],
+      "narration": "Suppose two small unsigned objects contain two hundred and one hundred. On a common platform their addition is performed after promotion to int, which can represent three hundred. Assigning that result to an eight-bit unsigned object then reduces it to forty-four. That path is different from saying a hardware byte addition necessarily occurred. The final stored value may match an eight-bit modular model, but the source-level reasoning must account for the promoted expression type. This becomes especially important with shifts, complements, and comparisons. Inspect operand types and promotion rules before making claims about overflow or signedness from the destination variable alone.",
+      "actions": [
+        "Separate the expression’s intermediate 300 from the final modeled eight-bit result 44."
+      ],
+      "sourceRef": "content/systems-programming/ch4.json → SP04.010 / 4.4 Integer Arithmetic",
+      "question": {
+        "prompt": "Does assigning an expression to a small unsigned object force all intermediate operations into that width?",
+        "answer": "No. Promotions and usual arithmetic conversions determine the expression type before the final assignment conversion."
+      }
+    },
+    {
+      "title": "Rearrange a bound without performing the risky product",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "For nonzero width, compare count with limit/width",
+        "Handle zero width explicitly",
+        "Return a result only after the proof succeeds"
+      ],
+      "narration": "The desired condition is count times width no greater than limit. If both quantities are nonnegative and width is not zero, we can check count no greater than limit divided by width before multiplying. Integer division rounds down, which gives exactly the largest whole count that fits. Zero width needs its own branch because division by zero is invalid, while a zero-byte mathematical product may be permitted by the API. The limit should be representable in the destination size type. After this proof, the product is bounded by that limit and can be computed. Keep the checked result with the decision so later callers do not repeat the unsafe calculation.",
+      "actions": [
+        "Use limit 100 and width 12 to derive the largest permitted count without multiplying candidate values."
+      ],
+      "sourceRef": "content/systems-programming/ch4.json → SP04.012 / Worked example — Checking a byte-count calculation",
+      "question": {
+        "prompt": "Why is floor division useful rather than a source of error in this bound?",
+        "answer": "It gives the greatest whole element count whose product with a positive width does not exceed the limit."
+      }
+    },
+    {
+      "title": "Representation knowledge does not authorize signed overflow",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Bit-pattern models have an explicit width",
+        "Source arithmetic follows language rules",
+        "Use an unsigned magnitude or a checked branch when needed"
+      ],
+      "narration": "At the representation level, inverting an eight-bit pattern and adding one gives two's-complement negation modulo two hundred fifty-six. For the minimum pattern, the result is the same pattern. That is a useful description of a fixed-width model. It is not a valid implementation of every ordinary signed absolute value. The source operation still needs a representable result. A program that needs the magnitude of the most negative integer can choose an appropriate unsigned representation and a carefully defined conversion, or reject that input under a narrower contract. Keep representation exercises distinct from executable signed expressions, especially when translating a diagram into C++ code.",
+      "actions": [
+        "Ask students to state separately the modeled bit result and the mathematical magnitude."
+      ],
+      "sourceRef": "content/systems-programming/ch4.json → SP04.014 / Worked example — Two’s-complement negation",
+      "question": {
+        "prompt": "Does the minimum pattern mapping to itself mean abs(minimum) is valid in the same signed type?",
+        "answer": "No. The positive magnitude is outside that signed range. A modular bit-pattern result is not the required positive signed value."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Boundary tests should target the operation’s proof",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Test zero and the largest accepted request",
+        "Test the first rejected request",
+        "Test maximum type values without evaluating invalid arithmetic"
+      ],
+      "narration": "For a checked size calculation, ordinary values confirm only the easy path. Use zero count and zero width to test their chosen policy. Use the exact largest accepted count and the next count to test the division boundary. Use the type's maximum with a multiplier greater than one to make sure the guard rejects before multiplication. For signed increment, test the maximum directly and confirm the rejected result is returned. Avoid a test that itself overflows while computing its expected answer. Test infrastructure follows the same language rules as production code. A mathematical expectation may need a wider model or a hand-derived bound.",
+      "actions": [
+        "Design one accepted-boundary and one rejected-boundary case for a limit of 64 and width 16."
+      ],
+      "sourceRef": "content/systems-programming/ch4.json → SP04.018 / Guided lab and review",
+      "question": {
+        "prompt": "How can a test accidentally become invalid while checking overflow handling?",
+        "answer": "It can compute the expected result using the same overflowing signed expression or unchecked product that the implementation is supposed to avoid."
+      }
+    },
+    {
+      "title": "Review arithmetic as a chain of justified transitions",
+      "eyebrow": "04 / REPRESENTATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Input domain → validated values",
+        "Validated values → representable operation",
+        "Operation result → permitted resource request"
+      ],
+      "narration": "A systems count often crosses several boundaries. Text is parsed into an integer. A signed status is recognized as success or failure. A count and width are combined into bytes. Those bytes are checked against a resource policy and passed to an allocator. A defect at an early boundary can make every later check misleading. Review the chain in order, asking what each conversion and operation preserves. The best helper does more than return a plausible number: it states its input domain, reports rejection separately, and delivers a result whose bounds are already established. This reduces repeated arithmetic assumptions as the program grows.",
+      "actions": [
+        "Ask for a one-minute explanation of why wrapped arithmetic is dangerous for buffer sizes."
+      ],
+      "sourceRef": "content/systems-programming/ch4.json → SP04.020 / Chapter Synthesis",
+      "question": {
+        "prompt": "What should a checked byte-count helper guarantee to its caller?",
+        "answer": "The result represents the intended mathematical byte count, fits the chosen size type and policy, and is returned only when those conditions hold."
+      }
+    }
+  ]
+}

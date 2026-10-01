@@ -1,0 +1,733 @@
+Systems Programming and Machine Organization
+Chapter 47: Mutual Exclusion: protect invariants and return snapshots
+Dr. Charles Dorner
+
+1. A mutex protects a relationship between values
+Problem and first experiment
+
+SAY
+Imagine a document with text and a revision number. A reader must not observe new text paired with the old revision. These fields form one state, so the lock policy must cover both. A mutex grants one participant at a time ownership of a protected region; it does not make a neighboring field safe simply by existing in the same class. Every relevant reader and writer must follow the policy. Start with one lock around this small document state. The invariant is that each visible revision identifies the corresponding committed text. That statement tells us which operations belong together and what a snapshot must contain.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.012
+
+------------------------------------------------------------
+
+2. A snapshot is data the caller may safely keep
+Problem and first experiment
+
+SAY
+A function that returns a reference to protected text has a hidden problem: its lock ends when the function returns, but the caller may keep using the reference while another thread changes the text. Returning a copied snapshot avoids that escape. Copy both text and revision under the same lock, then let the caller use its own pair afterward. Copying has a cost and may throw if memory allocation fails, but scope-bound lock ownership still releases the mutex on that exception path. For large immutable data, a different ownership design may be appropriate. The key is to make the caller's lifetime and access rights explicit instead of exporting a reference with an expired protection promise.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.008
+
+------------------------------------------------------------
+
+3. Run a document update and an owned snapshot
+Problem and first experiment
+
+SAY
+The document starts at revision one with draft text. replace receives the new string by value, so that storage is ready before locking. It swaps the prepared string into the document and increments the bounded demonstration revision while holding the same mutex. snapshot copies both fields under that mutex. The first saved snapshot still prints 1:draft after replacement, while the second prints 2:ready. These values show that the caller owns independent snapshots, not references to changing internal storage. This compact example demonstrates the access policy with sequential calls; the class boundary is what prevents callers from reaching the fields without the lock.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch47.json → SP47.012
+
+------------------------------------------------------------
+
+4. Scope-bound unlocking survives an exception
+Problem and first experiment
+
+SAY
+A lock_guard ties mutex ownership to a scope. This program locks, rejects a negative candidate by throwing, and leaves the protected value unchanged at seven. As the exception leaves the block, the guard's destructor unlocks the mutex. A later guarded operation acquires that same mutex and increments the value to eight. The output rejected=true value=8 checks both the rejection and later usability. Automatic unlocking does not itself roll back partially changed data, which is why validation happens before assignment here. If we had changed several fields before throwing, we would still need a design that restores or explicitly represents a valid failure state.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch47.json → SP47.006
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Two balances total 100. Transfer 10 from one to the other while holding the same lock over both updates.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Two accounts begin with 100 each. Two workers make 100 opposite-direction transfers of one unit. Protect each complete transfer with the same mutex.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Using a separate unrelated mutex at each call site provides no shared exclusion. Protecting only one balance also fails to protect the total.
+
+A related failure in the generalized operation is concrete: Give each worker its own mutex. Both can then enter their critical sections at the same time and race on the accounts.
+
+The repair changes the operation at the point where the rule can be enforced: Use the same synchronization object for every access governed by the invariant. Protect readers as well as writers if they can run concurrently.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The invariant spans two variables, so the critical section spans both updates. The references from and to select direction while the lock is held. Each worker sends at most its account’s initial 100 units, so the positive-source assertion holds for every schedule in this fixture. Main reads the final state after both workers finish.
+
+A plausible alternative: For one independent count, an atomic operation can be simpler; for coupled state, a single clear mutex is often easier to audit.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.03
+
+------------------------------------------------------------
+
+8. Chapter 47 — Mutual Exclusion
+Systems mechanisms and source lecture
+
+SAY
+Mutual exclusion gives one participant at a time access to a protected region. A mutex is useful not because it makes code “thread-safe” by proximity, but because every relevant access follows the same ownership rule and preserves a defined invariant. The invariant should be stated in ordinary language before the lock operations are written. [ R25 , R34 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.001, SP47.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+47.1 Mutexes 47.2 Lock 47.3 Unlock 47.4 Critical sections ...plus 8 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.003
+
+------------------------------------------------------------
+
+10. Mutexes
+Systems mechanisms and source lecture
+
+SAY
+A mutex coordinates exclusive ownership. A thread acquires it before accessing protected mutable state and releases it afterward. Correct use establishes both exclusion and the ordering needed to observe prior protected updates. A mutex protects a rule about state , not a particular memory address by magic. If another function accesses the same state without the mutex, the rule is broken. Keep the state private behind an interface where practical so that callers cannot bypass the protection accidentally.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.004, SP47.005
+
+------------------------------------------------------------
+
+11. Lock
+Systems mechanisms and source lecture
+
+SAY
+Locking obtains exclusive ownership, potentially waiting while another thread owns the mutex. A lock acquisition is therefore a possible blocking point. Avoid assuming that a short critical section always makes acquisition immediate. Use RAII ownership such as std::lock_guard or std::unique_lock in C++ to tie release to scope. Manual lock/unlock pairs are vulnerable to early returns and exceptions. unique_lock is appropriate when the code needs controlled unlocking or condition-variable waiting.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.006, SP47.007
+
+------------------------------------------------------------
+
+12. Unlock
+Systems mechanisms and source lecture
+
+SAY
+Unlocking releases ownership and permits another participant to acquire the mutex. All protected invariants should hold at this boundary. An exception that leaves partially updated state must either restore the invariant or make failure state explicit before release. Do not unlock a mutex from a thread that does not own it under the ordinary mutex contract. Do not retain references to mutable internal data and then access them after unlocking unless a separate lifetime and synchronization rule permits it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.008, SP47.009
+
+------------------------------------------------------------
+
+13. Critical sections
+Systems mechanisms and source lecture
+
+SAY
+The critical section contains the operations that must be observed together. For an account transfer, checking funds and updating both balances belong to one logical transaction. Protecting only the final store leaves a check-then-act race. Keep sections focused. Expensive computation can often be performed on a snapshot outside the lock, but the result may need validation when applied. Releasing the lock does not freeze the state that was inspected earlier.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.010, SP47.011
+
+------------------------------------------------------------
+
+14. Protected state
+Systems mechanisms and source lecture
+
+SAY
+Related fields should be grouped under a clear protection policy. A queue’s storage, head, tail, count, and closure flag may form one invariant. Protecting each field with an unrelated lock can expose combinations that never represented a valid queue state. Document the policy near the data definition. For example: “All reads and writes of these balances require mutex_ ; their sum remains constant.” Such a statement is more useful than a vague comment saying “thread-safe class.”
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.012, SP47.013
+
+------------------------------------------------------------
+
+15. Lock invariants
+Systems mechanisms and source lecture
+
+SAY
+A lock invariant describes what is true whenever protected state is available to another owner. Temporary internal states can exist while the lock is held, but they must not escape through callbacks, unlocked references, or exceptions. An invariant also guides tests. Verify conservation laws, bounds, and relationships, not only whether threads finish. A program that never crashes can still lose items, duplicate work, or violate accounting constraints.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.014, SP47.015
+
+------------------------------------------------------------
+
+16. Coarse-grained locking
+Systems mechanisms and source lecture
+
+SAY
+Coarse-grained locking uses one lock for a broad region or related state group. It is often easier to prove correct and avoids many lock-order problems. For modest contention, its simplicity can outweigh theoretical parallelism lost inside the critical section. The cost appears when unrelated operations serialize behind the same mutex. Measure contention before splitting the design. A clear coarse-grained implementation provides a valuable correctness baseline for later optimization.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.016, SP47.017
+
+------------------------------------------------------------
+
+17. Fine-grained locking
+Systems mechanisms and source lecture
+
+SAY
+Fine-grained locking divides protection among smaller state regions. It can allow independent operations to proceed concurrently but adds ownership, ordering, and lifecycle complexity. Operations spanning regions may need several locks. A finer design must define a consistent acquisition order or use a deadlock-avoiding multi-lock facility. More locks can also increase memory use, cache traffic, and maintenance cost. Fine-grained is a tradeoff, not a synonym for faster.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.018, SP47.019
+
+------------------------------------------------------------
+
+18. Preserve a conservation invariant
+Systems mechanisms and source lecture
+
+SAY
+The ledger below starts with 1000 units on the left and zero on the right. Four workers each move 100 units, one at a time. One mutex protects both balances, and every transfer preserves their sum. Companion listing: ch47/ledger.cpp The expected output is left=600 right=400 . No transfer can observe the half-updated pair because all protected access uses the same mutex. Returning a copied snapshot keeps callers from retaining a reference that would bypass the lock after the function returns. The arithmetic is bounded by the initial total, so the example’s unsigned additions cannot exceed 1000. A general financial or inventory system would need explicit numeric range and domain rules rather than assuming those bounds remain true for arbitrary inputs.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.020, SP47.021
+
+------------------------------------------------------------
+
+19. Protecting a bank balance
+Systems mechanisms and source lecture
+
+SAY
+Suppose balance must never be observed halfway through an update. Every operation that reads or modifies the invariant acquires the same mutex. A transfer locks before checking funds and updating the balance, then unlocks after the invariant is restored. The mutex is useful because the protected-state rule is consistent across all access paths.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.022, SP47.023
+
+------------------------------------------------------------
+
+20. Coarse versus fine locking
+Systems mechanisms and source lecture
+
+SAY
+One global mutex around an entire table is easy to reason about but serializes unrelated operations. One mutex per bucket can allow independent buckets to proceed concurrently but complicates operations touching multiple buckets. Fine-grained locking trades simpler contention behavior for more complicated ordering and invariant management.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.024, SP47.025
+
+------------------------------------------------------------
+
+21. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 47. Increase attempted transfers beyond the available total and count successful operations. Verify that the final left balance is zero, the right balance remains 1000, and the success count is exactly 1000. Keep the success-counting policy synchronized or use per-thread counts. Review 1. Why must the funds check and updates share a critical section? Review 2. Why return a snapshot rather than a reference to a balance?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.026, SP47.027
+
+------------------------------------------------------------
+
+22. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is mutual exclusion. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.028
+
+------------------------------------------------------------
+
+23. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Condition Variables.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.029
+
+------------------------------------------------------------
+
+24. Keep validation inside the transaction it protects
+Reason about the implementation
+
+SAY
+Suppose two requests each inspect a balance of ten and each plan to remove eight. If the funds check occurs before acquiring the mutex, both may decide that the operation is allowed. Serializing only the subtraction cannot repair the stale decisions. The check and update belong in one critical section because they establish one transaction. Expensive work can sometimes be done on a copied snapshot outside the lock, but applying its result may require checking a version or other assumptions again. Shortening a critical section is useful only when it preserves the same invariant. A faster path that admits impossible state is not an optimization of the original contract.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.010
+
+------------------------------------------------------------
+
+25. Lock ownership also orders memory access
+Reason about the implementation
+
+SAY
+Mutual exclusion keeps protected operations from overlapping, and the mutex relationship also orders visibility of earlier protected updates to the next owner. That is why a reader must use the same policy as a writer even when it never changes data. A second unrelated mutex in the reader does not coordinate with the writer's mutex. The code may contain two locks and still contain a data race. Keep the ownership rule close to the data definition and expose operations that enforce it. In the document example, both replace and snapshot use mutex_, making the relationship visible instead of relying on each caller to remember a comment.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.004
+
+------------------------------------------------------------
+
+26. Choose lock_guard or unique_lock for the actual job
+Reason about the implementation
+
+SAY
+A lock_guard acquires a mutex and releases it at the end of its scope. It is a good fit when an operation should remain protected throughout one block. A unique_lock keeps ownership state that can be released and reacquired, which condition-variable waiting needs. That extra flexibility also creates more states to reason about. Do not use manual lock and unlock calls merely to avoid a small owner object; an early return or exception can skip the unlock. Choose the simplest owner that supports the operation. Then ensure that object destruction occurs after the invariant is restored and before any long wait that depends on another thread using the same mutex.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.006
+
+------------------------------------------------------------
+
+27. Coarse and fine locks trade different costs
+Reason about the implementation
+
+SAY
+A single mutex around a small document or ledger is often the clearest starting point. It makes the state invariant easy to inspect and avoids many ordering problems. If measurements later show that unrelated operations wait behind it, separate locks may help. But an operation spanning those regions now needs coordinated acquisition and a proof that no cycle can form. More locks also cost memory and can increase cache traffic. The right comparison is a measured workload with the same semantics, not the number of mutexes in a diagram. Keep the coarse version as a correctness reference while experimenting with finer protection.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.018
+
+------------------------------------------------------------
+
+28. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Two balances total 100. Transfer 10 from one to the other while holding the same lock over both updates.
+
+Lock before observing and changing. first 60; second 40. All concurrent accesses to these balances would need to follow the same locking rule.
+
+Apply both changes. first 50; second 50. The temporary half-complete update is hidden from other cooperating locked operations.
+
+Leave the block. lock_guard releases the mutex. Scope-based cleanup keeps release paired with acquisition.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch47/main.cpp
+
+------------------------------------------------------------
+
+29. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Lock before observing and changing. first 60; second 40. All concurrent accesses to these balances would need to follow the same locking rule.
+
+Apply both changes. first 50; second 50. The temporary half-complete update is hidden from other cooperating locked operations.
+
+Leave the block. lock_guard releases the mutex. Scope-based cleanup keeps release paired with acquisition.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch47/main.cpp
+
+------------------------------------------------------------
+
+30. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The invariant spans two variables, so the critical section spans both updates. The references from and to select direction while the lock is held. Each worker sends at most its account’s initial 100 units, so the positive-source assertion holds for every schedule in this fixture. Main reads the final state after both workers finish.
+
+Use the same synchronization object for every access governed by the invariant. Protect readers as well as writers if they can run concurrently.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch47/main.cpp:1-16
+
+------------------------------------------------------------
+
+31. Protect a whole invariant
+Code, diagrams, and debugging
+
+SAY
+Protect a whole invariant. Constructing lock_guard locks guard. Its destructor unlocks at the end of this scope, including stack unwinding.
+
+Two balances total 100. Transfer 10 from one to the other while holding the same lock over both updates.
+
+All concurrent accesses to these balances would need to follow the same locking rule. The temporary half-complete update is hidden from other cooperating locked operations. Scope-based cleanup keeps release paired with acquisition.
+
+Constructing lock_guard locks guard. Its destructor unlocks at the end of this scope, including stack unwinding.
+
+The source balance must cover the transfer before the first update. This fixture checks ten units are available.
+
+Debit the first balance while holding the lock. At this intermediate point the conservation rule is temporarily incomplete.
+
+Credit the second balance before releasing the same lock. Other participating operations must use this lock too.
+
+The assertion checks the restored total of 100 while the protected state is still locked. Locking each update separately would expose an invalid intermediate total.
+
+Every participant must use the same mutex for the protected balances. A complete transfer restores the conserved total before releasing the lock.
+
+Using a separate unrelated mutex at each call site provides no shared exclusion. Protecting only one balance also fails to protect the total. In the extended lab: Give each worker its own mutex. Both can then enter their critical sections at the same time and race on the accounts.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch47/main.cpp:9-13
+
+------------------------------------------------------------
+
+32. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Give each worker its own mutex. Both can then enter their critical sections at the same time and race on the accounts.
+
+Use the same synchronization object for every access governed by the invariant. Protect readers as well as writers if they can run concurrently.
+
+The reference solution makes the contract executable with assertions. The invariant spans two variables, so the critical section spans both updates. The references from and to select direction while the lock is held. Each worker sends at most its account’s initial 100 units, so the positive-source assertion holds for every schedule in this fixture. Main reads the final state after both workers finish.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.06
+
+------------------------------------------------------------
+
+33. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch47/starter.cpp. Implement the first acceptance case for guard a conservation rule across real workers. State the function inputs and result before adding code. First case: Every completed transfer preserves total 200.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.07
+
+------------------------------------------------------------
+
+34. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch47/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.08
+
+------------------------------------------------------------
+
+35. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Give each worker its own mutex. Both can then enter their critical sections at the same time and race on the accounts. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.09
+
+------------------------------------------------------------
+
+36. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Would making both balances atomic automatically make the transfer atomic? Compare the selected design with this plausible alternative: For one independent count, an atomic operation can be simpler; for coupled state, a single clear mutex is often easier to audit.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.10
+
+------------------------------------------------------------
+
+37. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch47/starter.cpp. Two accounts begin with 100 each. Two workers make 100 opposite-direction transfers of one unit. Protect each complete transfer with the same mutex. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch47/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.11
+
+------------------------------------------------------------
+
+38. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Guard a conservation rule across real workers belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.12
+
+------------------------------------------------------------
+
+39. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Two accounts begin with 100 each. Two workers make 100 opposite-direction transfers of one unit. Protect each complete transfer with the same mutex.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch47/starter.cpp
+
+------------------------------------------------------------
+
+40. Review the extension solution
+Practice and extension
+
+SAY
+The invariant spans two variables, so the critical section spans both updates. The references from and to select direction while the lock is held. Each worker sends at most its account’s initial 100 units, so the positive-source assertion holds for every schedule in this fixture. Main reads the final state after both workers finish. Repair principle: Use the same synchronization object for every access governed by the invariant. Protect readers as well as writers if they can run concurrently.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Use the same synchronization object for every access governed by the invariant. Protect readers as well as writers if they can run concurrently.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch47/solution.cpp
+
+------------------------------------------------------------
+
+41. Application case: Mutual Exclusion
+Practice and extension
+
+SAY
+A mutex protects one write path but readers bypass it.
+
+Is the shared-state protocol complete?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.CASE
+
+------------------------------------------------------------
+
+42. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The invariant spans two variables, so the critical section spans both updates. The references from and to select direction while the lock is held. Each worker sends at most its account’s initial 100 units, so the positive-source assertion holds for every schedule in this fixture. Main reads the final state after both workers finish.
+
+Choose a simpler approach when its narrower contract is enough. For one independent count, an atomic operation can be simpler; for coupled state, a single clear mutex is often easier to audit.
+
+When this system changes, retain a check that exposes the known failure: Give each worker its own mutex. Both can then enter their critical sections at the same time and race on the accounts. Use the same synchronization object for every access governed by the invariant. Protect readers as well as writers if they can run concurrently.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch47.json → SYS47.14
+
+------------------------------------------------------------
+
+43. Review what escapes while the lock is held
+Recall and transfer
+
+SAY
+Inspect the exits from a critical section, not just its entrance. A callback may run arbitrary code, reenter the same component, or acquire another lock in an unexpected order. A returned reference may let someone access state after protection ends. An exception may release the mutex while the fields no longer satisfy their relationship. Each escape needs a policy. Often the operation can commit a small consistent update, copy a notification value, unlock, and then invoke outside code. That does not make every callback safe automatically; the callback observes a completed event rather than participating inside the protected transaction.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.014
+
+------------------------------------------------------------
+
+44. Test conservation and consistency, not only completion
+Recall and transfer
+
+SAY
+A concurrency test that merely waits for workers to finish can miss lost items, mismatched versions, or duplicated transfers. Test the rule that the mutex is intended to protect. For a document, verify that each snapshot's revision matches its text. For a ledger, verify the conserved total and the exact number of successful bounded transfers. Add rejected inputs and exceptions so later normal operations prove the mutex and state remain usable. Then measure contention if the feature needs more throughput. Keeping tests tied to invariants makes maintenance safer because a future optimization must preserve a concrete behavior rather than a vague claim that the class is thread-safe.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch47.json → SP47.026

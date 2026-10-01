@@ -1,0 +1,779 @@
+Systems Programming and Machine Organization
+Chapter 10: Memory Allocators: policies, metadata, fragmentation, and lifetime
+Dr. Charles Dorner
+
+1. An allocator promises valid regions, not just a free-byte total
+Problem and first experiment
+
+SAY
+A caller asking for twelve bytes needs one usable region satisfying the allocator's alignment and lifetime contract. Twelve free bytes scattered in unrelated gaps may not be enough. The allocator also stores metadata, and the complete managed block can be larger than the requested payload. Before studying selection algorithms, state the core promises: live payloads do not overlap, returned storage meets the declared size and alignment, and valid release returns a block to the allocator exactly once. A teaching allocator can have a narrow single-threaded contract. Calling it an allocator does not automatically make it a replacement for every guarantee supplied by a production memory system.
+
+DO
+State the non-overlap invariant before discussing any search policy.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.004 / 10.1 Blocks
+
+------------------------------------------------------------
+
+2. Best fit describes one local choice
+Problem and first experiment
+
+SAY
+Suppose the candidate free block sizes are thirty, eighteen, and twenty-four, and the request is sixteen. First fit chooses thirty if that is the list order, while best fit chooses eighteen. Best fit leaves a smaller immediate remainder, but its name does not prove that the future workload will use memory better. A two-byte fragment may be less useful than a larger one, and finding the smallest candidate may require more search or a more complex index. Compare policies with complete request-and-release traces and clear metrics. A single attractive allocation is not enough evidence for a global performance or fragmentation claim.
+
+DO
+Predict the chosen sizes for request 16 before showing the program.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.012 / 10.5 Best fit
+
+------------------------------------------------------------
+
+3. Compare selection policies with a transparent model
+Problem and first experiment
+
+SAY
+This program models only block selection. It does not hand out actual payload pointers or measure allocator speed. The loop records the first candidate that fits and separately tracks the smallest fitting candidate. For a request of sixteen, it prints first fit=30 with remainder=14, then best fit=18 with remainder=2. The sentinel index equals the array size until a candidate exists, and the program checks that state before indexing the results. A production allocator must do more: account for metadata and alignment, decide whether a remainder can become a valid free block, and update ownership records. Isolating selection helps us see what each policy really promises.
+
+DO
+Run after predicting both selected sizes, then list the omitted allocator obligations.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch10.json → SP10.010 / 10.4 First fit
+
+------------------------------------------------------------
+
+4. A live block separates free capacity into unusable pieces
+Problem and first experiment
+
+SAY
+The region records explicitly model physical order in one managed area; they are not an arbitrary free-list order. Initially, the middle eight bytes are live. The two free ends total sixteen bytes, but the largest contiguous free run is only eight, so a twelve-byte request prints false. After the middle region is marked free, the adjacent free run is twenty-four and the same fit test prints true. This is a model of external fragmentation and the opportunity for coalescing. No live object is moved, and no actual allocation takes place. The key condition is physical adjacency with no live region between the free pieces.
+
+DO
+Trace the running total resetting at the live middle region before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch10.json → SP10.022 / 10.10 External fragmentation
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A model arena aligns every allocation to an eight-byte boundary. Allocate requests of 5 and 9 bytes, tracking the consumed space.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Implement reserve_bytes(used,capacity,request) for eight-byte-aligned starts. Return no start on failure and leave used unchanged. This models offsets, not actual object construction.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Advancing by the requested byte count alone can violate alignment. The rounding formula also needs overflow checks for unbounded inputs.
+
+A related failure in the generalized operation is concrete: Update used before checking the request. A rejected allocation then consumes or corrupts the remaining arena state.
+
+The repair changes the operation at the point where the rule can be enforced: Compute candidate offsets in local values and commit used only after the last bound check. Test failure after one successful allocation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Padding is computed separately and checked against remaining space before addition. The state changes only after every bound passes, which makes failure leave the arena usable. Returning an optional offset distinguishes rejection from a valid start at zero. This bump model has no individual free operation and does not create C++ objects in raw storage.
+
+A plausible alternative: Use normal containers or a standard allocator unless measured allocation costs or a shared lifetime justify a custom arena.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.03
+
+------------------------------------------------------------
+
+8. Chapter 10 — Memory Allocators
+Systems mechanisms and source lecture
+
+SAY
+An allocator converts larger regions of storage into smaller allocations while tracking which regions are available. It must return suitably aligned, nonoverlapping storage and preserve enough metadata to reclaim it. Performance policies such as first fit or best fit operate inside these correctness constraints.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.001, SP10.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+10.1 Blocks 10.2 Metadata 10.3 Free lists 10.4 First fit ...plus 12 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.003
+
+------------------------------------------------------------
+
+10. Blocks
+Systems mechanisms and source lecture
+
+SAY
+A block is a unit of storage managed by the allocator. It may contain a header, a payload returned to the caller, and padding. The caller’s requested size and the allocator’s actual block size can differ. A 13-byte request might occupy a larger block because of alignment or size classes. The fundamental invariant is that live allocation payloads do not overlap and remain valid until release. A custom allocator should state its supported alignments, maximum request size, zero-size policy, and threading model. Without those declarations, callers cannot know whether a returned address is appropriate for their object.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.004, SP10.005
+
+------------------------------------------------------------
+
+11. Metadata
+Systems mechanisms and source lecture
+
+SAY
+Metadata records information such as block size, allocation state, neighboring blocks, or free-list links. It can be stored next to the payload or in separate tables. Adjacent metadata is convenient but can be corrupted by an out-of-bounds write from the payload. Never treat allocator metadata as trustworthy after detecting memory corruption. Continuing to allocate and free through damaged state can amplify the failure. A teaching allocator can use assertions and validation scans; a production allocator also needs careful hardening, concurrency control, and recovery policy. Implementing an allocator is not just writing a fast search loop.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.006, SP10.007
+
+------------------------------------------------------------
+
+12. Free lists
+Systems mechanisms and source lecture
+
+SAY
+A free list links blocks available for reuse. An implicit list discovers free blocks by walking every block’s metadata. An explicit list links free blocks directly, often storing links inside the free payload. Segregated lists group blocks by size to reduce search cost. Every insertion and removal must preserve list consistency. A block must not appear twice, and an allocated block must not remain on a free list. In a concurrent allocator, these are shared-state invariants requiring synchronization or a carefully proved lock-free scheme. Thread-local caches reduce contention but can retain memory that another thread could otherwise use.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.008, SP10.009
+
+------------------------------------------------------------
+
+13. First fit
+Systems mechanisms and source lecture
+
+SAY
+First fit scans candidates and selects the first block large enough. It is simple and can stop early, but its behavior depends on list order. Over time, small leftover regions near the beginning can increase search work or change fragmentation patterns. A first-fit policy is not inherently bad; its suitability depends on request sizes, lifetimes, and workload locality. Measure representative traces rather than judging a policy by one allocation. Search cost, fragmentation, cache behavior, and synchronization overhead can move in different directions.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.010, SP10.011
+
+------------------------------------------------------------
+
+14. Best fit
+Systems mechanisms and source lecture
+
+SAY
+Best fit selects the smallest available block that can satisfy the request. It tries to minimize the immediate leftover amount, but finding that block can require more search or a more complex index. Small leftovers can also become unusable fragments. The name describes a local choice, not a proof of globally optimal memory use. Future requests are unknown. A slightly larger current remainder might be more useful later than a tiny one. Compare allocator policies using complete traces and explicit metrics rather than assuming that the word “best” guarantees the best outcome.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.012, SP10.013
+
+------------------------------------------------------------
+
+15. Block splitting
+Systems mechanisms and source lecture
+
+SAY
+When a free block is larger than needed, the allocator can divide it into an allocated block and a remaining free block. The remainder must be large enough to hold required metadata, alignment, and a useful payload. Otherwise it is often better to give the entire block to the request. Splitting changes both physical-neighbor relationships and free-list membership. Update these consistently before exposing the new state. A trace should show old block boundaries, allocated size, remainder size, and every metadata update. This makes off-by-header and alignment mistakes visible.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.014, SP10.015
+
+------------------------------------------------------------
+
+16. Coalescing
+Systems mechanisms and source lecture
+
+SAY
+Coalescing merges adjacent free blocks into a larger free region. It reduces external fragmentation by restoring space that can satisfy larger requests. Adjacency means neighboring addresses in the managed region, not neighboring nodes in an arbitrary free-list order. Boundary tags or external metadata can help find physical neighbors. Immediate coalescing merges on each release; deferred coalescing postpones work until needed. Either policy must avoid merging across live blocks or unrelated regions. A correct merge removes old list entries before inserting the combined block exactly once.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.016, SP10.017
+
+------------------------------------------------------------
+
+17. Alignment
+Systems mechanisms and source lecture
+
+SAY
+The allocator must align the payload, not merely the block header. A header whose size is not a multiple of the requested alignment can misalign the returned address. The allocator may add padding before the payload and must retain enough information to find the actual block on release. For an arena, alignment consumes part of the remaining space before the requested bytes are reserved. Check both components. C++ std::align can help find an aligned subregion within a bounded span of storage. It does not allocate more memory or initialize an object; it only adjusts a pointer and available-space description.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.018, SP10.019
+
+------------------------------------------------------------
+
+18. Internal fragmentation
+Systems mechanisms and source lecture
+
+SAY
+Internal fragmentation is unused space inside an allocated block, such as rounding a 13-byte request to a 16-byte size class. The application owns the block’s payload contract but may not be allowed to use all allocator-internal spare bytes. Measure internal fragmentation as actual reserved bytes minus requested useful bytes under a clearly stated accounting rule. Headers and alignment padding may be reported separately or included; consistency matters. A small per-object waste becomes substantial when millions of objects are live.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.020, SP10.021
+
+------------------------------------------------------------
+
+19. External fragmentation
+Systems mechanisms and source lecture
+
+SAY
+External fragmentation occurs when free space is divided into regions that cannot satisfy a larger request even though their total size is sufficient. Two free 40-byte regions separated by a live block cannot satisfy one contiguous 64-byte request. Coalescing helps only when free regions are physically adjacent. Compaction could move live objects, but ordinary raw pointers make transparent movement difficult. Handles, indirection, or moving-memory runtimes can support compaction; a conventional C allocator cannot simply relocate an arbitrary live allocation without the program’s cooperation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.022, SP10.023
+
+------------------------------------------------------------
+
+20. Arena allocation
+Systems mechanisms and source lecture
+
+SAY
+An arena obtains a region and serves allocations from it, often by advancing a cursor. Individual deallocation may be omitted; all storage is reset together. This makes allocation fast and cleanup simple when objects share a lifetime, such as one parsed document or request. Resetting an arena invalidates every object and view backed by it. Nontrivial C++ objects may need destructors before reset, and retained pointers must not escape the arena’s lifetime. An arena trades flexible reclamation for a stronger lifetime discipline. It is excellent when that discipline matches the problem and dangerous when callers assume independent object lifetimes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.024, SP10.025
+
+------------------------------------------------------------
+
+21. A bounded bump arena
+Systems mechanisms and source lecture
+
+SAY
+The requirement is to allocate aligned byte regions from a fixed 128-byte arena and reject requests that do not fit. Individual release is intentionally unsupported. The arena provides storage only; the example does not construct nontrivial objects inside it. Companion listing: ch10/arena.cpp The first request consumes three bytes. On the stated alignment model, the next eight-byte-aligned start is offset 8, so five padding bytes are skipped and the second payload occupies offsets 8 through 15. The cursor becomes 16. The 200-byte request cannot fit and leaves the cursor unchanged. The abstraction has deliberately narrow semantics. Returned regions remain valid only until reset or destruction, and the arena is not thread-safe. A complete object allocator would add construction, destruction, and stronger alignment policy. Keeping the storage-only contract explicit makes this example useful without presenting it as a drop-in replacement for the standard allocator.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.026, SP10.027
+
+------------------------------------------------------------
+
+22. Splitting a free block
+Systems mechanisms and source lecture
+
+SAY
+Suppose a free-list allocator has a 256-byte free block and receives a 96-byte aligned request plus 16 bytes of metadata. If the allocator rounds the payload to 96 and needs 112 total bytes, it can allocate 112 bytes and leave a 144-byte remainder if that remainder is large enough to represent another valid block. Otherwise it may consume the whole block, creating internal fragmentation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.028, SP10.029
+
+------------------------------------------------------------
+
+23. Coalescing neighbors
+Systems mechanisms and source lecture
+
+SAY
+Imagine three consecutive heap blocks: allocated 64, free 80, free 48. When the allocator notices the two free neighbors are physically adjacent, it can merge their payload and metadata representation into one larger free block. Coalescing reduces external fragmentation because future large requests can use space that was previously split into smaller holes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.030, SP10.031
+
+------------------------------------------------------------
+
+24. Staged project — A reusable free-list allocator
+Systems mechanisms and source lecture
+
+SAY
+The bump arena is intentionally retained because it isolates alignment and bounded allocation. The next implementation adds individual deallocation and combines the mechanisms introduced in Sections 10.1 through 10.10. Its contract is deliberately narrower than malloc : it manages one fixed 512-byte region, returns storage aligned to 16 bytes, accepts only pointers returned by its own allocate , uses first fit, splits only when the remainder is at least 32 bytes, and immediately coalesces physically adjacent free blocks. It is single-threaded and does not construct C++ objects. Companion listing: ch10/freelist_allocator.cpp The companion listing contains the complete definitions and executable tests. Keeping block descriptors in a vector rather than inside the managed bytes makes the teaching invariant easier to inspect: descriptors are in increasing address order, their half-open ranges exactly partition [0, 512) , and no two live allocations overlap. A production allocator would normally avoid allocating metadata dynamically while servicing an allocation request. Allocation trace. Begin with [0,512) F . Allocate 64 bytes: [0,64) A [64,512) F . Allocate 80 bytes: [0,64) A [64,144) A [144,512) F . Allocate 48 bytes: [0,64) A [64,144) A [144,192) A [192,512) F . Free the middle block: [0,64) A [64,144) F [144,192) A [192,512) F . A 32-byte request reuses the 80-byte hole and splits it because the 48-byte remainder exceeds the minimum split: [0,64) A [64,96) A [96,144) F [144,192) A [192,512) F . Coalescing trace. Free [0,64) , then [64,96) . The allocator first merges left with the newly free block and then merges the adjacent [96,144) remainder, producing [0,144) F . Freeing [144,192) merges on both sides as applicable; the final free of the last live block restores [0,512) F . The test therefore exercises reuse, left coalescing, right coalescing, and restoration of the original region. Statistics distinguish requested bytes from reserved bytes. Their difference is internal fragmentation under this implementation’s rounding rule. External fragmentation can be reported as free_bytes - largest_free : zero means every free byte is currently in one contiguous block. These metrics are policy-dependent descriptions, not universal allocator-quality scores. The implementation rejects zero-sized requests, arithmetic that would overflow during alignment rounding, pointers outside the arena, pointers into the interior of a block, and a second release of a block that is still represented as free. These checks are intentionally limited. After coalescing, stale pointers can coincide with a later allocation start, corrupted metadata can invalidate the reasoning, and address reuse makes perfect temporal error detection impossible without additional generation or quarantine metadata. Sanitizers and hardened allocators use stronger mechanisms; this example does not claim complete invalid-free detection. Allocator project tests. Verify exhaustion without state corruption; reuse of a freed first-fit block; 16-byte alignment for every successful result; refusal to create a remainder smaller than 32 bytes; coalescing with a free predecessor, successor, and both neighbors; invalid and double-free rejection for the cases above; overflow-checked size rounding; and conservation of the 512 managed bytes after every operation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.032, SP10.033
+
+------------------------------------------------------------
+
+25. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 10. Add accounting for requested bytes and alignment padding. Allocate a sequence of differently aligned requests, then verify that every successful region lies inside the arena and that no two live regions overlap. Review 1. Distinguish internal from external fragmentation using a concrete layout. Review 2. Why can two consecutive free-list nodes fail to be coalescible?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.034, SP10.035
+
+------------------------------------------------------------
+
+26. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is memory allocators. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.036
+
+------------------------------------------------------------
+
+27. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Memory Errors.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.037
+
+------------------------------------------------------------
+
+28. A free list is a representation of allocator state
+Reason about the implementation
+
+SAY
+An explicit free list helps the allocator find reusable regions without scanning every live block. Its usefulness depends on its bookkeeping being true. A block appearing twice can be handed out twice. A live block accidentally left on the list can overlap a new allocation. Links stored in a free payload are metadata, not bytes the old caller may continue modifying after release. In a teaching implementation, a validation scan can check uniqueness, region bounds, non-overlap, and agreement between physical blocks and free-list entries. A concurrent implementation adds synchronization obligations to those same invariants. Fast lookup is not valuable if the structure describing available storage is wrong.
+
+DO
+Ask learners to connect each bookkeeping rule to a possible overlapping allocation.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.008 / 10.3 Free lists
+
+------------------------------------------------------------
+
+29. Split only when the remainder is a valid block
+Reason about the implementation
+
+SAY
+Consider a sixty-four-byte free block under a policy requiring every remaining free block to occupy at least thirty-two bytes. If the accounted allocated block needs thirty-two, splitting leaves another valid thirty-two-byte block. If it needs forty-eight, the remaining sixteen is too small under this policy, so giving the whole block to the request may be correct. That extra reserved space is internal waste rather than a separately reusable region. Real accounting must include headers and alignment, not only the caller's payload bytes. The split also changes neighbor boundaries and list membership. Trace all those updates before publishing the new allocator state to a caller.
+
+DO
+Compare the 32-byte and 48-byte accounted requests under the same minimum-remainder rule.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.014 / 10.6 Block splitting
+
+------------------------------------------------------------
+
+30. Align the payload and count the gap before it
+Reason about the implementation
+
+SAY
+An arena cursor at offset seventeen under an eight-byte alignment needs seven bytes of padding before the next payload can begin at twenty-four. In a thirty-two-byte region, only eight payload bytes then remain. A request for nine must fail even though fifteen bytes were unused before alignment. Check the gap and payload against remaining capacity before changing the cursor. A header placed before the payload can introduce another offset that must be included. std::align can help locate an aligned subregion within supplied storage, but it neither obtains more storage nor constructs a C++ object. The caller and allocator must agree on both the alignment contract and the object-lifetime work.
+
+DO
+Compute padding, start, and remaining payload separately before deciding success.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.018 / 10.8 Alignment
+
+------------------------------------------------------------
+
+31. An arena trades individual release for a shared lifetime
+Reason about the implementation
+
+SAY
+An arena can make allocation simple by advancing a cursor through one region and resetting the whole region when a request or document is finished. That works well when the allocated objects share a lifetime. It is a poor match for independent long-lived objects that expect individual reclamation. Resetting the cursor does not preserve old borrowed views, and nontrivial C++ objects may require their destructors before their storage is reused. Returning an aligned offset is only a storage reservation model, not complete object construction. Keep the arena's lifetime boundary visible in the surrounding API so callers cannot accidentally retain a pointer into a later request's reused memory.
+
+DO
+Choose a parsed request as a good shared-lifetime case and contrast an independently retained object.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.024 / 10.11 Arena allocation
+
+------------------------------------------------------------
+
+32. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A model arena aligns every allocation to an eight-byte boundary. Allocate requests of 5 and 9 bytes, tracking the consumed space.
+
+Allocate 5 bytes. start 0; used becomes 5. The first address is already aligned.
+
+Round the next start up. 5 becomes 8. Three padding bytes satisfy the eight-byte alignment rule.
+
+Allocate 9 bytes. start 8; used becomes 17. Only 14 bytes were requested, but 17 bytes of the arena span have been consumed.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch10/main.cpp
+
+------------------------------------------------------------
+
+33. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Allocate 5 bytes. start 0; used becomes 5. The first address is already aligned.
+
+Round the next start up. 5 becomes 8. Three padding bytes satisfy the eight-byte alignment rule.
+
+Allocate 9 bytes. start 8; used becomes 17. Only 14 bytes were requested, but 17 bytes of the arena span have been consumed.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch10/main.cpp
+
+------------------------------------------------------------
+
+34. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Padding is computed separately and checked against remaining space before addition. The state changes only after every bound passes, which makes failure leave the arena usable. Returning an optional offset distinguishes rejection from a valid start at zero. This bump model has no individual free operation and does not create C++ objects in raw storage.
+
+Compute candidate offsets in local values and commit used only after the last bound check. Test failure after one successful allocation.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch10/main.cpp:1-15
+
+------------------------------------------------------------
+
+35. Account for allocator alignment
+Code, diagrams, and debugging
+
+SAY
+Account for allocator alignment. For these small fixture values, adding seven then dividing and multiplying by eight rounds the offset up to an eight-byte boundary. The generalized lab avoids overflow in this calculation.
+
+A model arena aligns every allocation to an eight-byte boundary. Allocate requests of 5 and 9 bytes, tracking the consumed space.
+
+The first address is already aligned. Three padding bytes satisfy the eight-byte alignment rule. Only 14 bytes were requested, but 17 bytes of the arena span have been consumed.
+
+For these small fixture values, adding seven then dividing and multiplying by eight rounds the offset up to an eight-byte boundary. The generalized lab avoids overflow in this calculation.
+
+&& requires both bounds. The subtraction is safe only after start <= capacity succeeds; request must fit in the remaining space.
+
+The stream prints the aligned starting offset, not a real allocated address.
+
+used advances past the requested bytes. Alignment padding also counts against the arena capacity. No C++ object lifetime starts in this offset-only model.
+
+Every start offset is a multiple of eight, and used never exceeds capacity. Offset arithmetic is safe for the small fixture; the lab generalizes the checks.
+
+Advancing by the requested byte count alone can violate alignment. The rounding formula also needs overflow checks for unbounded inputs. In the extended lab: Update used before checking the request. A rejected allocation then consumes or corrupts the remaining arena state.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch10/main.cpp:9-12
+
+------------------------------------------------------------
+
+36. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Update used before checking the request. A rejected allocation then consumes or corrupts the remaining arena state.
+
+Compute candidate offsets in local values and commit used only after the last bound check. Test failure after one successful allocation.
+
+The reference solution makes the contract executable with assertions. Padding is computed separately and checked against remaining space before addition. The state changes only after every bound passes, which makes failure leave the arena usable. Returning an optional offset distinguishes rejection from a valid start at zero. This bump model has no individual free operation and does not create C++ objects in raw storage.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.06
+
+------------------------------------------------------------
+
+37. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch10/starter.cpp. Implement the first acceptance case for build a bounded aligned arena model. State the function inputs and result before adding code. First case: Requests 5 and 9 start at offsets 0 and 8.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.07
+
+------------------------------------------------------------
+
+38. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch10/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.08
+
+------------------------------------------------------------
+
+39. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Update used before checking the request. A rejected allocation then consumes or corrupts the remaining arena state. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.09
+
+------------------------------------------------------------
+
+40. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Can this bump model release the first allocation while keeping the second and recover that hole? Compare the selected design with this plausible alternative: Use normal containers or a standard allocator unless measured allocation costs or a shared lifetime justify a custom arena.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.10
+
+------------------------------------------------------------
+
+41. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch10/starter.cpp. Implement reserve_bytes(used,capacity,request) for eight-byte-aligned starts. Return no start on failure and leave used unchanged. This models offsets, not actual object construction. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch10/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.11
+
+------------------------------------------------------------
+
+42. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Build a bounded aligned arena model belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.12
+
+------------------------------------------------------------
+
+43. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Implement reserve_bytes(used,capacity,request) for eight-byte-aligned starts. Return no start on failure and leave used unchanged. This models offsets, not actual object construction.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch10/starter.cpp
+
+------------------------------------------------------------
+
+44. Review the extension solution
+Practice and extension
+
+SAY
+Padding is computed separately and checked against remaining space before addition. The state changes only after every bound passes, which makes failure leave the arena usable. Returning an optional offset distinguishes rejection from a valid start at zero. This bump model has no individual free operation and does not create C++ objects in raw storage. Repair principle: Compute candidate offsets in local values and commit used only after the last bound check. Test failure after one successful allocation.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Compute candidate offsets in local values and commit used only after the last bound check. Test failure after one successful allocation.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch10/solution.cpp
+
+------------------------------------------------------------
+
+45. Application case: Memory Allocators
+Practice and extension
+
+SAY
+An allocator has ample total free bytes but no large contiguous block.
+
+What problem is this?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.CASE
+
+------------------------------------------------------------
+
+46. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Padding is computed separately and checked against remaining space before addition. The state changes only after every bound passes, which makes failure leave the arena usable. Returning an optional offset distinguishes rejection from a valid start at zero. This bump model has no individual free operation and does not create C++ objects in raw storage.
+
+Choose a simpler approach when its narrower contract is enough. Use normal containers or a standard allocator unless measured allocation costs or a shared lifetime justify a custom arena.
+
+When this system changes, retain a check that exposes the known failure: Update used before checking the request. A rejected allocation then consumes or corrupts the remaining arena state. Compute candidate offsets in local values and commit used only after the last bound check. Test failure after one successful allocation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch10.json → SYS10.14
+
+------------------------------------------------------------
+
+47. Validate allocator structure after every mutation in teaching tests
+Recall and transfer
+
+SAY
+A custom allocator needs tests of its internal structure, not just successful pointer returns. After each split, release, and merge, verify that blocks remain within the managed region, cover the intended accounted space, and do not overlap. Check that free-list membership matches block state and that coalescing removes old entries before inserting a combined region once. A rejected allocation should leave the previous metadata unchanged under the chosen contract. Test neighboring frees in different orders because adjacency bugs can hide in one convenient sequence. These checks explain why the chapter stages a small allocator under a narrow contract before making claims about general production use.
+
+DO
+Ask learners to name an invariant to check immediately after a split and immediately after a merge.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.032 / Staged project — A reusable free-list allocator
+
+------------------------------------------------------------
+
+48. Choose an allocator using lifetimes, metrics, and a stated contract
+Recall and transfer
+
+SAY
+An allocator policy should be evaluated against the workload it will serve. Request sizes, release order, concurrency, and shared lifetimes affect search cost and fragmentation. Internal fragmentation counts unused space within allocated blocks under a stated accounting rule. External fragmentation concerns separated free regions that cannot satisfy a larger contiguous request. Headers and alignment may be counted separately, but the report must be consistent. Our models explain individual mechanisms; they do not measure production speed. Before replacing a standard allocator, identify the unmet requirement, define a narrow correct contract, and collect evidence that the new design improves the intended metric without breaking ownership or alignment guarantees.
+
+DO
+Have students defend an arena or reusable free-list design for two different lifetime patterns.
+
+SOURCE
+content/systems-programming/ch10.json → SP10.036 / Chapter Synthesis

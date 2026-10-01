@@ -1,0 +1,232 @@
+{
+  "chapter": 44,
+  "title": "Threads: identities, completion, and lifetime",
+  "opening": [
+    {
+      "title": "A thread is work with a lifetime",
+      "eyebrow": "A THREAD IS WORK WITH A LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Creation can start execution immediately",
+        "Shared objects must outlive access",
+        "Completion needs an owning join policy"
+      ],
+      "narration": "Starting a thread creates a new execution stream that may begin before the creator reaches its next statement. Prepare every referenced object first. The creator also needs a policy for collecting the work, even if a later setup step throws. A thread handle is therefore more than a launch button: it represents a lifecycle obligation. C++20 jthread helps by requesting stop and joining during destruction when appropriate. That does not force a blocked worker to finish or keep an already-destroyed captured object alive. Design the worker's inputs, owner, stop condition, and join point together before testing its result.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch44.json \u2192 SP44.004",
+      "question": {
+        "prompt": "Can initialization placed immediately after launching a worker be assumed to happen first?",
+        "answer": "No. The worker may run immediately; referenced shared state must be prepared before launch or protected by an explicit protocol."
+      }
+    },
+    {
+      "title": "Capture identity by value and storage by reference",
+      "eyebrow": "CAPTURE IDENTITY BY VALUE AND STORAGE BY REFERENCE",
+      "kind": "concept",
+      "keyPoints": [
+        "A copied task index stays distinct",
+        "Referenced output storage stays owned by the caller",
+        "Joining precedes every parent read"
+      ],
+      "narration": "A loop that launches workers has two different kinds of data. The task index identifies which job this worker should do, so each worker needs its own copied value. The result array is shared storage owned by the parent, so each worker can borrow a reference if the array outlives the work. Capturing the changing loop index by reference may make all workers use the same final value and may introduce conflicting access. The repair is not a lucky delay. Capture the intended identity by value and give each worker a distinct output slot, then join before the parent reads those slots.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch44.json \u2192 SP44.004",
+      "question": {
+        "prompt": "Why should the loop index be copied even when the result array is borrowed?",
+        "answer": "The index is a per-task identity that must not change with the loop; the array is longer-lived storage deliberately shared in disjoint slots."
+      }
+    },
+    {
+      "title": "Run workers whose identities cannot drift",
+      "eyebrow": "RUN WORKERS WHOSE IDENTITIES CANNOT DRIFT",
+      "kind": "code",
+      "keyPoints": [
+        "Three copied indexes select three slots",
+        "Each worker writes one separate element",
+        "Leaving the owner scope joins all workers"
+      ],
+      "narration": "The loop creates three jthreads. The capture list takes id by value and results by reference. Each worker stores ten plus its own index into one distinct array element. The vector of thread owners lives in an inner scope, so leaving that scope joins the workers before printing. The output is 10 11 12 even if worker two finishes first. Distinct ordinary array elements are separate locations for this access pattern, and no worker resizes the array. The example does not promise a particular launch order or performance gain. Its result follows from stable identities, separate writes, sufficient storage lifetime, and the join boundary.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch44.json \u2192 SP44.018",
+      "question": {
+        "prompt": "What ensures results is still alive while the workers use it?",
+        "answer": "It is declared outside the thread-owner scope, and all jthread owners join before that outer array is read or destroyed."
+      },
+      "code": {
+        "filename": "sys_ch44_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\n#include <thread>\n#include <vector>\nint main() {\n    std::array<int,3> results{};\n    {\n        std::vector<std::jthread> workers;\n        workers.reserve(3);\n        for (int id = 0; id < 3; ++id)\n            workers.emplace_back([id, &results] { results[id] = 10 + id; });\n    } // Every jthread has joined before results are read.\n    std::cout << results[0] << ' ' << results[1] << ' ' << results[2] << '\\n';\n}\n",
+        "expectedStdout": "10 11 12\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "A worker exception needs an explicit channel",
+      "eyebrow": "A WORKER EXCEPTION NEEDS AN EXPLICIT CHANNEL",
+      "kind": "code",
+      "keyPoints": [
+        "Catch inside the thread callable",
+        "Store an exception_ptr while the parent waits",
+        "Rethrow only after joining"
+      ],
+      "narration": "An exception escaping an ordinary C++ thread function does not automatically travel to its creator. This example catches the failure inside the worker and stores an exception_ptr, a handle to the captured exception. Main joins before inspecting that handle, so the worker's write and the parent's read are ordered. Rethrowing in main reaches the normal catch and prints caught: bad sample. The demonstration uses one writer and a join, so it does not need a mutex for concurrent handle access. A design that inspects failures while workers continue would need another synchronization rule. Error transport, like result transport, must be part of the thread contract.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch44.json \u2192 SP44.006",
+      "question": {
+        "prompt": "Why is reading failure after join safe without a mutex in this specific program?",
+        "answer": "Only the worker writes the handle, main waits for its completion, and main reads afterward with the join synchronization relationship."
+      },
+      "code": {
+        "filename": "sys_ch44_exception_channel.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <exception>\n#include <iostream>\n#include <stdexcept>\n#include <thread>\nint main() {\n    std::exception_ptr failure;\n    std::jthread worker([&failure] {\n        try { throw std::runtime_error(\"bad sample\"); }\n        catch (...) { failure = std::current_exception(); }\n    });\n    worker.join();\n    try {\n        if (failure) std::rethrow_exception(failure);\n    } catch (const std::exception& error) {\n        std::cout << \"caught: \" << error.what() << '\\n';\n    }\n}\n",
+        "expectedStdout": "caught: bad sample\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Join means completion and an ordering guarantee",
+      "eyebrow": "JOIN MEANS COMPLETION AND AN ORDERING GUARANTEE",
+      "kind": "concept",
+      "keyPoints": [
+        "The worker can finish before join is called",
+        "join still collects the completed thread",
+        "Post-join reads observe the completed work"
+      ],
+      "narration": "A join is useful even when the worker has already returned. It collects the thread's completion and supplies the synchronization relationship needed for the parent's later reads. It is not merely a request to wait a certain number of milliseconds. In our array example, no parent read occurs until every worker owner has joined. Replacing that boundary with a sleep would remove the proof because scheduling can delay a worker beyond the guessed duration. Conversely, joining immediately after every launch may make intended parallel work run one worker at a time. Choose the completion boundary according to the data dependency, not simply the next convenient line.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch44.json \u2192 SP44.008",
+      "question": {
+        "prompt": "Why can joining each worker immediately after launch defeat overlap?",
+        "answer": "The creator waits for each worker to finish before launching the next, serializing work that could otherwise be independent."
+      }
+    },
+    {
+      "title": "Automatic joining cannot solve an impossible wait",
+      "eyebrow": "AUTOMATIC JOINING CANNOT SOLVE AN IMPOSSIBLE WAIT",
+      "kind": "concept",
+      "keyPoints": [
+        "jthread destruction requests stop and joins",
+        "Workers must observe a supported stop protocol",
+        "Do not join while holding a mutex the worker needs"
+      ],
+      "narration": "Imagine a worker waiting for a queue to close, while its owner destroys a jthread without first closing the queue. Automatic joining now waits for a worker that has no reason to return. A stop request helps only if the worker checks it or uses a wait integrated with that request. Another trap is destroying the thread owner while holding a mutex the worker needs to finish. The owner waits for the worker, and the worker waits for the owner to release the lock. Scope design must release locks and establish shutdown conditions before joining. Resource cleanup order is part of the progress proof.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch44.json \u2192 SP44.008",
+      "question": {
+        "prompt": "Why can a correctly owned jthread still hang during destruction?",
+        "answer": "Its worker may wait forever or need a resource held by the joining thread; ownership does not itself establish a termination path."
+      }
+    },
+    {
+      "title": "Stack location does not prevent sharing",
+      "eyebrow": "STACK LOCATION DOES NOT PREVENT SHARING",
+      "kind": "concept",
+      "keyPoints": [
+        "A reference can expose a stack object",
+        "Lifetime and access rules still apply",
+        "Per-thread stacks multiply resource costs"
+      ],
+      "narration": "A local variable usually lives in one thread's stack frame, but another thread can access it if given a pointer or reference. The word local describes declaration scope, not a magical barrier against sharing. If the frame ends while the worker still uses the reference, the worker has a lifetime error even if only one thread writes. Separately, thousands of threads can reserve substantial stack resources, and large local arrays or deep recursion increase pressure. A thread-per-request design needs a resource budget as well as a synchronization plan. Sometimes a bounded worker pool is easier to control than an unbounded number of individually simple workers.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch44.json \u2192 SP44.014",
+      "question": {
+        "prompt": "Does a pointer to another thread\u2019s local object keep that object alive?",
+        "answer": "No. The owner must keep the object\u2019s lifetime open through every use, typically by joining before its scope ends."
+      }
+    },
+    {
+      "title": "Thread-local data reduces sharing but needs collection",
+      "eyebrow": "THREAD-LOCAL DATA REDUCES SHARING BUT NEEDS COLLECTION",
+      "kind": "concept",
+      "keyPoints": [
+        "Each thread has a distinct instance",
+        "Global totals need an explicit aggregation phase",
+        "Resource use grows with thread count"
+      ],
+      "narration": "A thread_local counter gives each thread its own instance, so updates do not all contend for one shared counter. That does not automatically provide a global result. The program needs a collection phase while the relevant values still exist, or workers can return ordinary partial results to an owner. Thread-local initialization and destruction follow thread lifetime rather than one function call, which matters in a reused worker pool. Cached state can survive from one task to another unless deliberately reset. Use thread-local storage for a clear per-thread requirement, and account for its memory cost multiplied by the number of workers.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch44.json \u2192 SP44.012",
+      "question": {
+        "prompt": "Why can thread-local state surprise a program that reuses worker threads?",
+        "answer": "The state can persist across multiple tasks on the same thread, so task-specific assumptions require resetting or a different storage lifetime."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Test the partition, not just the total",
+      "eyebrow": "TEST THE PARTITION, NOT JUST THE TOTAL",
+      "kind": "concept",
+      "keyPoints": [
+        "Odd-sized inputs expose boundary mistakes",
+        "Half-open ranges avoid double-counted endpoints",
+        "Compare with a sequential reference"
+      ],
+      "narration": "When dividing an input among workers, use explicit ranges such as begin inclusive and end exclusive. For five items and two workers, one can handle indexes zero through one and the other indexes two through four. The unequal sizes are acceptable; overlap and omission are not. A final sum can hide some mistakes when values cancel, so also check that every index belongs to exactly one range. Test empty input, one item, more workers than items, and sizes not divisible by the worker count. Keep the sequential version as a reference. Thread machinery should preserve the original calculation before any claim about speed is measured.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch44.json \u2192 SP44.024",
+      "question": {
+        "prompt": "What does a half-open range [begin, end) include?",
+        "answer": "It includes begin and stops before end, making adjacent ranges meet without both claiming the same boundary index."
+      }
+    },
+    {
+      "title": "Make thread ownership visible in the interface",
+      "eyebrow": "MAKE THREAD OWNERSHIP VISIBLE IN THE INTERFACE",
+      "kind": "concept",
+      "keyPoints": [
+        "Inputs outlive workers or are copied",
+        "Failures return through a defined channel",
+        "Shutdown happens before join and destruction"
+      ],
+      "narration": "A maintainable thread-owning component should explain who starts work, who requests stop, and who waits for completion. Its public interface should not require callers to guess whether a referenced buffer is still in use. Copy small task identities, borrow only sufficiently long-lived data, and use a clear completion object or join boundary. Treat errors during setup as carefully as errors inside the worker: already-started work still needs an owner if another launch fails. Our two examples show distinct result slots and an exception channel, but the same lifecycle questions apply to servers, background importers, and interactive tools with much longer-running tasks.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch44.json \u2192 SP44.001",
+      "question": {
+        "prompt": "What information should a caller know before releasing a buffer supplied to background work?",
+        "answer": "The caller needs a defined completion or ownership-transfer event proving that no worker will access the buffer afterward."
+      }
+    }
+  ]
+}

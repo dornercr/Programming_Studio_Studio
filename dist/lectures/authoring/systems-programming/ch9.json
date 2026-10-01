@@ -1,0 +1,223 @@
+{
+  "chapter": 9,
+  "title": "Dynamic Memory: ownership, growth, and failure cleanup",
+  "opening": [
+    {
+      "title": "Allocation creates a cleanup obligation",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Ownership says who must release a resource",
+        "Borrowing grants use without release responsibility",
+        "Shared lifetime does not imply shared mutation safety"
+      ],
+      "narration": "Dynamically created storage can outlive the function that first requested it, which is useful only if the program keeps a clear cleanup plan. Ownership names the component responsible for destruction and release. A borrowed pointer may use the object without taking that responsibility. Unique ownership has one responsible owner; shared ownership coordinates several owners and carries additional cost and rules. Choosing shared ownership merely to avoid deciding who owns the data can create cycles and confusing lifetimes. The chapter's practical goal is to match ownership to the required lifetime graph. Once that graph is clear, containers and smart pointers can enforce much of the cleanup automatically.",
+      "actions": [
+        "Draw one owner with two borrowers and compare it with two genuine shared owners."
+      ],
+      "sourceRef": "content/systems-programming/ch9.json → SP09.020 / 9.9 Ownership",
+      "question": {
+        "prompt": "Does a shared_ptr automatically make changes to the pointed-to object thread-safe?",
+        "answer": "No. Shared ownership coordinates lifetime; arbitrary object mutations still need their own synchronization."
+      }
+    },
+    {
+      "title": "Storage acquisition and object construction are different work",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "malloc supplies storage under its contract",
+        "A C++ new expression also initializes an object",
+        "Prefer an owning abstraction at the caller boundary"
+      ],
+      "narration": "A raw storage request answers where bytes can be placed. A complete C++ object also has initialization and destruction rules. A new expression combines storage acquisition with object initialization, while an allocation function alone is not the whole construction operation. malloc does not run a C++ class constructor, and zeroing bytes with calloc is not a general replacement for object semantics. Containers and make_unique usually let the caller request the object or sequence it needs while keeping cleanup attached to an owner. Low-level storage operations still matter inside such abstractions, but every application call site should not need to rebuild their failure and lifetime rules.",
+      "actions": [
+        "Separate the verbs acquire storage, initialize object, destroy object, and release storage."
+      ],
+      "sourceRef": "content/systems-programming/ch9.json → SP09.014 / 9.6 new",
+      "question": {
+        "prompt": "Why is calloc not a universal way to construct an arbitrary C++ object?",
+        "answer": "It zeroes storage bytes but does not generally perform the object’s constructor or establish the required class invariants."
+      }
+    },
+    {
+      "title": "Tie cleanup to the owner’s lifetime",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "code",
+      "keyPoints": [
+        "The constructed object increments a live count",
+        "An exception leaves the owning scope",
+        "unique_ptr destroys the object during cleanup"
+      ],
+      "narration": "Tracked increments a small diagnostic count when constructed and decrements it when destroyed. make_unique creates one owned object, so the first line prints during work=1. We then throw a controlled exception to represent failure in a later step. Leaving the try block destroys the local owner, which destroys its Tracked object before control reaches the catch. The second line prints after cleanup=0. This is a real C++ lifetime demonstration, not a garbage collector model. No explicit delete appears in the failure branch because the owner already carries that obligation. The same ownership structure also cleans up when the scope exits normally.",
+      "actions": [
+        "Predict the live count in each block, then run and connect output to construction and destruction."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch9.json → SP09.018 / 9.8 Allocation lifetime",
+      "question": {
+        "prompt": "At what point does the count return to zero relative to entering the catch block?",
+        "answer": "The unique_ptr cleans up while the stack unwinds out of the try scope, before the catch body prints the count."
+      },
+      "code": {
+        "filename": "sys_ch09_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <stdexcept>\nstruct Tracked {\n    inline static int alive = 0;\n    Tracked() { ++alive; }\n    ~Tracked() { --alive; }\n};\nint main() {\n    try {\n        auto owner = std::make_unique<Tracked>();\n        std::cout << \"during work=\" << Tracked::alive << '\\n';\n        throw std::runtime_error(\"later step failed\");\n    } catch (const std::runtime_error&) {\n        std::cout << \"after cleanup=\" << Tracked::alive << '\\n';\n    }\n}\n",
+        "expectedStdout": "during work=1\nafter cleanup=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Keep the old owner until growth succeeds",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "code",
+      "keyPoints": [
+        "Store a candidate result separately",
+        "A rejected nonzero growth leaves the old owner usable",
+        "Release through the matching allocation family"
+      ],
+      "narration": "The program allocates four bytes and stores forty-two in the first. It requests eight bytes through a helper whose policy limit is four, so rejection is guaranteed before realloc is called. This is a controlled way to exercise the preserve-owner branch, not a claim that the operating system ran out of memory. candidate is null, but owner still points to the original valid allocation. The output reports growth=rejected, preserved=42, and owner released after free. Assigning the candidate directly over the only owner would lose the original handle on failure. For a successful real nonzero realloc, use its returned pointer afterward and retire old aliases, even if the numeric address appears unchanged.",
+      "actions": [
+        "Identify the deterministic policy failure and distinguish it from an actual allocator failure."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch9.json → SP09.010 / 9.4 realloc",
+      "question": {
+        "prompt": "What is preserved by putting the result in candidate rather than assigning it directly to owner?",
+        "answer": "The only owning handle to the original allocation remains available when growth is rejected or a nonzero realloc fails."
+      },
+      "code": {
+        "filename": "sys_ch09_growth_failure.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <cstdlib>\n#include <iostream>\nvoid* grow_under_limit(void* owner, std::size_t bytes, std::size_t limit) {\n    if (bytes == 0 || bytes > limit) return nullptr;\n    return std::realloc(owner, bytes);\n}\nint main() {\n    auto* owner = static_cast<unsigned char*>(std::malloc(4));\n    if (!owner) return 1;\n    owner[0] = 42;\n    // A policy rejection exercises the same preserve-owner branch.\n    void* candidate = grow_under_limit(owner, 8, 4);\n    if (candidate) {\n        owner = static_cast<unsigned char*>(candidate);\n        std::cout << \"growth=accepted\\n\";\n    } else {\n        std::cout << \"growth=rejected\\n\";\n    }\n    std::cout << \"preserved=\" << static_cast<unsigned>(owner[0]) << '\\n';\n    std::free(owner);\n    std::cout << \"owner released\\n\";\n}\n",
+        "expectedStdout": "growth=rejected\npreserved=42\nowner released\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "A policy-rejected growth request tests owner preservation without forcing allocation exhaustion. The initial four-byte malloc is real and checked."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Check the request before asking for storage",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Compute byte counts without overflow",
+        "Apply an application limit",
+        "Handle empty input with a deliberate policy"
+      ],
+      "narration": "An allocator cannot repair a byte count that was already computed incorrectly. If count times element size wraps before the request, the allocator may successfully return a smaller block than the program intended. Use a checked size calculation and a domain limit before calling. A representable request can still be far too large for the application. Empty collections also deserve an explicit policy, because zero-size allocation conventions are not a useful general signal for success or failure. A high-level container often handles empty state more clearly. When raw storage is necessary, keep the count, capacity, ownership, and allowed failure state together so later code does not reconstruct them from guesses.",
+      "actions": [
+        "Trace a count through checked multiplication, policy validation, and the actual allocation call."
+      ],
+      "sourceRef": "content/systems-programming/ch9.json → SP09.006 / 9.2 malloc",
+      "question": {
+        "prompt": "Why is allocation success insufficient evidence that a requested array will fit?",
+        "answer": "The size calculation may already have lost information or violated a semantic limit before the allocator received it."
+      }
+    },
+    {
+      "title": "Match the acquisition and release mechanisms",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "malloc-family storage is released with free",
+        "Scalar new and array new have corresponding delete forms",
+        "Polymorphic ownership needs correct destruction"
+      ],
+      "narration": "A resource must be released through the mechanism that matches how it was acquired. Storage from malloc belongs with free. A scalar new expression pairs with scalar delete, and array new pairs with delete[]. Mixing them is invalid even if the pointer's numeric address looks correct. C++ object destruction adds another requirement: deleting a derived object through a base pointer needs an appropriate polymorphic destruction interface, normally a virtual destructor for that owning base use. Smart pointers help only when their deleter and pointed-to type express the right contract. They cannot turn a mismatched raw acquisition into correct cleanup merely by wrapping the address.",
+      "actions": [
+        "Create a matching table verbally for malloc, new, and new[]."
+      ],
+      "sourceRef": "content/systems-programming/ch9.json → SP09.016 / 9.7 delete",
+      "question": {
+        "prompt": "Does putting a malloc result into a default-deleting unique_ptr automatically make it safe?",
+        "answer": "No. The release mechanism must match; malloc storage needs an appropriate free-based deleter or a different ownership abstraction."
+      }
+    },
+    {
+      "title": "Successful growth ends the old borrowing arrangement",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "A resized allocation may move",
+        "Old aliases cannot be used after successful realloc",
+        "Reacquire views from the new owner and extent"
+      ],
+      "narration": "A successful realloc preserves the common prefix of the old and new byte counts, but it may move the allocation. The pointer it returns is the one to use afterward. Old aliases must not be kept in circulation based on a guess that the allocator probably grew in place. Even an equal displayed numeric address does not justify using the old allocation's stale access values. A similar rule appears when vector reallocation invalidates element pointers. Design callers to keep an index or another stable logical identifier where appropriate, then reacquire a bounded view after growth. A buffer API that retains hidden interior pointers makes this transition much harder to maintain.",
+      "actions": [
+        "Trace owner, cached interior pointer, successful growth, and fresh view as four separate states."
+      ],
+      "sourceRef": "content/systems-programming/ch9.json → SP09.010 / 9.4 realloc",
+      "question": {
+        "prompt": "What should happen to a cached interior pointer after successful realloc?",
+        "answer": "It should be discarded; derive a fresh pointer or view from the new owning result and validated offset."
+      }
+    },
+    {
+      "title": "Release does not promise erasure or immediate page return",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "The object or allocation is no longer usable",
+        "Old bytes may remain physically visible",
+        "Allocator reuse and OS reclamation are separate policies"
+      ],
+      "narration": "After free or object destruction, the program must stop using the old allocation even if a debugger still displays familiar bytes. Lifetime ends by the language and allocator contract, not by the memory being visibly overwritten. Release also does not promise that sensitive contents were securely erased or that pages were immediately returned to the operating system. Those are separate requirements with separate mechanisms. In normal code, the immediate task is to end all unsupported borrowing and prevent a second release. In diagnostics, do not read freed storage to verify cleanup. Inspect ownership behavior or use appropriate tools rather than adding another invalid access to investigate the first.",
+      "actions": [
+        "Ask students to distinguish unusable, erased, and returned to the OS."
+      ],
+      "sourceRef": "content/systems-programming/ch9.json → SP09.012 / 9.5 free",
+      "question": {
+        "prompt": "Why is reading a freed block to see whether it was cleared an invalid verification strategy?",
+        "answer": "The read occurs after the allocation’s permitted lifetime. Release did not promise readable or erased contents."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Shared ownership solves a lifetime relation, not every dependency",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Use one owner when that matches the graph",
+        "Shared owners can form unreclaimed cycles",
+        "Weak references can express non-owning links"
+      ],
+      "narration": "A tree of request-owned objects often needs one clear root owner and borrowed access below it. Giving every link shared ownership can make cleanup less obvious, particularly when objects point back to one another. Reference counts may never reach zero in a cycle. A weak reference can express a link that should observe an object without extending its lifetime, but it must be checked when converted to usable access. Do not introduce this machinery without a need for independently lasting owners. The smallest ownership model that matches the real lifetime graph is usually easier to reason about, test, and change when a new component is added.",
+      "actions": [
+        "Draw a two-object ownership cycle and then identify one non-owning back-link."
+      ],
+      "sourceRef": "content/systems-programming/ch9.json → SP09.020 / 9.9 Ownership",
+      "question": {
+        "prompt": "Why can two shared-owned objects pointing to each other remain alive after external owners disappear?",
+        "answer": "Each keeps the other’s ownership count nonzero, forming a cycle that ordinary reference-count reclamation does not break."
+      }
+    },
+    {
+      "title": "Test cleanup on the path that fails halfway",
+      "eyebrow": "09 / MEMORY OWNERSHIP",
+      "kind": "concept",
+      "keyPoints": [
+        "Successful construction is only the first step",
+        "Later failure must release completed resources",
+        "Rejected growth must preserve the original state"
+      ],
+      "narration": "A resource test should cover the moment after one acquisition succeeded but a later operation failed. Our tracked-object demonstration shows that the owner releases the earlier object during exception cleanup. The growth demonstration shows a different guarantee: rejection leaves the existing buffer available rather than releasing it. Both are correct because their contracts differ. State the expected remaining ownership explicitly before writing tests. Also test normal exit, repeated operations, empty states, and the boundary that rejects more growth. A maintainable abstraction lets callers trust these outcomes without duplicating cleanup logic at every error return.",
+      "actions": [
+        "Compare the two demonstrations’ different correct post-failure ownership states."
+      ],
+      "sourceRef": "content/systems-programming/ch9.json → SP09.030 / Chapter Synthesis",
+      "question": {
+        "prompt": "Should every failed operation release all existing resources?",
+        "answer": "No. Some failures should preserve prior useful state, while failed construction may need to clean up newly acquired resources. The operation’s contract decides."
+      }
+    }
+  ]
+}

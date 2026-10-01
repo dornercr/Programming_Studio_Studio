@@ -1,0 +1,223 @@
+{
+  "chapter": 6,
+  "title": "Memory Layout: shape, padding, byte order, and alignment",
+  "opening": [
+    {
+      "title": "Contiguous elements still require a valid shape",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Array stride includes each element’s complete size",
+        "Rows and columns define indexing meaning",
+        "A nearby address is not proof of membership"
+      ],
+      "narration": "A matrix stored as two rows of three integers has six elements, but the pair row and column still needs validation before it becomes a linear index. Row one, column two maps to element five using row times three plus column. That arithmetic describes the shape only when the dimensions match the actual storage and both coordinates are in range. An array of structures repeats the whole structure size, including padding, rather than only the useful fields. These rules connect logical indexing to layout. They do not authorize reaching adjacent memory because an address happens to be mapped or because a neighboring value looks plausible.",
+      "actions": [
+        "Translate a valid coordinate into a linear index and then challenge the claimed shape."
+      ],
+      "sourceRef": "content/systems-programming/ch6.json → SP06.004 / 6.1 Arrays",
+      "question": {
+        "prompt": "Why must dimensions be checked against storage as well as checking row and column?",
+        "answer": "Valid coordinates for a claimed shape can still refer beyond the real storage if that shape is false."
+      }
+    },
+    {
+      "title": "Padding is part of layout but not part of the value contract",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Members may need alignment gaps",
+        "Tail padding supports arrays of the structure",
+        "Field equality need not equal raw-byte equality"
+      ],
+      "narration": "A structure can contain gaps between members so each member begins at a suitable alignment. It can also have padding at the end so the next element of a structure array is properly aligned. Those bytes contribute to sizeof, but they are not additional named values in the application's record. Comparing whole object representations can therefore disagree with memberwise equality, and sending all bytes can expose data the format never meant to include. Use actual layout tools for supported types and stated ABI assumptions. For a file or network format, encoding each field explicitly usually gives a clearer contract than assuming a native structure matches the external layout.",
+      "actions": [
+        "Draw a record with one alignment gap and explain who, if anyone, owns its meaning."
+      ],
+      "sourceRef": "content/systems-programming/ch6.json → SP06.006 / 6.2 Structures",
+      "question": {
+        "prompt": "Why can two structures with equal named members have different raw byte representations?",
+        "answer": "Padding bytes are not necessarily stable semantic data, and object representation can include layout details beyond the named values."
+      }
+    },
+    {
+      "title": "Byte order changes interpretation, not the input bytes",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "code",
+      "keyPoints": [
+        "The two octets are 02 and 01",
+        "Big-endian interpretation weights the first octet by 256",
+        "Little-endian interpretation weights the second octet by 256"
+      ],
+      "narration": "The array stores the two values two and one in that order. The big-endian expression treats the first as the high octet, computing two times two hundred fifty-six plus one, which is five hundred thirteen. The little-endian expression computes one times two hundred fifty-six plus two, which is two hundred fifty-eight. The final line confirms that the first stored octet remains two. No byte swapping or pointer cast occurs. We explicitly assemble unsigned values, so this demonstration does not depend on the host integer's native byte order. A format must specify which interpretation is correct. Neither convention is inherently the right answer without that agreement.",
+      "actions": [
+        "Predict both decimal results from the two weights before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch6.json → SP06.010 / 6.4 Endianness",
+      "question": {
+        "prompt": "Does computing the little-endian result modify bytes?",
+        "answer": "No. It interprets the same stored octet values with different positional weights."
+      },
+      "code": {
+        "filename": "sys_ch06_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\nint main() {\n    const std::array<unsigned char, 2> bytes{0x02, 0x01};\n    const unsigned big = static_cast<unsigned>(bytes[0]) * 256u + bytes[1];\n    const unsigned little = static_cast<unsigned>(bytes[1]) * 256u + bytes[0];\n    std::cout << \"big endian=\" << big << '\\n';\n    std::cout << \"little endian=\" << little << '\\n';\n    std::cout << \"first stored octet=\" << static_cast<unsigned>(bytes[0]) << '\\n';\n}\n",
+        "expectedStdout": "big endian=513\nlittle endian=258\nfirst stored octet=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "A layout model can explain padding without inventing measurements",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "code",
+      "keyPoints": [
+        "The modeled fields have sizes 1, 8, and 2",
+        "Each modeled field has an explicit alignment",
+        "Changing order changes the modeled total from 24 to 16"
+      ],
+      "narration": "This program calculates a declared layout model; it does not inspect an actual compiler's structure. In the first order, the one-byte field ends at offset one, padding advances the eight-byte field to offset eight, and the two-byte field ends at eighteen. Tail padding brings the total to twenty-four. Reordering puts the eight-byte field first, then two bytes, then one, reaching eleven before tail padding brings the total to sixteen. The printed saving is eight bytes per modeled record. This is a derived storage result, not a measured speedup. Reordering a real public structure also changes offsets, so compatibility must be reviewed before applying such a change.",
+      "actions": [
+        "Trace the offsets for each order and clearly label them modeled."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch6.json → SP06.018 / Worked example — Predicting structure padding",
+      "question": {
+        "prompt": "What does the output prove about the host compiler’s actual structure layout?",
+        "answer": "Nothing directly. It verifies the stated size-and-alignment model; actual layout needs implementation inspection and compatibility checks."
+      },
+      "code": {
+        "filename": "sys_ch06_layout_model.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <cstddef>\n#include <iostream>\nstruct Field { std::size_t size; std::size_t alignment; };\nstd::size_t modeled_size(const std::array<Field, 3>& fields) {\n    std::size_t offset = 0;\n    for (const auto field : fields) {\n        offset += (field.alignment - offset % field.alignment) % field.alignment;\n        offset += field.size;\n    }\n    return offset + (8 - offset % 8) % 8; // Model's record alignment is 8.\n}\nint main() {\n    const std::array<Field, 3> first{{{1,1}, {8,8}, {2,2}}};\n    const std::array<Field, 3> second{{{8,8}, {2,2}, {1,1}}};\n    const auto a = modeled_size(first);\n    const auto b = modeled_size(second);\n    std::cout << \"original model=\" << a << '\\n';\n    std::cout << \"reordered model=\" << b << '\\n';\n    std::cout << \"saved per record=\" << a-b << '\\n';\n}\n",
+        "expectedStdout": "original model=24\nreordered model=16\nsaved per record=8\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Mathematical layout model with field alignments 1, 8, 2 and enclosing alignment 8; not sizeof output or a timing measurement."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Alignment constrains valid objects, not just speed",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Query type alignment rather than guessing",
+        "A hardware unaligned load does not settle language validity",
+        "Decode arbitrary bytes into a suitable object"
+      ],
+      "narration": "An address may be readable by an x86 instruction yet unsuitable for an ordinary C++ object of a particular type. The language's alignment requirement still applies. Natural alignment is not a universal rule that every type aligns to its size; alignof tells us the implementation's requirement. When a protocol field begins at an arbitrary byte offset, casting that byte address to an int pointer is not a general safe decoder. Assemble the value from bytes or copy into an appropriately aligned object under valid representation rules. Performance questions come later: unaligned costs can depend on instruction width and cache or page boundaries, so neither always slow nor always free is a useful universal claim.",
+      "actions": [
+        "Separate the language validity question from the machine performance question."
+      ],
+      "sourceRef": "content/systems-programming/ch6.json → SP06.012 / 6.5 Alignment",
+      "question": {
+        "prompt": "Why is x86 can load it not enough to justify an int* cast into arbitrary packet bytes?",
+        "answer": "The C++ access still needs a suitably aligned live object and a permitted type interpretation; hardware support answers only part of that contract."
+      }
+    },
+    {
+      "title": "A two-dimensional array is not a pointer-to-pointer graph",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "A built-in matrix contains contiguous row arrays",
+        "int** designates pointer objects",
+        "Representation changes require a real adapter"
+      ],
+      "narration": "A built-in array with three rows of four integers contains three complete row arrays in sequence. Moving a pointer to one row advances by four integers. An int** instead points to pointer objects, often used to reach separately allocated rows. The two layouts are not interchangeable because one contains integers directly where the other expects addresses. A cast changes an access type but does not construct the missing pointer objects or establish valid rows. A flexible matrix interface can carry dimensions and strides explicitly. That makes the layout contract visible and allows a caller to represent contiguous or other supported arrangements without pretending incompatible storage has the same shape.",
+      "actions": [
+        "Draw three row arrays and then a separate array of three row pointers."
+      ],
+      "sourceRef": "content/systems-programming/ch6.json → SP06.004 / 6.1 Arrays",
+      "question": {
+        "prompt": "Why is casting a contiguous matrix to int** not a correct conversion?",
+        "answer": "The contiguous matrix does not contain the row-pointer objects that int** access expects. The cast cannot create them."
+      }
+    },
+    {
+      "title": "Overlapping storage needs a valid active alternative",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Union members share space",
+        "A tag must match the active object",
+        "Representation copying is not arbitrary object construction"
+      ],
+      "narration": "A union saves space by allowing alternatives to overlap, but it does not give independent simultaneous values to all members. The program must know which member is active and respect its lifetime. A tagged union keeps a discriminator beside that storage; a mismatch between the tag and active object is an invalid state. std::variant manages that relationship for many C++ uses. For inspecting a representation, bit_cast or byte copying has a different purpose and specific restrictions. Neither technique turns arbitrary incoming bits into a valid pointer or a well-formed complex object. Choose the operation that matches the goal: alternative values, representation inspection, or validated external decoding.",
+      "actions": [
+        "Ask learners to distinguish a tagged alternative from a byte decoder."
+      ],
+      "sourceRef": "content/systems-programming/ch6.json → SP06.008 / 6.3 Unions",
+      "question": {
+        "prompt": "Does copying arbitrary bytes into storage establish a meaningful pointer object for later dereference?",
+        "answer": "No. Representation transport does not prove that the bits designate a valid live object or satisfy the intended access contract."
+      }
+    },
+    {
+      "title": "Validate bytes, decode values, then validate meaning",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Check the required extent first",
+        "Widen octets before shifting",
+        "Check the decoded domain after assembling the value"
+      ],
+      "narration": "A four-octet field can be assembled by shifting each octet into its declared position and combining the pieces. Before that, four octets must actually be available. The octets should be converted to a sufficiently wide unsigned type before the shifts so promotions do not create an unintended narrow or signed operation. After assembly, the result may still violate the protocol's semantic rule, such as a length larger than the message allows. These are three separate checks: available representation, valid arithmetic construction, and accepted meaning. Keeping them in that order makes a parser easier to debug because each rejection names a different failed promise.",
+      "actions": [
+        "Trace a four-byte length that is syntactically complete but exceeds a stated payload limit."
+      ],
+      "sourceRef": "content/systems-programming/ch6.json → SP06.010 / 6.4 Endianness",
+      "question": {
+        "prompt": "Can successfully assembling four bytes prove that the decoded length is acceptable?",
+        "answer": "No. It proves a value was formed from the available bytes. The protocol’s semantic size limit still needs checking."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Smaller storage can be useful and still break compatibility",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Reordering may reduce padding",
+        "Public offsets can be part of an ABI",
+        "Derived byte savings are not measured speedup"
+      ],
+      "narration": "The layout model saved eight bytes per record. Across one million modeled records, that is eight million bytes under the same assumptions. It still does not tell us elapsed time or cache behavior on a real workload. More seriously, changing member order changes offsets that separately compiled code or a raw-file format may rely on. Internal types can sometimes be changed with coordinated rebuilding; public binary interfaces need an explicit compatibility plan. Review the consumers before optimizing layout. Then measure the property that motivated the change instead of claiming that fewer bytes automatically implies a fixed speed increase.",
+      "actions": [
+        "Distinguish the eight-million-byte arithmetic estimate from a real timing claim."
+      ],
+      "sourceRef": "content/systems-programming/ch6.json → SP06.012 / 6.5 Alignment",
+      "question": {
+        "prompt": "What must be checked before reordering members in a published structure?",
+        "answer": "Every ABI or external-format consumer that depends on member offsets, size, or alignment, plus the actual performance or storage goal."
+      }
+    },
+    {
+      "title": "Carry units and ownership with the layout calculation",
+      "eyebrow": "06 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Indices count elements",
+        "Offsets and sizes may count bytes",
+        "A view describes storage but does not own it"
+      ],
+      "narration": "A layout formula becomes easier to review when every number has a unit. Row times column count produces an element index. Multiplying by an element size produces a byte offset. A pointer operation scales in elements of its pointed-to type. Confusing these units can multiply a size twice or omit scaling entirely. A view that stores dimensions and strides still borrows a live owner; correct arithmetic does not extend its lifetime. In a real system, keep these contracts together in the interface and test both valid edges and rejected shapes. The goal is a representation that another maintainer can explain without guessing at hidden layout assumptions.",
+      "actions": [
+        "Ask learners to annotate one matrix formula with units at each step."
+      ],
+      "sourceRef": "content/systems-programming/ch6.json → SP06.022 / Chapter Synthesis",
+      "question": {
+        "prompt": "Does a correct byte-offset formula alone prove a view remains usable?",
+        "answer": "No. The underlying owner must still be alive, the shape must match storage, and the requested access must satisfy type and alignment rules."
+      }
+    }
+  ]
+}

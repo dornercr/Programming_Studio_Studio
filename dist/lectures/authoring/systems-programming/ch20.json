@@ -1,0 +1,222 @@
+{
+  "chapter": 20,
+  "title": "Protected Control Transfer",
+  "opening": [
+    {
+      "title": "Not every unexpected path has the same cause",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "concept",
+      "keyPoints": [
+        "A fault is tied to the attempted instruction.",
+        "An interrupt can arrive asynchronously.",
+        "A deliberate service request uses a controlled entry mechanism."
+      ],
+      "narration": "A running program may enter privileged handling because it requested a service, touched a page needing attention, or was interrupted by a timer. These events all change control flow, but their causes and continuation rules differ. A page fault is associated with the instruction that attempted access. A timer interrupt need not come from anything that instruction intended. A system call is an explicit request through an operating-system interface. Begin a trace by naming the event and the state that must be preserved. A single vague phrase such as the operating system takes over hides the distinction between retrying, continuing, blocking, and terminating.",
+      "actions": [
+        "Classify a read request, absent-page access, and timer event."
+      ],
+      "sourceRef": "content/systems-programming/ch20.json → SP20.024",
+      "question": {
+        "prompt": "Which event is synchronous with the instruction attempting a memory access?",
+        "answer": "A page fault caused by that access is synchronous with the faulting instruction."
+      }
+    },
+    {
+      "title": "A tiny real system-service round trip",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "code",
+      "keyPoints": [
+        "Create a pipe in this process.",
+        "Write one byte, then read that available byte.",
+        "Validate results and close both descriptors."
+      ],
+      "narration": "This Linux/POSIX program asks the operating system to create a pipe, writes the byte Q into its empty buffer, and then reads one byte from the other end. Because the write succeeds first, the read has that byte available without needing another process. The output prints sent Q and received Q. We check the exact one-byte results and close both descriptors; an unexpected failure returns a nonzero status instead of pretending the transfer worked. This demonstrates real service interfaces, not a model of processor entry instructions. It does not require a process context switch, outside networking, or a particular measured number of CPU cycles.",
+      "actions": [
+        "Trace user buffer, kernel-managed pipe, and destination buffer separately."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch20.json → SP20.022",
+      "question": {
+        "prompt": "Why does this example not need a second process to supply the read?",
+        "answer": "The same process successfully writes the byte into the pipe before attempting the read."
+      },
+      "code": {
+        "filename": "sys_ch20_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <unistd.h>\nint main() {\n    int ends[2];\n    if (::pipe(ends) != 0) return 1;\n    const char sent = 'Q';\n    const auto written = ::write(ends[1], &sent, 1);\n    if (written != 1) {\n        ::close(ends[0]); ::close(ends[1]);\n        return 1;\n    }\n    char received = 0;\n    const auto read_count = ::read(ends[0], &received, 1);\n    const int closed_read = ::close(ends[0]);\n    const int closed_write = ::close(ends[1]);\n    if (read_count != 1 || closed_read != 0 || closed_write != 0) return 1;\n    std::cout << \"sent=\" << sent << \" received=\" << received << '\\n';\n}\n",
+        "expectedStdout": "sent=Q received=Q\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "A C++ exception is not a CPU privilege transition",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "code",
+      "keyPoints": [
+        "throw exits the normal call path.",
+        "A local guard is destroyed during unwinding.",
+        "The catch resumes user-space language-level handling."
+      ],
+      "narration": "The output starts with begin. The program then increments completed to one and throws a C++ runtime_error. Before the matching catch runs, the local Guard is destroyed and prints cleanup. The handler finally prints caught completed equals one. That order is a language-level exception guarantee for this completed local object. It is not a demonstration of a CPU page fault or a switch to kernel mode. We choose a deliberate throw rather than an invalid memory access, because undefined behavior does not turn into a portable C++ exception that catch can reliably repair. Keep the two meanings of exception distinct in low-level discussions.",
+      "actions": [
+        "Predict cleanup versus catch ordering before running."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch20.json → SP20.004",
+      "question": {
+        "prompt": "Why can catch(runtime_error) not be treated as a general handler for invalid memory access?",
+        "answer": "C++ language exceptions and architectural faults are different mechanisms, and invalid source-level memory access may be undefined behavior."
+      },
+      "code": {
+        "filename": "sys_ch20_language_exception.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\nstruct Guard {\n    ~Guard() { std::cout << \"cleanup\\n\"; }\n};\nint main() {\n    int completed = 0;\n    try {\n        Guard guard;\n        std::cout << \"begin\\n\";\n        ++completed;\n        throw std::runtime_error(\"controlled failure\");\n    } catch (const std::runtime_error&) {\n        std::cout << \"caught completed=\" << completed << '\\n';\n    }\n}\n",
+        "expectedStdout": "begin\ncleanup\ncaught completed=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "A fault may retry the same instruction",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "concept",
+      "keyPoints": [
+        "A permitted absent page can be made available.",
+        "The interrupted access has not yet completed normally.",
+        "An invalid access may instead lead to termination."
+      ],
+      "narration": "Consider a load from a legitimate mapping whose page is not yet installed for the process. The processor reports the fault associated with that load, and the kernel can make the page available before arranging a retry. The load may then complete with the expected value, even though its latency was much larger. Now change the address to one outside permitted mappings. The entry mechanism can look similar, but kernel policy cannot simply invent permission; the outcome may be a signal and termination. The source model separates permitted from present for this reason. Recoverable is a possibility that depends on the access contract, not a promise attached to every fault.",
+      "actions": [
+        "Trace permitted-and-absent versus forbidden-and-absent from the same load attempt."
+      ],
+      "sourceRef": "content/systems-programming/ch20.json → SP20.010",
+      "question": {
+        "prompt": "Why must the model keep permission separate from page presence?",
+        "answer": "A missing permitted page may be repaired, while an access without permission must not be authorized merely by marking it present."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Trap terminology needs a continuation point",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "concept",
+      "keyPoints": [
+        "In x86 classification, traps are reported after completion.",
+        "Faults can support restarting the associated instruction.",
+        "Broader operating-system usage may use trap differently."
+      ],
+      "narration": "The word trap can be used in more than one way, so a precise explanation states where execution continues. In the x86 exception classification used here, a trap is reported after the associated instruction completes, supporting continuation after it. A fault is reported in a way that can support retrying the faulting instruction when the condition is repaired. Some operating-system writing uses trap more broadly for a deliberate protected transfer. Rather than arguing from the word alone, record whether the instruction completed, which location was saved, and whether handling resumes, retries, or ends execution. Those facts determine the program trace.",
+      "actions": [
+        "Have learners label saved continuation points for a trap and a recoverable fault."
+      ],
+      "sourceRef": "content/systems-programming/ch20.json → SP20.008",
+      "question": {
+        "prompt": "What practical detail is more useful than the bare word trap?",
+        "answer": "Whether the associated instruction completed and which instruction location will execute after handling."
+      }
+    },
+    {
+      "title": "System-call ABI rules differ from ordinary calls",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "concept",
+      "keyPoints": [
+        "A library wrapper translates the source interface.",
+        "Linux x86-64 uses R10 for the fourth scalar syscall argument.",
+        "SYSCALL has specific effects on RCX and R11."
+      ],
+      "narration": "A C declaration for read looks like an ordinary function interface, but its library wrapper must arrange the operating system's service ABI and translate the result back into the library convention. The Linux x86-64 system-call register arrangement differs from the ordinary System V function convention, including the fourth scalar argument in R10 rather than RCX. The entry instruction also has defined effects on RCX and R11. This is why copying a function-call register table into a handwritten system-call wrapper is unsafe. Our examples use documented C interfaces so the platform library handles these details, while the lecture makes the boundary explicit.",
+      "actions": [
+        "Compare the two ABI roles without attempting raw privileged assembly."
+      ],
+      "sourceRef": "content/systems-programming/ch20.json → SP20.012",
+      "question": {
+        "prompt": "Why should a handwritten syscall wrapper not assume the ordinary fourth argument remains in RCX?",
+        "answer": "Linux x86-64 system calls use a different convention, with the fourth scalar argument in R10."
+      }
+    },
+    {
+      "title": "Protected entry requires kernel setup work",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "concept",
+      "keyPoints": [
+        "Hardware performs specified state changes.",
+        "Entry code establishes the kernel execution environment.",
+        "User-supplied state still needs validation."
+      ],
+      "narration": "Do not picture every protected entry as an ordinary CALL that pushes a complete context onto the application's stack. The architecture defines particular changes, and kernel entry code performs additional work to establish suitable state, including stack handling. The details depend on the target architecture and operating system. The stable lesson is that a controlled destination does not make the request trustworthy. A pointer and byte count supplied by user code still require validation before privileged code uses them. Separating hardware entry from software policy helps prevent two wrong assumptions: that entry saves absolutely everything automatically, and that privileged execution makes every requested access valid.",
+      "actions": [
+        "Separate hardware-specified state changes from kernel entry-code responsibilities."
+      ],
+      "sourceRef": "content/systems-programming/ch20.json → SP20.014",
+      "question": {
+        "prompt": "Does entering a configured kernel handler make a user buffer automatically safe to access?",
+        "answer": "No. The handler must still validate and safely handle the user-supplied access according to operating-system rules."
+      }
+    },
+    {
+      "title": "Blocked, runnable, and running are different states",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "concept",
+      "keyPoints": [
+        "A service request may wait for an event.",
+        "The kernel can schedule other work while it waits.",
+        "Becoming runnable does not guarantee immediate CPU time."
+      ],
+      "narration": "Imagine reading from an empty pipe while some other participant will later write. The caller may block, allowing the kernel to run other work instead of burning CPU in a user-space spin loop. When data arrives, the waiting task can become runnable, but the scheduler still decides when it actually runs. Our one-byte example avoids this wait by writing first; it therefore does not demonstrate a scheduling delay. Keep these states distinct when interpreting timing. A long elapsed call can include waiting and scheduling time rather than continuous CPU execution, and entering the kernel does not by itself prove that a different process was selected.",
+      "actions": [
+        "Contrast the prefilled pipe example with an empty pipe awaiting another writer."
+      ],
+      "sourceRef": "content/systems-programming/ch20.json → SP20.016",
+      "question": {
+        "prompt": "Does every system call cause a process context switch?",
+        "answer": "No. A request can enter and leave kernel handling without scheduling a different process."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "A timer can interrupt apparently adjacent operations",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "concept",
+      "keyPoints": [
+        "Preemption does not require a voluntary library call.",
+        "A short sequence is not automatically atomic.",
+        "Correctness must tolerate permitted interruptions."
+      ],
+      "narration": "Two source statements next to each other may still be separated by an interrupt and scheduling activity. A task cannot assume uninterrupted ownership of the CPU simply because it avoids system calls or usually finishes its update quickly. Timer facilities give the kernel opportunities to regain control, though modern systems need not follow one simple fixed-tick picture. This matters when a later chapter introduces shared state: read, modify, and write is not one indivisible action merely because it occupies three short lines. Define the synchronization boundary from the shared-state invariant, not from an optimistic estimate of how fast the code tends to run.",
+      "actions": [
+        "Ask where another task could observe an intermediate state between two updates."
+      ],
+      "sourceRef": "content/systems-programming/ch20.json → SP20.018",
+      "question": {
+        "prompt": "Why is usually finishes before the next timer tick not a synchronization guarantee?",
+        "answer": "Preemption and interleaving can still occur; elapsed speed does not make a multi-operation sequence atomic."
+      }
+    },
+    {
+      "title": "Trace cause, saved state, decision, and continuation",
+      "eyebrow": "SYSTEMS / CHAPTER 20",
+      "kind": "concept",
+      "keyPoints": [
+        "Name the event before naming the handler.",
+        "Separate mechanism from permission and recovery policy.",
+        "Advance the modeled instruction only after successful completion."
+      ],
+      "narration": "A useful protected-transfer trace has four parts. First name what caused entry: a request, a faulting access, or an external event. Next record the state needed to continue. Then explain the handler's decision, including permission and resource availability. Finally state whether execution retries, resumes later, blocks, or ends. The chapter's faulty program-counter update illustrates why the final part matters: advancing before a denied load would skip an instruction that never completed. Keep that model honest by distinguishing it from real hardware and by testing both repairable and forbidden accesses. A successful retry test alone does not establish the denial path.",
+      "actions": [
+        "Have learners give paired traces for the same load with permitted and forbidden mappings."
+      ],
+      "sourceRef": "content/systems-programming/ch20.json → SP20.026",
+      "question": {
+        "prompt": "Why must a denied modeled load leave the instruction position unchanged?",
+        "answer": "The instruction did not complete; advancing would falsely record progress and skip its operation."
+      }
+    }
+  ]
+}

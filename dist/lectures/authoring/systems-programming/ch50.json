@@ -1,0 +1,233 @@
+{
+  "chapter": 50,
+  "title": "Deadlock: dependency graphs and coordinated acquisition",
+  "opening": [
+    {
+      "title": "No progress has more than one cause",
+      "eyebrow": "NO PROGRESS HAS MORE THAN ONE CAUSE",
+      "kind": "concept",
+      "keyPoints": [
+        "Deadlock is a closed dependency trap",
+        "Starvation can occur while others progress",
+        "Livelock keeps moving without useful completion"
+      ],
+      "narration": "Two threads can both be idle forever because each holds a lock the other needs. That is a deadlock under the ordinary lock model. A different thread may starve while others keep acquiring a resource, or participants may repeatedly retry without completing useful work, called livelock. Distinguish these cases before adding timeouts. A timeout can expose a long wait but does not restore a half-updated invariant or safely remove a lock from its owner. The first debugging question is who is waiting for which action and whether that action can occur. Draw those dependencies, including joins, pipe capacity, and callbacks as well as mutexes.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch50.json \u2192 SP50.001",
+      "question": {
+        "prompt": "Why is \u201cthe program is slow\u201d insufficient to diagnose deadlock?",
+        "answer": "Deadlock requires a dependency structure that prevents progress; slow work or starvation can have different causes and repairs."
+      }
+    },
+    {
+      "title": "Describe the assumptions behind a wait-for cycle",
+      "eyebrow": "DESCRIBE THE ASSUMPTIONS BEHIND A WAIT-FOR CYCLE",
+      "kind": "concept",
+      "keyPoints": [
+        "Each edge means a needed action from another participant",
+        "Single-owner locks make the model simple",
+        "External completion paths can change the conclusion"
+      ],
+      "narration": "A wait-for graph connects a blocked participant to whoever must act before it can continue. For ordinary locks with one owner, A waiting for B's lock creates a clear edge from A to B. A closed cycle with no release path can show deadlock. But a graph for multiple-instance resources or timed alternative operations needs more careful interpretation. An edge is not enough unless we know what can remove it. State whether resources can be preempted, whether a participant can abandon its request, and whether an external event can let it finish. Those assumptions turn an attractive diagram into an actual progress argument.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch50.json \u2192 SP50.014",
+      "question": {
+        "prompt": "Why must a graph label what each wait edge means?",
+        "answer": "Because alternative progress paths, multiple resource instances, or external actions may break a cycle under a different resource model."
+      }
+    },
+    {
+      "title": "Detect a modeled three-participant cycle safely",
+      "eyebrow": "DETECT A MODELED THREE-PARTICIPANT CYCLE SAFELY",
+      "kind": "code",
+      "keyPoints": [
+        "Compute reachability in a small fixed graph",
+        "A reachable self-edge indicates a cycle",
+        "No real thread is deliberately deadlocked"
+      ],
+      "narration": "This complete program models three waiting participants with a Boolean adjacency matrix. It computes reachability: whether following one or more waiting edges can lead from one participant to another. In the cycle graph, A needs B, B needs C, and C needs A, so a participant can reach itself. The chain graph ends without that return path. The program prints cycle=true chain=false. This is a graph model, not a detector attached to running mutexes, and it never creates a real hang. Its conclusion represents deadlock only when the stated resource assumptions make every edge a required, unbreakable wait.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch50.json \u2192 SP50.014",
+      "question": {
+        "prompt": "What does the diagonal become true for after reachability is computed?",
+        "answer": "A participant that can follow waiting edges back to itself, indicating a cycle in this modeled graph."
+      },
+      "code": {
+        "filename": "sys_ch50_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\nusing Graph = std::array<std::array<bool,3>,3>;\nbool cycle(Graph reach) {\n    for (int k=0; k<3; ++k)\n        for (int i=0; i<3; ++i)\n            for (int j=0; j<3; ++j)\n                reach[i][j] = reach[i][j] || (reach[i][k] && reach[k][j]);\n    for (int i=0; i<3; ++i) if (reach[i][i]) return true;\n    return false;\n}\nint main() {\n    Graph ring{}, chain{};\n    ring[0][1]=true; ring[1][2]=true; ring[2][0]=true;\n    chain[0][1]=true; chain[1][2]=true;\n    std::cout << std::boolalpha << \"cycle=\" << cycle(ring)\n              << \" chain=\" << cycle(chain) << '\\n';\n}\n",
+        "expectedStdout": "cycle=true chain=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Fixed wait-for graph reachability model; no real lock acquisition or deliberate deadlock."
+      }
+    },
+    {
+      "title": "Acquire the whole distinct lock set together",
+      "eyebrow": "ACQUIRE THE WHOLE DISTINCT LOCK SET TOGETHER",
+      "kind": "code",
+      "keyPoints": [
+        "Three slots change as one rotation",
+        "scoped_lock coordinates three distinct mutexes",
+        "Opposite rotations preserve the same total"
+      ],
+      "narration": "Two workers rotate the same three values in opposite directions one hundred times each. Every rotation acquires all three distinct mutexes through scoped_lock before changing the array. Left and right rotations are inverse operations, so after both joined workers finish, the output is values=7,8,9 total=24 regardless of their interleaving. No intermediate rotation is visible to the other worker while the locks are held. This demonstrates coordinated multi-lock acquisition, not a reason to use three locks for every array. Since all shown operations need the whole state, one mutex would be simpler here. Multiple locks become relevant when other legitimate operations use independent regions.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch50.json \u2192 SP50.016",
+      "question": {
+        "prompt": "Why is the final ordering fixed even though worker rotations interleave?",
+        "answer": "Every rotation is protected, and equal numbers of opposite cyclic rotations cancel. Joining ensures all rotations completed before printing."
+      },
+      "code": {
+        "filename": "sys_ch50_coordinated_locks.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <array>\n#include <iostream>\n#include <mutex>\n#include <thread>\nint main() {\n    std::array<int,3> values{7,8,9};\n    std::mutex first, second, third;\n    const auto rotate = [&](bool left) {\n        for (int i=0; i<100; ++i) {\n            std::scoped_lock lock(first, second, third);\n            const auto middle = values.begin() + (left ? 1 : 2);\n            std::rotate(values.begin(), middle, values.end());\n        }\n    };\n    std::jthread a(rotate,true), b(rotate,false);\n    a.join(); b.join();\n    std::cout << \"values=\" << values[0] << ',' << values[1] << ',' << values[2]\n              << \" total=\" << values[0]+values[1]+values[2] << '\\n';\n}\n",
+        "expectedStdout": "values=7,8,9 total=24\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Break a condition without breaking the invariant",
+      "eyebrow": "BREAK A CONDITION WITHOUT BREAKING THE INVARIANT",
+      "kind": "concept",
+      "keyPoints": [
+        "Exclusive resources can create mutual exclusion",
+        "Holding one while asking for another creates hold-and-wait",
+        "Circular acquisition can close the trap"
+      ],
+      "narration": "The classical lock-resource analysis combines mutual exclusion, hold-and-wait, no safe preemption, and circular wait. Preventing deadlock means structurally breaking a necessary condition in the relevant model. Removing a mutex from shared mutable data might eliminate a wait while introducing a data race, so that is not a valid repair. A better option may use immutable data, avoid nested acquisition, impose one global order, or acquire the required set through a coordinated operation. Choose a change that preserves the protected invariant as well as progress. The list of conditions is useful because it points to design choices, not because memorizing four phrases diagnoses every hang automatically.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch50.json \u2192 SP50.004",
+      "question": {
+        "prompt": "Why is removing all locks not an acceptable general deadlock repair?",
+        "answer": "It may destroy mutual exclusion needed for data correctness and introduce races; the new design must preserve both state invariants and progress."
+      }
+    },
+    {
+      "title": "A global order separates business direction from locking",
+      "eyebrow": "A GLOBAL ORDER SEPARATES BUSINESS DIRECTION FROM LOCKING",
+      "kind": "concept",
+      "keyPoints": [
+        "Transfer direction can vary",
+        "Acquisition order must remain consistent",
+        "The order must cover every relevant resource"
+      ],
+      "narration": "A transfer from account eight to account three can still acquire three before eight. Business direction determines which balance decreases; lock order determines how resources are acquired. Keeping these concerns separate removes the two-lock circular wait when every participant follows the same total order. Use stable application identities or an appropriate library ordering facility rather than assuming built-in ordering of unrelated object pointers provides a portable rule. Also include less obvious locks reached through helper functions and callbacks. One inconsistent path can invalidate the global argument even if the main transfer function looks correct. Document the order where new operations are likely to be added.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch50.json \u2192 SP50.016",
+      "question": {
+        "prompt": "Does reversing transfer direction require reversing mutex acquisition order?",
+        "answer": "No. A consistent lock order should remain the same while the business update direction changes."
+      }
+    },
+    {
+      "title": "The same-resource case is a separate contract",
+      "eyebrow": "THE SAME-RESOURCE CASE IS A SEPARATE CONTRACT",
+      "kind": "concept",
+      "keyPoints": [
+        "Two arguments may name one object",
+        "Do not pass one nonrecursive mutex twice",
+        "Handle no-op operations before multi-lock acquisition"
+      ],
+      "narration": "A function accepting source and destination references may receive the same account twice. Distinct parameter names do not imply distinct objects. Trying to acquire the same nonrecursive mutex twice violates the intended acquisition contract and can hang or otherwise fail the interface requirements. The chapter's transfer handles the same-account operation before multi-lock acquisition, treating it as a no-op under its stated rules. Our rotation example creates three genuinely distinct mutex objects, so that precondition is explicit. Review aliasing whenever a resource set is assembled dynamically. Coordinated multi-lock tools solve contention among distinct locks; they do not erase the need to validate which resources the arguments represent.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch50.json \u2192 SP50.016",
+      "question": {
+        "prompt": "What must be checked before locking mutexes obtained from two account references?",
+        "answer": "Whether the references identify the same account, so the operation does not attempt to acquire the same nonrecursive mutex twice."
+      }
+    },
+    {
+      "title": "Joining while locked creates a different cycle",
+      "eyebrow": "JOINING WHILE LOCKED CREATES A DIFFERENT CYCLE",
+      "kind": "concept",
+      "keyPoints": [
+        "The parent waits for worker completion",
+        "The worker may need the parent\u2019s mutex",
+        "Release resources and request shutdown before joining"
+      ],
+      "narration": "A deadlock can involve a join even if no thread tries to take two mutexes. Suppose the parent owns the queue mutex and joins a worker. The worker needs that mutex to observe closure and return. The parent waits for the worker, and the worker waits for the parent to unlock. Draw both kinds of edge instead of searching only for opposite lock order. The repair is to establish closure while protected, release the lock, notify as required, and then join. A similar dependency appears when a shell waits for a pipe producer before starting its consumer. Progress analysis must include every blocking operation the participants rely on.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch50.json \u2192 SP50.004",
+      "question": {
+        "prompt": "Why can a parent deadlock by joining a worker while holding one mutex?",
+        "answer": "The worker may need that same mutex to finish, producing a join-wait and lock-wait cycle."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Unsafe allocation is not necessarily current deadlock",
+      "eyebrow": "UNSAFE ALLOCATION IS NOT NECESSARILY CURRENT DEADLOCK",
+      "kind": "concept",
+      "keyPoints": [
+        "Avoidance needs known maximum claims",
+        "A state may lack a guaranteed completion order",
+        "No participant need be blocked yet"
+      ],
+      "narration": "Imagine three identical resources. Two participants each hold one and each may still need two more. Only one resource remains free, so neither maximum claim can be fully satisfied first. Under that maximum-need model, the state is unsafe: there is no guaranteed completion sequence. It is not necessarily already deadlocked, because neither participant may have issued a blocking request yet, or actual needs may be smaller than the maximum. Avoidance policies reject such risky admissions when their guarantees require a safe sequence. That differs from prevention through a fixed lock order. The analysis is useful only when capacities and maximum claims are meaningful and known.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch50.json \u2192 SP50.020",
+      "question": {
+        "prompt": "Why can an unsafe state exist before a deadlock occurs?",
+        "answer": "Unsafe means no guaranteed completion sequence under the maximum-claim assumptions; the participants may not yet be waiting or may use less than their maximum."
+      }
+    },
+    {
+      "title": "Make a progress argument part of code review",
+      "eyebrow": "MAKE A PROGRESS ARGUMENT PART OF CODE REVIEW",
+      "kind": "concept",
+      "keyPoints": [
+        "List held resources at each blocking point",
+        "State how each wait can end",
+        "Treat timeouts as policy, not automatic recovery"
+      ],
+      "narration": "Before approving a blocking operation, list what its caller still owns and who can satisfy the wait. If the required participant needs one of those retained resources, inspect the dependency cycle. Include locks, queue slots, join ownership, terminal relationships, and external callbacks. Timeouts may bound waiting, but recovery must still release resources safely and preserve or explicitly abandon partial work. Killing a thread that owns a mutex is not a general recovery plan. Prefer a clear hierarchy or simpler ownership boundary when possible. Tests should verify completion under demanding schedules, while the documented acquisition and shutdown policy explains why the design has a path to progress.",
+      "actions": [
+        "Predict the concrete state or output before revealing the answer.",
+        "Explain which invariant and lifetime rule make the observation valid."
+      ],
+      "sourceRef": "content/systems-programming/ch50.json \u2192 SP50.028",
+      "question": {
+        "prompt": "What question should be asked at every blocking point?",
+        "answer": "Who can make this wait finish, and does the waiting participant hold anything that prevents that actor from doing so?"
+      }
+    }
+  ]
+}

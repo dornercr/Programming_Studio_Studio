@@ -1,0 +1,222 @@
+{
+  "chapter": 36,
+  "title": "Memory-Mapped Files — extent, backing, and lifetime",
+  "opening": [
+    {
+      "title": "Mapping gives bytes an address, with a bounded lifetime",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "mmap establishes a virtual region",
+        "Loads still depend on valid backing and permissions",
+        "munmap ends every borrowed pointer into the region"
+      ],
+      "narration": "A file parser can repeatedly call read, or it can ask the operating system to make a file region accessible through memory addresses. The second option is memory mapping. It changes how the program reaches bytes; it does not remove file size, permission, and lifetime rules. A pointer into the region is valid only inside the mapped extent while that mapping remains alive. Pages may need operating-system work when first touched, so a successful mmap is not proof that every later access is immediate. We will use controlled temporary files and bounded accesses to study the mechanism without touching device registers or existing documents.",
+      "actions": [
+        "Name the mapping owner before showing pointer syntax."
+      ],
+      "sourceRef": "content/systems-programming/ch36.json → SP36.004 · 36.1 mmap",
+      "question": {
+        "prompt": "What ends the lifetime of pointers borrowed from a mapping?",
+        "answer": "Removing the mapping, such as with munmap, invalidates those pointers regardless of whether the file still exists."
+      }
+    },
+    {
+      "title": "The mapping can outlive its original descriptor",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "code",
+      "keyPoints": [
+        "Create three known bytes in a temporary file",
+        "Map read-only, then close the original stream",
+        "The remaining mapping still sums to fifteen"
+      ],
+      "narration": "This actual Linux and POSIX program writes byte values three, five, and seven, then creates a read-only private mapping of those three bytes. It closes the original FILE before reading through the mapping. On this platform, closing that descriptor does not remove the established mapping, so the sum is still fifteen. Only munmap ends the address range used by the loop. The program checks mapping failure against MAP_FAILED, not against null. The output proves the mapping-lifetime relationship in this controlled case; it does not claim that a separate process may safely truncate the backing file or that pages were copied at a particular moment.",
+      "actions": [
+        "Predict fifteen before Run and point to the actual lifetime-ending call."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch36.json → SP36.006 · 36.2 Address mappings",
+      "question": {
+        "prompt": "Why can this loop still read after fclose?",
+        "answer": "The established mapping has its own lifetime and remains until munmap; closing the original descriptor does not remove it on Linux."
+      },
+      "code": {
+        "filename": "sys_ch36_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstdio>\n#include <iostream>\n#include <sys/mman.h>\n#include <unistd.h>\nint main() {\n    FILE* file = std::tmpfile();\n    if (!file) return 1;\n    const unsigned char data[3]{3, 5, 7};\n    if (std::fwrite(data, 1, 3, file) != 3 || std::fflush(file) != 0) {\n        std::fclose(file); return 1;\n    }\n    void* region = mmap(nullptr, 3, PROT_READ, MAP_PRIVATE, fileno(file), 0);\n    const bool closed = std::fclose(file) == 0;\n    if (region == MAP_FAILED) return 1;\n    if (!closed) { munmap(region, 3); return 1; }\n    const auto* bytes = static_cast<const unsigned char*>(region);\n    unsigned sum = 0;\n    for (unsigned i = 0; i < 3; ++i) sum += bytes[i];\n    if (munmap(region, 3) != 0) return 1;\n    std::cout << \"mapped sum after close=\" << sum << '\\n';\n}\n",
+        "expectedStdout": "mapped sum after close=15\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Mapping offsets have alignment rules",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "The mapping base normally aligns to a page boundary",
+        "A record can begin inside that mapping",
+        "Add the internal displacement with overflow checks"
+      ],
+      "narration": "A record beginning at byte nine thousand is not necessarily a legal mapping offset. With an illustrative page size of four thousand ninety-six, the aligned base is eight thousand one hundred ninety-two and the internal displacement is eight hundred eight. To access one hundred record bytes, the requested region must cover at least nine hundred eight bytes from that base. This arithmetic is about mapping extent, not record interpretation. Query the actual platform requirements rather than assuming the illustrative page size. Also check that displacement plus requested length fits the addressable size and remains within the stable file region before constructing pointers.",
+      "actions": [
+        "Separate the page-aligned base from the requested record offset."
+      ],
+      "sourceRef": "content/systems-programming/ch36.json → SP36.004 · 36.1 mmap",
+      "question": {
+        "prompt": "For the illustrative numbers, where does the record start relative to the mapping?",
+        "answer": "Eight hundred eight bytes after the aligned mapping base."
+      }
+    },
+    {
+      "title": "Private writes are not file updates",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "code",
+      "keyPoints": [
+        "MAP_PRIVATE gives private modification semantics",
+        "The mapped byte changes from four to nine",
+        "pread still sees four in the backing file"
+      ],
+      "narration": "The second actual mapping demo begins with byte value four. It maps that byte privately with read and write permission, stores nine through the mapping, and reads the backing file through pread. The mapped value is nine, while the backing value remains four. That is the declared private-modification behavior, not a failed save. A program expecting file updates selected the wrong sharing contract. MAP_SHARED has different propagation rules, but it still requires synchronization and an appropriate durability protocol for stronger promises. The test uses one process and one byte, checks all relevant operations, and never treats a private assignment as evidence of persistent output.",
+      "actions": [
+        "Predict the two different byte values before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch36.json → SP36.020 · Worked example — Private versus shared mapping",
+      "question": {
+        "prompt": "Should adding fflush turn this private mapped write into a file update?",
+        "answer": "No. Private mapping semantics are not pending stdio output; choose the required mapping and update protocol."
+      },
+      "code": {
+        "filename": "sys_ch36_private_write.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstdio>\n#include <iostream>\n#include <sys/mman.h>\n#include <unistd.h>\nint main() {\n    FILE* file = std::tmpfile();\n    if (!file) return 1;\n    const unsigned char initial = 4;\n    if (std::fwrite(&initial, 1, 1, file) != 1 || std::fflush(file) != 0) {\n        std::fclose(file); return 1;\n    }\n    void* region = mmap(nullptr, 1, PROT_READ | PROT_WRITE,\n                        MAP_PRIVATE, fileno(file), 0);\n    if (region == MAP_FAILED) { std::fclose(file); return 1; }\n    auto* byte = static_cast<unsigned char*>(region);\n    *byte = 9;\n    const unsigned observed = *byte;\n    unsigned char backing = 0;\n    bool okay = pread(fileno(file), &backing, 1, 0) == 1;\n    okay = munmap(region, 1) == 0 && okay;\n    okay = std::fclose(file) == 0 && okay;\n    if (!okay) return 1;\n    std::cout << \"private=\" << observed << \" backing=\"\n              << static_cast<unsigned>(backing) << '\\n';\n}\n",
+        "expectedStdout": "private=9 backing=4\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Failure is MAP_FAILED; empty input is its own case",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "mmap does not use null as its failure sentinel",
+        "Zero-length input should be handled directly",
+        "Extent validation precedes pointer arithmetic"
+      ],
+      "narration": "An allocation-style habit can be misleading here: mmap reports failure with MAP_FAILED, not a null pointer. A check written as if not region does not implement that contract. An empty file also needs a direct path because a zero-length mapping is not the right way to represent an empty region. For a checksum, the empty result can be returned without constructing a mapping. Before mapping nonempty data, check that the file length fits the program's size type and that the object has the expected capabilities. These guards make later pointer arithmetic meaningful. The compiler accepts pointer syntax without proving the external mapped extent.",
+      "actions": [
+        "Compare the documented failure sentinel with an ordinary pointer-null check."
+      ],
+      "sourceRef": "content/systems-programming/ch36.json → SP36.004 · 36.1 mmap",
+      "question": {
+        "prompt": "What should a mapped checksum do for a valid empty file?",
+        "answer": "Handle the empty result directly instead of requesting a zero-length mapping."
+      }
+    },
+    {
+      "title": "A page fault is deferred work, not always a bug",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "A first touch may establish backing",
+        "Later memory management can also require faults",
+        "Concurrent truncation can make backing disappear"
+      ],
+      "narration": "Accessing a mapped address can trigger a page fault so the kernel establishes the page needed for that virtual address. That is often normal deferred work, not a crash. But an address being inside the originally mapped length is not enough if another actor truncates the backing file. On Linux, touching missing backing can produce SIGBUS. The source therefore requires a stable regular file throughout its read-only checksum operation. Checking size once does not lock the file forever. Keep that stability assumption in the API contract, especially if a later maintenance change allows another component to resize the same file while the mapping is borrowed.",
+      "actions": [
+        "Distinguish a normal demand fault from lost backing after truncation."
+      ],
+      "sourceRef": "content/systems-programming/ch36.json → SP36.010 · 36.4 Page faults",
+      "question": {
+        "prompt": "Why is a size check before mmap insufficient against later truncation?",
+        "answer": "The backing can change after the check; mapping length does not prevent an external actor from removing file data."
+      }
+    },
+    {
+      "title": "Permissions and sharing answer different questions",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "PROT_READ or PROT_WRITE controls allowed access",
+        "PRIVATE or SHARED controls modification semantics",
+        "Neither choice alone coordinates multiple writers"
+      ],
+      "narration": "A writable private mapping and a read-only shared mapping answer different combinations of questions. Protection says what access this process may perform. Sharing says how modifications relate to backing and other mappings. Neither is a lock. Two threads concurrently changing shared mapped data still need synchronization under the language rules, and separate processes need facilities designed for shared-process use. Use only the authority needed: a parser that never edits data should normally request read-only access. Adding write or execute permission for convenience increases the set of mistakes that can affect the region without helping the parsing requirement.",
+      "actions": [
+        "Ask separate questions for permission, visibility, and synchronization."
+      ],
+      "sourceRef": "content/systems-programming/ch36.json → SP36.012 · 36.5 Mapping permissions",
+      "question": {
+        "prompt": "Does MAP_SHARED make two writers automatically synchronized?",
+        "answer": "No. Shared visibility semantics do not establish the ordering or mutual exclusion required for correct concurrent access."
+      }
+    },
+    {
+      "title": "Device mappings are a different contract",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Device registers can have access side effects",
+        "Required widths and ordering may matter",
+        "volatile alone does not supply every guarantee"
+      ],
+      "narration": "The phrase memory-mapped I/O can refer to device registers as well as ordinary file data. A device read might acknowledge an event, and a write might start hardware work. Access width, order, and cacheability can therefore be part of correctness. A plain file parser's habit of reading bytes freely is not a valid device protocol. Marking a pointer volatile does not automatically provide every hardware ordering or interthread synchronization guarantee. Follow the operating system's driver interface and the device's documented rules. Our user-space temporary-file programs deliberately make no claim about physical device access; they teach file mapping only.",
+      "actions": [
+        "State the boundary between the demonstrated file mapping and device protocols."
+      ],
+      "sourceRef": "content/systems-programming/ch36.json → SP36.014 · 36.6 Memory-mapped I/O",
+      "question": {
+        "prompt": "Why is a byte-summing loop not automatically valid for a mapped device register range?",
+        "answer": "Reads may have side effects or require specific widths and ordering that ordinary file bytes do not."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose mapping for a real access pattern",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Mapping can simplify repeated random access",
+        "Buffered reads can make transfer failures more explicit",
+        "Both need bounds, ownership, and input stability"
+      ],
+      "narration": "Memory mapping may be convenient when many bounded reads revisit a stable file and ordinary address-based access simplifies the algorithm. Buffered or positional reads can be simpler when work is sequential, windows are short-lived, or the program wants explicit transfer results at each step. Neither option eliminates error handling. Mapping shifts some work to later page accesses and makes pointer lifetime central. Reads return counts that the application must process correctly. Compare the actual workload and failure model before choosing. A small file parser does not become more correct merely because it uses mmap, and a mapping-based parser should not retain dangling views after its owner unmaps.",
+      "actions": [
+        "Choose an ownership design for a returned parsed slice."
+      ],
+      "sourceRef": "content/systems-programming/ch36.json → SP36.006 · 36.2 Address mappings",
+      "question": {
+        "prompt": "What maintenance bug can arise when a parser returns a view into a mapping?",
+        "answer": "The returned view can outlive the owner’s munmap and become invalid; ownership must extend for all borrowed views."
+      }
+    },
+    {
+      "title": "Recall address, extent, backing, and owner",
+      "eyebrow": "SYSTEMS 36 / MAPPING EXTENT AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "A valid address needs a live mapping",
+        "A valid element needs a checked extent",
+        "A live region still depends on backing and permissions"
+      ],
+      "narration": "The complete mapping story has four pieces: an address range, its extent, its backing contract, and its owner. The first demo showed that closing the original descriptor does not end an established Linux mapping. The second showed that private writable memory does not update the file. The remaining risks follow from confusing those contracts: using a view after unmap, indexing beyond the checked extent, expecting a private write to persist, or allowing backing to shrink during access. Keep the program's stated platform visible because these are operating-system interfaces. Test controlled fixtures and boundaries without intentionally performing invalid memory accesses.",
+      "actions": [
+        "Have learners explain the four pieces using one mapped record."
+      ],
+      "sourceRef": "content/systems-programming/ch36.json → SP36.006 · 36.2 Address mappings",
+      "question": {
+        "prompt": "Which operation should every borrowed mapped view be considered invalid after?",
+        "answer": "munmap of its covering region, even if a separate descriptor or pathname still exists."
+      }
+    }
+  ]
+}

@@ -1,0 +1,835 @@
+Design Patterns in C++
+Chapter 22: Visitor
+Dr. Charles Dorner
+
+1. The parts stay; the reports multiply
+Problem and first design
+
+SAY
+A workshop order contains bolts and cable. Bolts are measured in pieces; cable is measured in whole metres. Pricing is easy at first: multiply each quantity by its rate and add the results. Then the workshop asks for labels, packing summaries, and audit reports. The data types are stable, but the operations keep growing. Putting every new report into every part class spreads reporting changes across those classes. We need to send a mixed list through one traversal while each outside operation still receives the exact kind of part. Visitor addresses that direction of change. Before reaching its mechanism, keep the two units distinct and the original arithmetic visible.
+
+DO
+Ask which is changing more often: element types or reports.
+Name the units before multiplying quantities.
+
+SOURCE
+manuscript/ch22.json → The problem: the parts stay familiar while reports multiply
+
+------------------------------------------------------------
+
+2. State the price and ownership contracts
+Problem and first design
+
+SAY
+The sample has three bolts and two metres of cable. Three times five contributes fifteen cents; two times forty contributes eighty, giving ninety-five cents. Constructors reject quantities below zero or above one hundred. A report's running total must not exceed one million cents. A new report starts from zero, and a rejected addition must leave the old total intact. We also need an ownership rule. The order owns its parts; a report only borrows each part long enough to read it. These rules are independent of the dispatch mechanism. A beautiful Visitor diagram would still be wrong if it used the cable rate for bolts or reused an old report total accidentally.
+
+DO
+Calculate both terms with their units.
+Ask which object should destroy the parts when the order ends.
+
+SOURCE
+manuscript/ch22.json → The price calculation also needs ordinary correctness
+
+------------------------------------------------------------
+
+3. For one operation, direct functions are enough
+Problem and first design
+
+SAY
+This complete baseline uses two small value records and overloaded price functions. Overloading gives functions the same name with different parameter types. The compiler chooses the Bolts overload for the bolts variable and the Cable overload for the cable variable. Each constructor checks its own quantity before any price calculation. The program prints one total, and it does not need inheritance, heap allocation, or a visitor. This is a strong choice when callers already know the concrete types and pricing is the main operation. The limitation appears when callers traverse a mixed collection through one common interface and many outside operations need each exact type.
+
+DO
+Predict the total for four bolts and three metres.
+Identify which overload each expression selects during compilation.
+
+SOURCE
+Lecture demonstration for manuscript/ch22.json → The problem: the parts stay familiar while reports multiply
+
+------------------------------------------------------------
+
+4. A base reference does not select a derived overload
+Problem and first design
+
+SAY
+This demonstration creates one Bolts object and gives it two names: a concrete variable and a reference viewed as Part. The two report calls print different labels even though they refer to the same object. The reason is overload resolution, the compiler's choice among functions with the same name. That choice uses the type known at the call site. report(as_part) selects the Part parameter; it does not search for a better overload based on the object's runtime kind. In the chapter's Visitor interface there is no Part overload, so a direct visit of a Part reference would fail to compile. Adding a fallback overload would compile but would not create automatic concrete dispatch.
+
+DO
+Predict each printed label before Run.
+Ask whether making the base destructor virtual changes overload resolution.
+
+SOURCE
+Lecture demonstration for manuscript/ch22.json → Why a single overloaded call is not enough
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+Price a mixed workshop order. Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.
+
+Support bolt counts and cable lengths with distinct units. Compute exact integer-cent totals with a one-million-cent limit. Keep reporting operations outside stable part data classes.
+
+Each part quantity is in 0 through 100. Price is between zero and one million cents. A visitor reads parts without taking ownership. Every concrete visitor supplies an operation for every declared element kind. These are the rules that define a correct extension, even if it has the right C++ types. Virtual price members are simpler if price is intrinsic and the operation set is stable. A variant and std::visit suit a closed set of simple value types. Visitor is useful when adding operations across stable element types is the main change.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json
+
+------------------------------------------------------------
+
+6. The problem: the parts stay familiar while reports multiply
+Requirements and mechanism
+
+SAY
+A workshop order contains two kinds of item: a group of bolts counted by pieces, and a cable measured in whole metres. Each quantity must be between zero and one hundred. A price report charges five cents per bolt and forty cents per metre. The total cannot exceed one million cents. Direct price methods on Bolts and Cable are a reasonable first design when price is the one operation every item must offer. The next requests are labels, packing summaries, and audit reports, each with different output needs.
+
+Adding every report as another virtual member makes stable data types change whenever a reporting team needs a new operation. A large switch on a type code moves the work outside the classes but loses compiler-checked access to the distinct data of each kind. We need to let an outside operation receive the exact kind of part while callers still traverse a mixed list through the common Part interface. The Visitor pattern provides this connection, at a cost: the set of element types becomes explicit in the visitor interface.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → The problem: the parts stay familiar while reports multiply
+
+------------------------------------------------------------
+
+7. One visitor operation has one entry point for each kind
+Requirements and mechanism
+
+SAY
+Visitor declares two overloaded visit functions: one taking const Bolts& and one taking const Cable&. Overloading means several functions share a name but have different parameter lists. Price implements both. It keeps a running cents_ total and uses the correct unit for each kind. Bolts exposes a count getter; Cable exposes a metres getter. Neither class needs to know the price rules or the output format of a future label report.
+
+Part declares accept(Visitor&) const. Each concrete element implements accept and calls visitor.visit with a reference to itself. The const qualifier at the end means this accepting operation cannot change the element through its ordinary members. The visitor reference is not const, because a report visitor may update its own running result. A read-only element and a changing report are compatible: const applies to a particular object and access path, not to the entire call tree.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → One visitor operation has one entry point for each kind
+
+------------------------------------------------------------
+
+8. Why a single overloaded call is not enough
+Requirements and mechanism
+
+SAY
+Imagine a Part& variable that actually refers to a Bolts object. Calling visitor.visit(part) cannot select visit(const Bolts&) merely because the runtime object happens to be bolts. Overload resolution, the choice among same-name functions, uses the expression’s static type during compilation. Here the static type is Part&, and Visitor does not offer a Part overload. A downcast at every caller would move type-checking knowledge into all loops, defeating the goal of a common traversal.
+
+Instead the loop calls part->accept(price). Virtual dispatch chooses Bolts::accept during execution because the actual element is Bolts. Inside that member, *this has the type const Bolts, so the compiler selects visit(const Bolts&) when compiling that function. Calling the selected virtual visit then dispatches to the implementation belonging to the actual visitor object, Price. The behavior depends on both the element kind and visitor kind. This two-stage selection is called double dispatch. It combines static overload choice with virtual calls; it does not make ordinary C++ overload resolution dynamic.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → Why a single overloaded call is not enough
+
+------------------------------------------------------------
+
+9. Follow ownership without giving it to the visitor
+Requirements and mechanism
+
+SAY
+The parts vector owns unique_ptr<Part> values whose actual objects are Bolts and Cable. Part has a virtual destructor so destroying an owning base pointer properly destroys the complete concrete object. Price is a separate local object in main. During accept it borrows each part through a const reference. It does not retain those references, own the parts, or change their quantities. After traversal, the visitor owns only its numeric result.
+
+The forward declarations class Bolts and class Cable tell the compiler that those type names exist before Visitor uses references to them. A reference declaration does not need the complete class layout. The later class definitions provide constructors, getters, and accept bodies. This arrangement resolves the header dependency between the visitor interface and its element types. In a multi-file program, separate headers and forward declarations keep that dependency controlled; putting every implementation in one header can make every report change trigger broad recompilation.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → Follow ownership without giving it to the visitor
+
+------------------------------------------------------------
+
+10. The price calculation also needs ordinary correctness
+Requirements and mechanism
+
+SAY
+Design structure does not make arithmetic automatically safe. Constructors reject negative quantities and quantities above one hundred. Each price term is therefore bounded before multiplication: at most five hundred cents for bolts or four thousand cents for cable. Price::add checks whether the accumulated total exceeds one million minus the next nonnegative term. Only then does it add. Checking before addition avoids computing an overflowed result and trying to diagnose it afterward. The chosen limits fit the required int range on the documented compiler platform.
+
+The sample order contains three bolts and two metres of cable. The terms are fifteen and eighty, so the result is ninety-five cents. A fresh visitor starts at zero; a zero-quantity element changes nothing. For the limit test, two hundred fifty visits to a one-hundred-metre cable reach exactly one million. The next visit throws and leaves the old total intact. The visitor therefore has its own invariant and failure policy, separate from those of the elements. Reusing the same Price visitor for another order would accumulate into the previous result unless the caller deliberately creates a new visitor.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → The price calculation also needs ordinary correctness
+
+------------------------------------------------------------
+
+11. Choose which direction of change should be easy
+Requirements and mechanism
+
+SAY
+Adding Labels in the lab changes no Bolts, Cable, or Part class. Labels implements both visits and appends strings with quantities and unit names. The same traversal works. However, adding a new element kind such as Paint requires a new visit overload in the Visitor interface and an implementation in every concrete visitor. This can be useful: the compiler forces every operation to decide how to handle Paint. It can also be costly when new element kinds arrive frequently and the operation set barely changes.
+
+C++17 offers another option for a closed set of types: std::variant<BoltsData, CableData> can store exactly one alternative, and std::visit selects a callable for the active alternative. This can avoid a heap allocation and a virtual base hierarchy for simple value data. It still makes the type set explicit, and visitors must handle its alternatives. Ordinary virtual members remain simpler when new types are common and the operation set is stable. Visitor is a tradeoff between these directions of change, not a general rule to move every method out of its class.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → Choose which direction of change should be easy
+
+------------------------------------------------------------
+
+12. Give every operation an entry for every part kind
+Mechanism in C++
+
+SAY
+Visitor is an interface for outside operations. It declares one visit overload for each supported part type. Price implements both overloads and owns a running cents total. Part is the common element interface and offers accept. Bolts and Cable each implement accept by passing themselves to the visitor. The loop can now work through Part while the operation still receives a precise concrete reference. This arrangement makes a new operation, such as Labels, one new visitor with explicit cases for both kinds. It also exposes the tradeoff immediately: a new kind of part requires another overload in the Visitor interface and a response from every concrete visitor.
+
+DO
+Match Part, Bolts, Cable, Visitor, and Price to their roles.
+Ask where the cents total belongs and why.
+
+SOURCE
+manuscript/ch22.json → One visitor operation has one entry point for each kind
+
+------------------------------------------------------------
+
+13. Trace both runtime choices and the static bridge
+Mechanism in C++
+
+SAY
+Double dispatch means the result depends on two runtime kinds: the element and the visitor. Follow a Part pointer owning Bolts while the operation object is Price. Calling accept makes the first virtual choice and reaches Bolts::accept. Inside that member, the compiler knows that *this refers to a Bolts object. It selects visit(const Bolts&) when compiling that call. The selected visit is itself virtual, so execution then chooses Price's implementation of that signature. There are two virtual selections with a compile-time overload choice between them. Ordinary overload resolution has not become dynamic. The accept method supplies the concrete static type that the outer mixed-list loop lacks.
+
+DO
+Speak the full call path, including the compile-time step.
+Ask learners to mark which choices depend on the element and visitor objects.
+
+SOURCE
+manuscript/ch22.json → Why a single overloaded call is not enough
+
+------------------------------------------------------------
+
+14. Read-only parts and a changing report can coexist
+Mechanism in C++
+
+SAY
+The signature accept(Visitor&) const contains two different permissions. The trailing const says the operation does not change the part through this call. The visitor parameter lacks const because a report may update its own running result. Inside Price::visit, a const reference lets the visitor read the quantity without taking ownership or making a part copy. Price keeps the resulting number, not a pointer to the visited part. This distinction matters when the order goes out of scope. The report's numeric result can remain useful without keeping parts alive. const is attached to particular objects and access paths; it does not mean every object touched by the whole call tree is frozen.
+
+DO
+Identify which object changes during Price::visit.
+Ask what remains in Price after a visited Cable is destroyed.
+
+SOURCE
+manuscript/ch22.json → One visitor operation has one entry point for each kind
+
+------------------------------------------------------------
+
+15. Dependencies do not imply ownership
+Mechanism in C++
+
+SAY
+The mixed vector owns unique_ptr<Part> handles. Destroying the vector destroys those handles and the complete concrete elements. Part needs a virtual destructor because destruction occurs through the base type. Price is a separate local object owned by its scope, not by any part. A dependency arrow in the class diagram means one type knows or calls another; it does not transfer ownership. The source starts by announcing Bolts and Cable before Visitor mentions references to them. Those forward declarations name types without giving their full layout. Reference declarations can use those names; later complete definitions provide getters and accept bodies. In a larger project, this distinction helps control header dependencies and rebuild costs.
+
+DO
+Separate ownership edges from dependency arrows in the diagram.
+Ask whether accepting a visitor transfers either object’s ownership.
+
+SOURCE
+manuscript/ch22.json → Follow ownership without giving it to the visitor
+
+------------------------------------------------------------
+
+16. Check the total before adding the next term
+Mechanism in C++
+
+SAY
+The pattern handles routing, but Price still needs ordinary arithmetic discipline. Quantity checks keep each bolt term at most five hundred cents and each cable term at most four thousand. Before adding a nonnegative term, add checks whether the current total is greater than one million minus that term. This avoids forming an excessive total and checking afterward. At exactly one million, a further positive term throws and leaves the total unchanged. The visitor also has lifetime state: its total starts at zero and grows with visits. Reusing the same Price for another order does not reset it. Two identical ninety-five-cent orders produce one hundred ninety if the same visitor accumulates both.
+
+DO
+Calculate the number of 100-metre cable visits needed to reach the limit.
+Ask learners to separate a fresh report from continuation of an existing report.
+
+SOURCE
+manuscript/ch22.json → The price calculation also needs ordinary correctness
+
+------------------------------------------------------------
+
+17. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Element interface → Part::accept. Let a caller apply an operation through a common element interface.
+
+Concrete Elements → Bolts and Cable. Carry distinct data and forward acceptance using their exact concrete type.
+
+Visitor interface → Visitor with two visit overloads. Require a type-specific operation for each supported element kind.
+
+Concrete Visitors → Price; Labels in the lab. Implement one complete operation across the element set and retain any needed result.
+
+Object structure / client → parts vector and main. Traverse mixed elements and apply the visitor without type tests.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → C22.08 concepts
+
+------------------------------------------------------------
+
+18. Visitor: outside operations on stable element kinds
+UML and source walkthrough
+
+SAY
+Inheritance arrows point from concrete classes toward their bases. Dependency arrows show parameter knowledge and calls, not ownership. The actual part vector owns elements, and the caller owns Price. The focused trace explains the two dispatch steps that a class diagram alone cannot show.
+
+Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.
+
+A new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch22/main.cpp:1-98; content/design-patterns-cpp/ch22.json → diagrams.22
+
+------------------------------------------------------------
+
+19. Visitor — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.
+
+A new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch22/main.cpp:1-98; content/design-patterns-cpp/ch22.json → diagrams.22
+
+------------------------------------------------------------
+
+20. The element supplies its exact type
+UML and source walkthrough
+
+SAY
+This member bridges a base-class traversal to a concrete-type visitor overload. Virtual dispatch selects it when the actual Part object is Bolts. Inside this member, the compiler knows the element is Bolts.
+
+Declare a read-only accept operation borrowing a visitor. Require this declaration to override the Part interface, then open its body. The comment announces the precise element type. Bind a const Bolts reference to this actual element; the asterisk dereferences this. Call the Bolts overload; virtual dispatch chooses the concrete visitor implementation. Close accept and label its source boundary.
+
+The visitor receives a read-only reference to the original element. A direct visit(Part&) cannot select the concrete overload merely from runtime type.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch22/main.cpp:28-33
+
+------------------------------------------------------------
+
+21. The visitor owns the type-specific operation
+UML and source walkthrough
+
+SAY
+This member prices a quantity measured as a count of bolts. The selected Bolts overload runs on the actual Price visitor. Pricing stays outside Bolts, allowing another visitor to report labels or other results.
+
+Define Price implementation of the Bolts overload. The comment states the unit-specific pricing task. Multiply the validated bolt count by five cents per bolt. Pass the bounded term to the checked accumulation operation. Close this overload and label its boundary.
+
+A bolt count is valid before multiplication and add checks the total limit. Confusing counts and metres gives the wrong units even if all C++ types compile.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch22/main.cpp:58-62
+
+------------------------------------------------------------
+
+22. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Each Part accepts a Visitor, and each concrete part forwards its own precise type. Price implements the type-specific operations and retains a checked running total.
+
+The executable checks a mixed order total, a fresh empty result, zero quantity, rejected negative cable length, exact price limit, and rejection above the limit without mutation. The code guards upper quantity bounds, but the primary tests do not enumerate every constructor bound.
+
+A new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch22/main.cpp
+
+------------------------------------------------------------
+
+23. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. parts[0] owns Bolts(3), traversed through Part.. The pointer static type hides which concrete element it owns.
+
+Step 2. Virtual accept selects Bolts::accept.. The actual element type controls the first dispatch.
+
+Step 3. Inside accept, self is const Bolts&.. Compile-time overload resolution selects the Bolts visit signature.
+
+Step 4. Virtual visit selects Price::visit(Bolts); adds 15.. The actual visitor type controls the second dispatch.
+
+Step 5. Cable(2) adds 80; total=95.. Its accept selects the Cable overload with metres as the unit.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → trace
+
+------------------------------------------------------------
+
+24. Debug the promise: Call visit directly with a Part reference and expect the Bolts overload to be chosen dynamically.
+Execute and debug
+
+SAY
+Call visit directly with a Part reference and expect the Bolts overload to be chosen dynamically. The call does not compile with this interface because neither concrete-reference overload accepts a Part reference. Overload resolution uses the static expression type; accept supplies the missing concrete-type step.
+
+The executable checks a mixed order total, a fresh empty result, zero quantity, rejected negative cable length, exact price limit, and rejection above the limit without mutation. The code guards upper quantity bounds, but the primary tests do not enumerate every constructor bound.
+
+A new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → example.failures
+
+------------------------------------------------------------
+
+25. Debug the promise: Reuse one Price object for two independent identical orders without resetting it.
+Execute and debug
+
+SAY
+Reuse one Price object for two independent identical orders without resetting it. The second displayed total becomes 190 instead of 95. The visitor retains a running total across visits.
+
+The executable checks a mixed order total, a fresh empty result, zero quantity, rejected negative cable length, exact price limit, and rejection above the limit without mutation. The code guards upper quantity bounds, but the primary tests do not enumerate every constructor bound.
+
+A new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → example.failures
+
+------------------------------------------------------------
+
+26. Trace 1: Visitor: Bolt price
+Trace experiments
+
+SAY
+Visitor: Bolt price. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The Bolts visit multiplies count by five cents.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → dpx-c22-trace-1; companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 2: Visitor: Cable price
+Trace experiments
+
+SAY
+Visitor: Cable price. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The Cable visit uses forty cents per metre.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → dpx-c22-trace-2; companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 3: Visitor: Mixed accumulation
+Trace experiments
+
+SAY
+Visitor: Mixed accumulation. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A single visitor accumulates both visits in order.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → dpx-c22-trace-3; companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 4: Visitor: Zero quantity
+Trace experiments
+
+SAY
+Visitor: Zero quantity. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Zero is a valid quantity that adds no cost.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → dpx-c22-trace-4; companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 5: Visitor: Bolt label
+Trace experiments
+
+SAY
+Visitor: Bolt label. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The overload for Bolts emits the bolt-count label.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → dpx-c22-trace-5; companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 6: Visitor: Cable label
+Trace experiments
+
+SAY
+Visitor: Cable label. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The overload for Cable names metres, not bolts.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → dpx-c22-trace-6; companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 7: Visitor: Label order
+Trace experiments
+
+SAY
+Visitor: Label order. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The visitor preserves the order in which elements accept it.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → dpx-c22-trace-7; companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+33. Trace 8: Visitor: Invalid cable length
+Trace experiments
+
+SAY
+Visitor: Invalid cable length. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Element validation remains in the element type, independent of each visitor.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → dpx-c22-trace-8; companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+34. Exercise 22.1: Guided modification
+Practice and extension
+
+SAY
+Change the bolt rate to six cents and leave the cable rate unchanged. What should the mixed-order total become?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The quantities remain three bolts and two metres.
+
+After the discussion, compare the reasoning. The total becomes 98 cents: three times six plus two times forty. Update the expected mixed-order check while retaining the independent total-limit test, which uses cable only.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch22.json → exercises.22.1
+
+------------------------------------------------------------
+
+35. Exercise 22.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+Visit Bolts(2), Cable(1), and Bolts(0) with one fresh Price. Then visit Cable(1) again using the same visitor. List the total after each call.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The visitor accumulates rather than replacing its result.
+
+After the discussion, compare the reasoning. The totals are 10, 50, 50, and 90. Zero quantity contributes zero; using the same visitor for the final call continues the existing report.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch22.json → exercises.22.2
+
+------------------------------------------------------------
+
+36. Exercise 22.3: Diagnose a bug
+Practice and extension
+
+SAY
+A developer adds void visit(const Part&) to Visitor and calls it directly from the mixed-list loop. Why does that fail to reproduce the element-specific operation automatically?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The static argument type still determines which overload is chosen.
+
+After the discussion, compare the reasoning. The Part overload is selected from the Part expression. Virtual dispatch can choose an override of that signature, but cannot switch to a different Bolts or Cable signature. Keep the accept step or use another explicit type-selection mechanism.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch22.json → exercises.22.3
+
+------------------------------------------------------------
+
+37. Exercise 22.4: Choose a design
+Practice and extension
+
+SAY
+New reports arrive weekly, while the two element kinds have stayed fixed for years. Choose Visitor or adding every report as a new Part virtual member.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Choose which source files should change for each new report.
+
+After the discussion, compare the reasoning. Visitor is a reasonable fit: each report implements the known type cases without editing every element. It introduces a shared type list, so document that adding a new part kind affects all report visitors.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch22.json → exercises.22.4
+
+------------------------------------------------------------
+
+38. Exercise 22.5: Extend without regressions
+Practice and extension
+
+SAY
+Add Labels producing bolts=3 and cable-m=2 in traversal order without editing any element type. What regression check proves pricing is unaffected?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Reuse accept with a different Visitor implementation.
+
+After the discussion, compare the reasoning. Implement both visit overloads to append the unit-labeled strings. Check the ordered string vector and confirm the earlier Price still contains 95. The reference solution also checks an empty label report and a zero-bolt label.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch22.json → exercises.22.5
+
+------------------------------------------------------------
+
+39. Exercise 22.6: Justify a decision
+Practice and extension
+
+SAY
+Explain when std::variant and std::visit would be preferable to this hierarchy. Include a cost of the choice.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Consider simple value data and a closed list of alternatives.
+
+After the discussion, compare the reasoning. A variant fits a small closed set of value records and can store them without separate heap objects. Its type list appears in the value type, so adding an alternative can affect many callers and visitors. A polymorphic hierarchy can be more flexible when elements have independent identity and richer lifetimes.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch22.json → exercises.22.6
+
+------------------------------------------------------------
+
+40. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add a Labels visitor with an ordered vector of strings. Bolts emits bolts=<count>; Cable emits cable-m=<metres>. Do not change Part, Bolts, Cable, or Price. Keep all original checks and print the two labels after existing output.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: The sample parts produce exactly [bolts=3, cable-m=2]. A fresh Labels visitor has no lines. Bolts(0) produces bolts=0. The original Price result remains 95.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch22/main.cpp
+
+------------------------------------------------------------
+
+41. Extension solution and design review
+Practice and extension
+
+SAY
+The reference solution implements two new visitor overloads and reuses the unchanged accept traversal. It keeps labels as strings owned by the visitor, so no references to parts survive the call. A stream-writing visitor would also work if output lifetime and failure handling were specified.
+
+A new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch22/main.cpp
+
+------------------------------------------------------------
+
+42. Application case 1: defend your choice
+Practice and extension
+
+SAY
+Part types change rarely, but teams frequently add operations across them. Which design may fit?
+
+Singleton. Shared instance access does not organize type-specific operations.
+
+Visitor is always best when types change daily. Each new type can require additions across visitor interfaces and implementations.
+
+Prototype. Copying objects solves a different problem.
+
+Visitor. It keeps a new operation together across the known concrete element types.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → C22.22 scenario
+
+------------------------------------------------------------
+
+43. Application case 2: defend your choice
+Practice and extension
+
+SAY
+Only visit(const Bolts&) and visit(const Nuts&) exist. A caller passes a Part& directly to visit. What happens?
+
+No matching overload in this interface.. Overload resolution uses the expression’s static type. Concrete accept supplies the precise type.
+
+The first declared overload always wins. An inapplicable overload cannot win by declaration order.
+
+The runtime automatically chooses Bolts. Virtual dispatch does not redo overload resolution using arbitrary runtime argument types.
+
+The object is cloned first. Visitor dispatch does not imply copying.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch22.json → C22.23 scenario
+
+------------------------------------------------------------
+
+44. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Visitor makes new operations easier across a stable type set. accept provides a concrete-type step before visit. Overload resolution remains a compile-time choice. Visitors need their own state and error invariants. New element types require changes to every visitor. Variant is an alternative for a closed set of value types.
+
+A new report becomes a visitor with an explicit case for every type. A new type becomes a deliberate cross-operation change; use compiler errors and tests to locate all affected report behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch22.json → summary
+
+------------------------------------------------------------
+
+45. Choose which direction of growth should be easy
+Recall and transfer
+
+SAY
+Think of a grid whose rows are part kinds and whose columns are operations. Visitor groups work by operation, making a new column straightforward: implement each known type's case in one visitor. A new row is broader because every visitor must decide what it means. Ordinary virtual members favor the other direction when new kinds appear often and operations stay stable. For simple value data with a closed type set, std::variant and std::visit can offer another arrangement without the same owning base hierarchy. They still make the alternatives explicit. The right choice depends on expected change, not on whether a diagram has more arrows or a pattern name sounds advanced.
+
+DO
+Ask whether a new report or a new part kind is more common in the proposed product.
+Have learners defend a variant alternative for small value records.
+
+SOURCE
+manuscript/ch22.json → Choose which direction of change should be easy
+
+------------------------------------------------------------
+
+46. Distinguish routing bugs from report-state bugs
+Recall and transfer
+
+SAY
+Three failures can produce a bad report for very different reasons. If every part reaches a generic Part case, inspect whether the loop bypassed accept and called visit directly through a base expression. If the second independent order reports twice the expected price, inspect whether the caller reused a visitor that still contains the first total. If cable is charged at five cents per metre, inspect the Cable overload's unit-specific arithmetic. None of these diagnoses requires changing every class. Follow the path of type selection, data, and retained state separately. Focused tests should name which contract failed so a maintainer can find the responsible boundary quickly.
+
+DO
+Classify three symptoms: generic label, doubled second total, wrong cable rate.
+Ask for the smallest test that separates each failure.
+
+SOURCE
+manuscript/ch22.json → The price calculation also needs ordinary correctness
+
+------------------------------------------------------------
+
+47. Add Labels and explain the whole path
+Recall and transfer
+
+SAY
+The extension creates Labels with one visit for bolt counts and one for cable metres. It appends strings to its own list. The existing parts, accept methods, and traversal remain unchanged, and running Labels does not change an already computed Price result. Verify the mixed order, an empty fresh label report, and a zero-quantity bolt label. Then imagine adding Paint. That addition requires a new element, a Visitor overload, and a decision in Price, Labels, and every other concrete visitor. This deliberate cost is part of the design. Recall Visitor by explaining why a common traversal needs accept, which object owns each result, and which direction of change the interface makes easier.
+
+DO
+Ask learners to narrate one Cable visit into Labels from the outer loop.
+Finish by listing the impacted interfaces if Paint is added.
+
+SOURCE
+manuscript/ch22.json → Choose which direction of change should be easy

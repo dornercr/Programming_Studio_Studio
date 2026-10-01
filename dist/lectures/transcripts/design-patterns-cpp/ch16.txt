@@ -1,0 +1,823 @@
+Design Patterns in C++
+Chapter 16: Mediator — one home for a collaboration rule
+Dr. Charles Dorner
+
+1. Who owns the rule that makes Save ready?
+Problem and first design
+
+SAY
+A form has a name field, a consent choice, and a Save button. The button is ready only when the name is nonempty and consent is true. Start by stating that complete rule, because the bug we will study comes from remembering only half of it. The field should understand its text, and the button should understand whether it is enabled. Neither control should need private knowledge of every other control on a form. Once those controls must be reusable, their shared rule needs a home. The mediator will own this coordination, while the controls retain their small local jobs. Our sample counts accepted submissions; it does not write any real files.
+
+DO
+Write the full rule before naming any classes.
+
+SOURCE
+manuscript/ch16.json → The problem: one form rule spreads across several controls
+
+------------------------------------------------------------
+
+2. One function can be all the coordination you need
+Problem and first design
+
+SAY
+This baseline uses one ordinary function. It takes the name by const reference, which borrows the string without copying it and prevents modification through that parameter. accepted is a copied boolean. The exclamation mark changes empty into not empty, and the double ampersand requires both conditions to be true. The three calls cover a name without consent, a name with consent, and an empty name with consent. A procedural form can call this one function after each change. That already gives the rule one source of truth. We introduce a mediator object later because the real chapter separates reusable components that report changes through an interface.
+
+DO
+Predict false, true, false before Run.
+
+SOURCE
+Lecture demonstration for manuscript/ch16.json → The problem: one form rule spreads across several controls
+
+------------------------------------------------------------
+
+3. Local setters can accidentally compete over one button
+Problem and first design
+
+SAY
+Here are two plausible event handlers written in one short program. Consent changes first and disables the button. The user then types Mina, and the name handler enables it because the name is nonempty. The resulting true value violates the complete rule because consent is still false. Nothing is wrong with C++ syntax, and no exception is required for this bug. Each handler implemented a reasonable local fact while forgetting that the decision depends on combined facts. The repair is to recompute readiness in one place whenever any relevant input changes. It is weaker to make each handler copy the full rule, because a later hold condition could be added to only one copy.
+
+DO
+Run the failure, then list all input changes that must trigger recomputation.
+
+SOURCE
+Lecture demonstration for manuscript/ch16.json → The problem: one form rule spreads across several controls
+
+------------------------------------------------------------
+
+4. Report a local change; decide its meaning centrally
+Problem and first design
+
+SAY
+A mediator coordinates a collaboration among objects. In this chapter, Form is that coordinator. NameField stores text and reports changed through the small Events interface. SaveButton stores its enabled state. Form knows how the name and consent combine, so it decides the button's state. The field does not need to find the button or ask it about consent. That removes peer knowledge from the reusable component. The design earns its extra interface only if the field can work under another coordinator. If everything remains one short procedure, the baseline helper is simpler. The pattern's purpose is a clear home for a relationship rule, not a requirement to wrap every event in a new class.
+
+DO
+Map the three concrete chapter types to local data, coordination, and visible state.
+
+SOURCE
+manuscript/ch16.json → Let components report; let the form decide
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+A form with one readiness policy. Form owns its controls and implements a small Events interface. The field reports changes, the mediator reads all relevant state, and the button updates silently.
+
+Enable save only for a nonempty name with accepted consent. Reject disabled submission without changing the saved count. Keep field and button types independent of one another.
+
+Button readiness equals filled name AND accepted consent after each public change. Disabled submit leaves the saved count unchanged. A field callback always reaches its containing live Form. Button enable does not emit a new changed event. These are the rules that define a correct extension, even if it has the right C++ types. A single procedural update_ready function is sufficient for a form with no reusable controls. Letting each control directly alter every peer can look shorter initially but duplicates the combined rule and creates fragile dependencies.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json
+
+------------------------------------------------------------
+
+6. The problem: one form rule spreads across several controls
+Requirements and mechanism
+
+SAY
+A save form has a name field, a consent choice, and a save button. The button should be enabled only when the name is nonempty and consent is accepted. An attempted save while disabled must return false and leave the save count unchanged. Start with one function that computes the rule. If the program is just a small procedural form, that single function is enough. The need for a new structure appears when reusable field and button components must participate without learning the private details of one another.
+
+One tempting design gives the name field a button pointer and has it enable the button whenever text appears. Then the consent control also changes the button. The two controls now need to know the same combined rule. If the name field enables the button without checking consent, typing a name bypasses the requirement. If both controls know each other, changes to the form ripple through all of them. We need one owner of the collaboration rule while keeping the controls responsible for their own simple behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → The problem: one form rule spreads across several controls
+
+------------------------------------------------------------
+
+7. Let components report; let the form decide
+Requirements and mechanism
+
+SAY
+A mediator is an object that coordinates the interaction of other objects. Here Form is the mediator. NameField stores text and reports a changed event. SaveButton stores whether it is enabled. Neither component needs to call the other. Form knows the rule that combines a filled name with accepted consent, so its changed function recomputes the button state from current facts.
+
+The small Events interface lets NameField report a change without depending on the concrete Form class. The field receives Events& in its constructor: a required borrowed relationship with no null state. Events has a virtual destructor and a pure virtual changed function. Form implements changed using override, so a misspelled or incompatible replacement is caught during compilation. This interface is justified by reusing the same field with another coordinator. If the form had no reusable components, a direct helper function would be simpler.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → Let components report; let the form decide
+
+------------------------------------------------------------
+
+8. Follow one change from input to visible state
+Requirements and mechanism
+
+SAY
+Form::name takes a string by value and moves it into NameField::set. The move permits the string storage to be transferred instead of copied when possible; it does not turn the string into a raw pointer. set compares the new text with the old text. Equal text returns immediately because it creates no new fact for the coordinator. Otherwise the field stores the new value and then calls events_.changed. That order matters: the mediator must observe the updated field, not yesterday’s text.
+
+changed reads name_.filled, combines that result with accepted_ using &&, and calls save_.enable. Logical AND is true only when both conditions are true. The local ready value means the name condition alone; the final expression still checks consent. The button update is silent: enable stores a bool but does not report another event. The event direction therefore ends after one coordination step. A mediator is not a promise that loops cannot occur; these particular method contracts are what prevent a feedback loop.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → Follow one change from input to visible state
+
+------------------------------------------------------------
+
+9. Ownership and callbacks must fit together
+Requirements and mechanism
+
+SAY
+Form contains NameField and SaveButton by value, so it owns their lifetimes. Its constructor initializes name_ with *this, a reference to the Form being constructed, treated as its Events base. Passing this reference during construction is safe here because the NameField constructor only stores it and does not call changed. Calling back before all Form members had been initialized would make the coordinator read incomplete state. The code deliberately has no such constructor callback.
+
+The field borrows the mediator it lives inside. This creates a relationship cycle in the object graph, but not an ownership cycle: only Form owns the field; the field does not own Form. Copy and assignment are deleted, which also prevents an implicit move constructor in this design. Without that restriction, a default copy of the field reference would still refer to the original Form, and changes in the copied form could update the wrong button. A more flexible movable form would need to rebind every callback relationship during its move operation.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → Ownership and callbacks must fit together
+
+------------------------------------------------------------
+
+10. The coordinator owns policy, not every job
+Requirements and mechanism
+
+SAY
+Form::submit checks the current button state and returns false if saving is disabled. The successful path increments saved_, a small local stand-in for completed saves in this demonstration. It does not write a file, send a request, or claim durability. The tests use the count to prove that rejected submissions had no effect. In a real form, the save service belongs behind a separate interface; the mediator can call it, but should not absorb file formats, storage retries, and every other subsystem rule.
+
+Consent changes go through accept, which stores the new bool and calls changed. A repeated accept may recompute the button even if nothing changed; recomputing this pure boolean rule is harmless. The name field avoids equal-text notifications to demonstrate a useful event contract. Neither behavior is inherently more correct. What matters is that listeners know whether setters always notify, notify only on actual change, or never notify. Naming and tests should make the policy visible rather than leave users to infer it from a framework.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → The coordinator owns policy, not every job
+
+------------------------------------------------------------
+
+11. Control the growth of the mediator
+Requirements and mechanism
+
+SAY
+When forms gain dozens of unrelated behaviors, the mediator can become one huge object that knows too much. Divide coordination by purpose: a validation controller can decide readiness, a storage service can save, and a page controller can choose which view is shown. The goal is a clear home for a specific collaboration, not one central object for an entire application. Do not make every event a string if a small typed interface can keep mistakes visible to the compiler.
+
+The lab adds a temporary hold flag. A held form must disable save even with valid text and consent; lifting the hold must recompute from the other conditions. This change belongs in the mediator because neither the field nor the button knows what a hold means. The extension tests preserve both old rejection cases and the save count. The same reasoning is useful in an editor, setup wizard, or simulation control panel: components announce local changes, and a coordinator decides what those changes mean together.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → Control the growth of the mediator
+
+------------------------------------------------------------
+
+12. Store the new fact before announcing it
+Mechanism in C++
+
+SAY
+Follow a call to form.name with Mina. Form passes the string toward NameField, using move so its storage can be transferred when possible. A move is not a raw pointer operation and does not guarantee that every type avoids work. NameField first checks whether the new text equals the existing value. If equal, no fact changed and the method returns. Otherwise it stores the new value before calling events_.changed. Reversing those last two statements makes the mediator read yesterday's text. The interface would still compile, but the button could remain disabled after a valid name arrives. Event timing is part of the contract, not just an implementation detail.
+
+DO
+Trace field state at the instant the callback reads filled().
+
+SOURCE
+manuscript/ch16.json → Follow one change from input to visible state
+
+------------------------------------------------------------
+
+13. One silent edge stops the feedback path
+Mechanism in C++
+
+SAY
+A mediator does not automatically prevent an event loop. This example stops the path by making the output update silent. NameField reports a change, Form recomputes the rule, and SaveButton::enable stores a boolean without reporting another changed event. If enabling the button called changed again, the coordinator could reenter itself endlessly even when no useful fact changes. Other systems may use queued events or explicit reentrancy guards, but those are separate policies. Here a short directed event path is enough. When adding a control, identify whether its setter announces input, quietly applies output, or both. A clear method contract is easier to maintain than guessing which assignments trigger callbacks.
+
+DO
+Walk the event path and stop exactly at SaveButton::enable.
+
+SOURCE
+manuscript/ch16.json → Follow one change from input to visible state
+
+------------------------------------------------------------
+
+14. A back-reference is not an ownership cycle
+Mechanism in C++
+
+SAY
+Form contains its controls as members, so their lifetimes are tied to it. NameField stores a reference back to Form through the Events interface. The relationship graph points both ways, but ownership points only from Form to its members. There is no shared-ownership cycle. Copying requires special care: a default copied reference still refers to the original coordinator. Then changing the copied field could update the original form's button. The source avoids that surprising identity by deleting copying and assignment, which also suppresses an implicit move in this design. A movable version is possible, but it must deliberately rebuild or rebind its internal callback links.
+
+DO
+Distinguish the ownership arrow from the borrowed callback relationship.
+
+SOURCE
+manuscript/ch16.json → Ownership and callbacks must fit together
+
+------------------------------------------------------------
+
+15. Passing this during construction has a boundary
+Mechanism in C++
+
+SAY
+The constructor writes name_ followed by parentheses containing *this. this identifies the Form being constructed; the star dereferences that pointer to obtain a reference. That reference can bind to Events&, the base interface Form implements. It is safe in this source because NameField's constructor only stores it. If that constructor immediately called changed, the coordinator could inspect members whose initialization was not complete. The compiler's acceptance of the reference does not prove the callback timing is safe. Later calls use virtual dispatch to Form::changed, and override makes the compiler check its signature. Keep those two questions separate: whether the interface matches, and whether the object is ready to handle the call.
+
+DO
+Point out what the constructor does, then ask what it deliberately postpones.
+
+SOURCE
+manuscript/ch16.json → Ownership and callbacks must fit together
+
+------------------------------------------------------------
+
+16. A new policy condition should have one home
+Mechanism in C++
+
+SAY
+The extension adds a hold flag, meaning that a ready-looking form must temporarily reject submission. The rule becomes nonempty name and accepted consent and not held. A tempting shortcut is to enable the button whenever hold becomes false. That fails when the name was cleared during the hold. Instead, hold stores its new fact and calls the same recomputation used by other inputs. The field and button need no knowledge of the new policy. Preserve the count check too: readiness is useful only if submit respects it. The sample increments saved_ as a deterministic stand-in for work; a real storage service would have its own success and failure contract.
+
+DO
+Trace clearing the name during a hold, then releasing the hold.
+
+SOURCE
+manuscript/ch16.json → Control the growth of the mediator
+
+------------------------------------------------------------
+
+17. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Mediator interface → Events::changed. Let a component report a change without depending on the concrete policy owner. The chapter has one change notification and needs no event string.
+
+Concrete mediator → Form. Apply the collaboration rule. Form combines name presence with consent before enabling save.
+
+Notifying component → NameField. Do local work, then notify. NameField knows Events but has no SaveButton dependency.
+
+Coordinated component → SaveButton. Receive policy decisions from the mediator. Its enable operation changes local state without sending another notification.
+
+Client and assembly → main and Form constructor. Create a valid set of collaborators before events occur. The form owns its controls and supplies itself as their mediator.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → C16.08 concepts
+
+------------------------------------------------------------
+
+18. A name change recomputes the button
+UML and source walkthrough
+
+SAY
+Call arrows show synchronous execution order. The Form callback reads the already updated NameField and changes SaveButton. There is intentionally no call from SaveButton back to Form. This sequence describes messages; Form owning both controls is a separate lifetime fact explained beside the code. Form implements the Events mediator interface; NameField sends the call through that interface. The shown sequence uses the actual concrete participants.
+
+Form owns its controls and implements a small Events interface. The field reports changes, the mediator reads all relevant state, and the button updates silently.
+
+A new condition changes one readiness policy. Review construction, copy/move behavior, and notification contracts whenever components gain callbacks or the form becomes dynamically owned.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch16/main.cpp:1-79; content/design-patterns-cpp/ch16.json → diagrams.16
+
+------------------------------------------------------------
+
+19. Mediator — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Form owns its controls and implements a small Events interface. The field reports changes, the mediator reads all relevant state, and the button updates silently.
+
+A new condition changes one readiness policy. Review construction, copy/move behavior, and notification contracts whenever components gain callbacks or the form becomes dynamically owned.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch16/main.cpp:1-79; content/design-patterns-cpp/ch16.json → diagrams.16
+
+------------------------------------------------------------
+
+20. Store a fact, then report the event
+UML and source walkthrough
+
+SAY
+This setter changes only the field text and announces a real change. It runs when Form forwards new input to its NameField. The field does not need to know any peer or consent rule.
+
+Define a setter that receives its own string value. The comment identifies the unchanged-input policy. Return immediately when old and new text are equal. Move the input into the field owned string. Call the borrowed coordinator after the new fact is stored. Close the setter and mark its boundary.
+
+Store the new value before notifying; equal input needs no event. Notify before storage and the mediator sees stale input.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch16/main.cpp:16-21
+
+------------------------------------------------------------
+
+21. Keep the combined rule in the mediator
+UML and source walkthrough
+
+SAY
+This callback recomputes the complete save-readiness rule. Form implements the Events operation borrowed by NameField. Only the coordinator knows the relationship between text, consent, and the button.
+
+Define the implementation of the shared changed event. The comment states that downstream updates are silent. Read whether the name field has nonempty text. Enable save only when text is present and consent is accepted. Close the coordination operation.
+
+A public change must end with save enabled exactly when both conditions hold. If enabling emits changed again, this simple synchronous path can recurse without end.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch16/main.cpp:39-43
+
+------------------------------------------------------------
+
+22. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Form owns its controls and implements a small Events interface. The field reports changes, the mediator reads all relevant state, and the button updates silently.
+
+The program checks initial rejection, name-only rejection, enabled save, unchanged input, clearing a name, revoked consent, and preserved saved count. It exercises only local synchronous coordination and a small count; it does not test storage, thread safety, or unlimited-count overflow.
+
+A new condition changes one readiness policy. Review construction, copy/move behavior, and notification contracts whenever components gain callbacks or the form becomes dynamically owned. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch16/main.cpp
+
+------------------------------------------------------------
+
+23. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. Initial: name empty, accepted=false, enabled=false.. The default member values satisfy the readiness rule.
+
+Step 2. name("Mina"): field notifies Form.. The name is filled, but false consent keeps save disabled.
+
+Step 3. accept(true): enabled=true.. Both conditions now hold; submit increases the count to one.
+
+Step 4. name(""): enabled=false.. The event sees the newly empty field and disables save.
+
+Step 5. Restoring Mina then revoking consent: enabled=false.. Every relevant change recomputes the same combined rule.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → trace
+
+------------------------------------------------------------
+
+24. Debug the promise: NameField enables save whenever text is nonempty.
+Execute and debug
+
+SAY
+NameField enables save whenever text is nonempty. Entering Mina can enable save while consent is false. One component cannot decide a rule that also depends on another state.
+
+The program checks initial rejection, name-only rejection, enabled save, unchanged input, clearing a name, revoked consent, and preserved saved count. It exercises only local synchronous coordination and a small count; it does not test storage, thread safety, or unlimited-count overflow.
+
+A new condition changes one readiness policy. Review construction, copy/move behavior, and notification contracts whenever components gain callbacks or the form becomes dynamically owned.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → example.failures
+
+------------------------------------------------------------
+
+25. Debug the promise: Use a default copy of a Form whose field borrows its mediator.
+Execute and debug
+
+SAY
+Use a default copy of a Form whose field borrows its mediator. A copied field can send changes to the original Form. Copying a reference preserves its original target rather than rebinding it.
+
+The program checks initial rejection, name-only rejection, enabled save, unchanged input, clearing a name, revoked consent, and preserved saved count. It exercises only local synchronous coordination and a small count; it does not test storage, thread safety, or unlimited-count overflow.
+
+A new condition changes one readiness policy. Review construction, copy/move behavior, and notification contracts whenever components gain callbacks or the form becomes dynamically owned.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → example.failures
+
+------------------------------------------------------------
+
+26. Trace 1: Mediator: Initial form
+Trace experiments
+
+SAY
+Mediator: Initial form. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The empty name and missing consent both block saving.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → dpx-c16-trace-1; companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 2: Mediator: Name alone
+Trace experiments
+
+SAY
+Mediator: Name alone. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Entering a name does not imply consent.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → dpx-c16-trace-2; companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 3: Mediator: Name and consent
+Trace experiments
+
+SAY
+Mediator: Name and consent. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Both required inputs permit the button when no hold applies.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → dpx-c16-trace-3; companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 4: Mediator: Revoked consent
+Trace experiments
+
+SAY
+Mediator: Revoked consent. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The mediator recomputes permission when consent changes.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → dpx-c16-trace-4; companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 5: Mediator: Hold blocks ready form
+Trace experiments
+
+SAY
+Mediator: Hold blocks ready form. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Hold overrides otherwise valid inputs.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → dpx-c16-trace-5; companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 6: Mediator: Hold blocks count change
+Trace experiments
+
+SAY
+Mediator: Hold blocks count change. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A blocked submit does not increment the successful-save count.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → dpx-c16-trace-6; companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 7: Mediator: Lift hold restores readiness
+Trace experiments
+
+SAY
+Mediator: Lift hold restores readiness. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Lifting hold recomputes all conditions and allows a valid form again.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → dpx-c16-trace-7; companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+33. Trace 8: Mediator: Lift cannot replace missing name
+Trace experiments
+
+SAY
+Mediator: Lift cannot replace missing name. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Clearing hold is not an unconditional enable operation.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → dpx-c16-trace-8; companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+34. Exercise 16.1: Guided modification
+Practice and extension
+
+SAY
+Change the name requirement to at least two characters. Which operation should change, and what cases should be checked?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The field already owns the definition of filled.
+
+After the discussion, compare the reasoning. Change filled to test value_.size() >= 2, then check empty, one-character, and two-character names with consent true. The mediator can keep combining the field result with consent.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch16.json → exercises.16.1
+
+------------------------------------------------------------
+
+35. Exercise 16.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+For a fresh Form, call accept(true), name("Jo"), name(""), name("Al"), accept(false). List enabled() after each call.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Evaluate the same two conditions after every step.
+
+After the discussion, compare the reasoning. The values are false, true, false, true, false. Consent alone is insufficient; later clearing and restoring text changes readiness without changing consent.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch16.json → exercises.16.2
+
+------------------------------------------------------------
+
+36. Exercise 16.3: Diagnose a bug
+Practice and extension
+
+SAY
+A maintainer moves events_.changed() before value_=std::move(value). What happens when an empty field first receives Mina with consent already true?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The callback reads the old field value.
+
+After the discussion, compare the reasoning. It sees empty text and leaves save disabled; the setter then stores Mina without another notification. The form ends in an inconsistent state. Restore store-then-notify order and add this regression case.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch16.json → exercises.16.3
+
+------------------------------------------------------------
+
+37. Exercise 16.4: Choose a design
+Practice and extension
+
+SAY
+Choose a mediator or direct function for a command-line prompt with two local values and no reusable controls.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Do not invent peer objects without a requirement.
+
+After the discussion, compare the reasoning. A direct function evaluating the two local values is clearer. Introduce a mediator only when independent components need coordinated rules or event handling that would otherwise spread between them.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch16.json → exercises.16.4
+
+------------------------------------------------------------
+
+38. Exercise 16.5: Extend without regressions
+Practice and extension
+
+SAY
+Add a temporary hold condition that disables save. Must NameField or SaveButton learn what hold means?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The new condition changes readiness, not text storage or bool storage.
+
+After the discussion, compare the reasoning. Neither needs to change. Form stores the hold flag and recomputes ready && accepted_ && !held_. Lifting the hold must not bypass an empty name or missing consent; the lab verifies these cases.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch16.json → exercises.16.5
+
+------------------------------------------------------------
+
+39. Exercise 16.6: Justify a decision
+Practice and extension
+
+SAY
+Explain why a borrowed field-to-Form reference is acceptable even though the relationship graph contains a cycle.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Separate relationships from ownership.
+
+After the discussion, compare the reasoning. Form owns its field by value; the field only borrows Form. There is no shared ownership cycle to keep both alive forever. Construction and destruction rules still must ensure the borrowed reference is used only while Form is valid.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch16.json → exercises.16.6
+
+------------------------------------------------------------
+
+40. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add Form::hold(bool) and a held_ flag. Hold disables submission regardless of name and consent. Lifting hold recomputes readiness and must not bypass any original condition. Preserve the original count and readiness checks.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: With Mina and accepted consent, hold(true) disables save and rejects submit. hold(false) restores readiness and allows one further save. Lifting hold with an empty name leaves save disabled.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch16/main.cpp
+
+------------------------------------------------------------
+
+41. Extension solution and design review
+Practice and extension
+
+SAY
+The reference solution changes only the Form coordination rule and its public input. It keeps button updates silent and uses changed after altering the flag. A separate policy function is also reasonable if readiness gains more conditions; it should still have one source of truth.
+
+A new condition changes one readiness policy. Review construction, copy/move behavior, and notification contracts whenever components gain callbacks or the form becomes dynamically owned.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch16/main.cpp
+
+------------------------------------------------------------
+
+42. Application case 1: defend your choice
+Practice and extension
+
+SAY
+A save button depends on both a nonempty name and accepted consent. Which component should combine those facts?
+
+The name field alone. The name field should not need to understand consent policy.
+
+The button’s paint routine. Rendering should not reconstruct unrelated input policy.
+
+A global mutable flag set by either control. Independent writes can incorrectly enable the button.
+
+The Form mediator. The shared interaction policy belongs outside individual reusable controls.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → C16.22 scenario
+
+------------------------------------------------------------
+
+43. Application case 2: defend your choice
+Practice and extension
+
+SAY
+Entering Mina enables Save even while consent is false. What is the likely design error?
+
+A nonempty name violates C++ syntax. Mina is ordinary text; this is a policy defect.
+
+The button must own the name field. Ownership is not the missing readiness condition.
+
+NameField made the complete readiness decision itself.. It checked only its local condition instead of reporting a change for Form to coordinate.
+
+The mediator read both conditions correctly. Both conditions would leave Save disabled.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch16.json → C16.23 scenario
+
+------------------------------------------------------------
+
+44. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+A mediator gives a collaboration rule one home. Components can report events without knowing their peers. Silent updates are a deliberate way to stop feedback loops. A borrowed back-reference needs copy/move and construction rules. Keep the mediator focused on coordination rather than all application work.
+
+A new condition changes one readiness policy. Review construction, copy/move behavior, and notification contracts whenever components gain callbacks or the form becomes dynamically owned.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch16.json → summary
+
+------------------------------------------------------------
+
+45. Keep coordination focused as the form grows
+Recall and transfer
+
+SAY
+A mediator can become too large if every new responsibility is added to it. Readiness rules belong here because they combine the local controls. Serializing a document, retrying a network call, and drawing every widget are different jobs. The form can ask services to do those jobs without containing their whole implementations. A typed changed interface is enough for this small example; inventing a string event language would hide spelling errors until execution. On a larger page, separate coordinators by purpose rather than making every widget know every peer. Judge the design by how a requirement change travels: adding hold should touch the policy owner and its tests, not the internal logic of every control.
+
+DO
+Ask which files should change when a readiness condition is added.
+
+SOURCE
+manuscript/ch16.json → Control the growth of the mediator
+
+------------------------------------------------------------
+
+46. Debug the facts seen at the callback
+Recall and transfer
+
+SAY
+Three defects can all appear as a misbehaving Save button. A stale value means the event fired before the field stored its new text. An update in another form means a borrowed callback reference was copied without rebinding. A runaway call stack means an output setter reported an event that fed straight back into the coordinator. These are different relationships, so debugging only the final button boolean is too narrow. Inspect the input facts, the identity of the Form receiving the event, and the direction of the next callback. The existing checks for equal text, empty text, consent removal, and rejected submission provide anchors for changing the code without losing its behavior.
+
+DO
+Require an explanation of object identity before proposing a boolean fix.
+
+SOURCE
+manuscript/ch16.json → Follow one change from input to visible state
+
+------------------------------------------------------------
+
+47. Explain the collaboration, then name Mediator
+Recall and transfer
+
+SAY
+Retell the chapter without relying on a class diagram first. A field knows its own text. A button knows whether it is enabled. A separate coordinator knows what the form requires, reads all relevant facts, and applies the decision. The controls do not secretly decide one another's behavior. Then add the exact C++ conditions that keep this arrangement sound: the mediator outlives borrowed callbacks, construction does not call into unfinished state, copying does not duplicate stale links, and output updates do not loop back unexpectedly. In a setup wizard, the same structure can coordinate several answers before permitting Next. The reusable controls stay simple while the page-specific rule remains visible.
+
+DO
+Ask learners to explain who decides, not merely who receives a message.
+
+SOURCE
+manuscript/ch16.json → Let components report; let the form decide

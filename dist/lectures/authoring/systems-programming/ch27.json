@@ -1,0 +1,224 @@
+{
+  "chapter": 27,
+  "title": "Memory Hierarchy",
+  "opening": [
+    {
+      "title": "One memory number hides several different limits",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "concept",
+      "keyPoints": [
+        "Latency: how long one dependency takes",
+        "Throughput: useful completed work per unit time",
+        "Capacity: how much state a level can retain"
+      ],
+      "narration": "A request can finish quickly in isolation while a busy system completes few requests per second, or a system can complete many overlapping requests while each waits a long time. Latency and throughput describe different boundaries. Capacity adds another question: can the useful working set remain in a fast level? The memory hierarchy balances these concerns across registers, caches, main memory, and persistent storage. A single phrase such as memory speed is too vague for a diagnosis. In this chapter, attach units and start/end events to every number before comparing implementations or suggesting that a larger cache will solve the problem.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch27.json → SP27.018: 27.8 Latency",
+      "question": {
+        "prompt": "Can high throughput coexist with high request latency?",
+        "answer": "Yes. Many operations can overlap even while each individual operation takes substantial time."
+      }
+    },
+    {
+      "title": "Overlap changes completion time without shortening service time",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "code",
+      "keyPoints": [
+        "Three model requests each require five time units",
+        "One lane finishes at fifteen",
+        "Two independent lanes finish at ten"
+      ],
+      "narration": "This deterministic scheduling model submits three identical requests at time zero. One service lane would complete them at times five, ten, and fifteen. With two lanes, the first two run together and finish at five, then the third finishes at ten. The printed service time remains five in both arrangements. The improvement comes from overlap, not a faster individual operation. These numbers are invented model units, not measured nanoseconds or a claim that two CPU threads double memory bandwidth. Real overlap is limited by dependencies, queues, and shared resources. The example forces us to distinguish per-operation service time from the batch’s final completion time.",
+      "actions": [
+        "Predict every line, run the complete example, then state exactly which behavior the result establishes."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch27.json → SP27.020: 27.9 Throughput",
+      "question": {
+        "prompt": "Why does the two-lane model finish in ten rather than seven and a half?",
+        "answer": "Three indivisible five-unit requests need two rounds; the final single request still requires a full five units."
+      },
+      "code": {
+        "filename": "sys_ch27_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <array>\n#include <iostream>\nint main() {\n    constexpr int requests = 3, service = 5;\n    std::array<int,2> available{0,0};\n    for (int request=0; request<requests; ++request) {\n        auto lane = std::min_element(available.begin(),available.end());\n        *lane += service;\n    }\n    std::cout << \"service=\" << service << \" serial=\" << requests*service\n              << \" two-lanes=\" << *std::max_element(available.begin(),available.end()) << '\\n';\n}\n",
+        "expectedStdout": "service=5 serial=15 two-lanes=10\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Invented deterministic time-unit model of two independent service lanes; no timing is measured."
+      }
+    },
+    {
+      "title": "Registers are a compiler allocation choice",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "concept",
+      "keyPoints": [
+        "A local variable need not occupy stack memory",
+        "Unused work may disappear",
+        "Generated instructions reveal the chosen implementation"
+      ],
+      "narration": "Writing int sum in source does not force a memory load and store for every update. The compiler may keep sum in a register, combine operations, or remove the entire calculation if its result has no observable effect. Therefore, timing a loop that computes an unused answer can measure little or none of the work you intended. Registers also obey instruction constraints and calling conventions, so register pressure may cause values to spill to memory. When investigating one compiled program, inspect the generated instructions and preserve meaningful observable results. Do not infer the hierarchy level of every operation from source variable names alone.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch27.json → SP27.004: 27.1 Registers",
+      "question": {
+        "prompt": "Why can a benchmark of an unused calculation report an unrealistically tiny time?",
+        "answer": "The optimizer may remove or transform the work because its result has no observable effect."
+      }
+    },
+    {
+      "title": "A cost model needs finite, correctly signed inputs",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "code",
+      "keyPoints": [
+        "Model time = latency + bytes / bandwidth",
+        "Positive infinity can pass a sign-only guard",
+        "This stricter example rejects nonfinite parameters"
+      ],
+      "narration": "The normal case transfers sixty-four bytes with two units of setup latency and sixteen bytes per time unit, so the model prints six. The next two cases pass positive infinity as byte count and bandwidth; both are rejected by the explicit finite-value checks. This is a stricter contract than the source lab’s sign checks, not a claim that its documented contract included finiteness. Infinity can satisfy a nonnegative or positive comparison while producing a result that is meaningless for the intended bounded scenario. A mathematical model needs input assumptions just as a memory interface needs bounds. The reported six is calculated, not measured.",
+      "actions": [
+        "Predict every line, run the complete example, then state exactly which behavior the result establishes."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch27.json → SP27.026: Worked example — Latency versus bandwidth",
+      "question": {
+        "prompt": "Why is bandwidth > 0 alone insufficient for this stricter finite model?",
+        "answer": "Positive infinity passes that comparison; an explicit finite-value requirement rejects it."
+      },
+      "code": {
+        "filename": "sys_ch27_finite_model.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cmath>\n#include <iostream>\n#include <limits>\n#include <stdexcept>\ndouble transfer(double bytes, double latency, double bandwidth) {\n    if (!std::isfinite(bytes) || !std::isfinite(latency) || !std::isfinite(bandwidth)\n        || bytes < 0 || latency < 0 || bandwidth <= 0)\n        throw std::invalid_argument(\"finite model parameters\");\n    return latency + bytes/bandwidth;\n}\nint main() {\n    std::cout << \"normal=\" << transfer(64,2,16) << '\\n';\n    const double infinity = std::numeric_limits<double>::infinity();\n    int rejected = 0;\n    try { transfer(infinity,2,16); } catch (const std::invalid_argument&) { ++rejected; }\n    try { transfer(64,2,infinity); } catch (const std::invalid_argument&) { ++rejected; }\n    std::cout << \"nonfinite-rejected=\" << rejected << '\\n';\n}\n",
+        "expectedStdout": "normal=6\nnonfinite-rejected=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Finite-input transfer-cost arithmetic, stricter than the source lab; the normal result is modeled time, not a measurement."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "A cache miss does not name its final destination",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "concept",
+      "keyPoints": [
+        "L1 can miss while L2 supplies the block",
+        "Last-level layouts vary",
+        "Specify the level when quoting a miss rate"
+      ],
+      "narration": "A value absent from the first-level cache may still be available in a larger cache close to the processor. Calling that event a trip to main memory skips important levels. Likewise, the names L2 and L3 do not establish the same sharing or inclusion policy on every processor. For a software discussion, say which level missed and where the request was satisfied if that evidence is available. A working set larger than L1 may still perform well when it fits in L2 and its accesses are predictable. The hierarchy is a set of tradeoffs, not a rule that every miss pays one universal penalty.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch27.json → SP27.008: 27.3 L2 cache",
+      "question": {
+        "prompt": "Does an L1 miss prove that DRAM was accessed?",
+        "answer": "No. Another cache level or another permitted source may satisfy the request."
+      }
+    },
+    {
+      "title": "Dependencies distinguish latency limits from bandwidth limits",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "concept",
+      "keyPoints": [
+        "Pointer chasing waits for the next address",
+        "Independent loads can overlap",
+        "Equal byte counts need not take equal time"
+      ],
+      "narration": "In a linked structure, the next address may be stored inside the value just loaded. The program cannot request that next location until the earlier load finishes, so the chain exposes latency. In a sequential array, several upcoming addresses are already known, allowing hardware to overlap requests and approach a bandwidth limit. Both traversals might read the same number of useful bytes while taking different times. Our two-lane model illustrates overlap only; it does not model every dependency or queue inside a processor. A benchmark must preserve the dependency pattern it claims to measure and generate unrelated setup outside the measured region.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch27.json → SP27.012: 27.5 DRAM",
+      "question": {
+        "prompt": "Why can two traversals of the same total bytes have different throughput?",
+        "answer": "Their dependency and access patterns may permit different amounts of overlap and useful line reuse."
+      }
+    },
+    {
+      "title": "Persistent is a durability promise, not a buffer location",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "concept",
+      "keyPoints": [
+        "Application buffers, kernel acceptance, and durable media differ",
+        "A successful buffered write may still be volatile",
+        "State the failure event the data must survive"
+      ],
+      "narration": "Suppose a write copies data into the operating system’s page cache and returns successfully. That proves the request reached a particular interface boundary; it does not by itself prove the data will survive power loss. A durability requirement needs the filesystem and platform’s appropriate synchronization protocol. Similarly, a quick file read may come from cached memory rather than the SSD. When discussing the hierarchy, distinguish where bytes are currently held from what failures they are promised to survive. This prevents a performance test of cached reads from being mislabeled as a device benchmark, and prevents a successful return code from becoming an unsupported persistence claim.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch27.json → SP27.016: 27.7 Persistent storage",
+      "question": {
+        "prompt": "Why is a fast second file read weak evidence about SSD latency?",
+        "answer": "The data may already be in the operating system’s memory cache, so the device may not be consulted."
+      }
+    },
+    {
+      "title": "Working-set capacity is about active reuse",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "concept",
+      "keyPoints": [
+        "Total dataset size can exceed the active working set",
+        "Tiles can reuse a small region before moving on",
+        "Streaming data can displace valuable cached state"
+      ],
+      "narration": "A terabyte dataset does not require a terabyte of fast cache if each phase works on a small independent tile. The relevant working set is the data and instructions reused during that phase. Conversely, a modest allocation can perform poorly if its access order repeatedly displaces values before reuse. A streaming pass that never returns to its data may fill cache with little future value and evict a smaller hot set. Capacity is therefore meaningful only with an interval and access pattern. Before increasing data structures or buffer sizes, ask which bytes must remain useful together and what other work competes for that level.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch27.json → SP27.022: 27.10 Capacity",
+      "question": {
+        "prompt": "Why can tiling improve performance without reducing the total dataset?",
+        "answer": "It reduces the active reuse interval and working set, allowing more useful data to remain in fast storage during each tile."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Compare useful work with the same units and boundary",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "concept",
+      "keyPoints": [
+        "Count completed records or bytes, not retries",
+        "Separate setup from steady-state work",
+        "Keep the required correctness and durability guarantees"
+      ],
+      "narration": "An optimization report can look better simply because it counts internal activity rather than useful completed work. Retrying a request twice is not twice the successful throughput. Comparing a buffered write with a durable write without naming their different guarantees is similarly misleading. Establish the same work unit, input, and completion boundary before comparing designs. Then distinguish setup costs from repeated costs. Batching can reduce repeated setup latency, but it can also increase waiting time for the first item. The source transfer model makes one simplified batching tradeoff explicit; real queues and durability requirements may change the best choice.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch27.json → SP27.024: 27.11 Cost",
+      "question": {
+        "prompt": "What must match before comparing two reported writes-per-second numbers?",
+        "answer": "The useful work counted and the completion guarantee, including buffering or durability semantics, must be comparable."
+      }
+    },
+    {
+      "title": "Choose a measurement that tests the proposed explanation",
+      "eyebrow": "SYSTEMS / CHAPTER 27",
+      "kind": "concept",
+      "keyPoints": [
+        "Latency hypothesis: preserve dependencies",
+        "Bandwidth hypothesis: provide independent useful work",
+        "Capacity hypothesis: vary the active working set"
+      ],
+      "narration": "A convincing performance investigation begins with a hypothesis. If dependent loads are the limit, a test that removes dependencies no longer measures the same thing. If bandwidth is the limit, tiny isolated transfers may mostly measure fixed overhead. If cache capacity is the limit, vary the active working set while preserving useful computation and examine changes. Our executable models let you practice arithmetic without scheduling noise, but their output cannot validate real machine timings. Retain correctness checks and document compiler options when building a benchmark. The model explains what to measure; the measurement determines whether that explanation applies to the target workload.",
+      "actions": [
+        "Ask for the concrete state change or units before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch27.json → SP27.032: Guided lab and review",
+      "question": {
+        "prompt": "Why should a benchmark preserve a checksum or another useful result?",
+        "answer": "It verifies intended work and helps prevent the compiler from eliminating an otherwise unobservable calculation."
+      }
+    }
+  ]
+}

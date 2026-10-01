@@ -1,0 +1,690 @@
+Systems Programming and Machine Organization
+Chapter 52: Concurrent Servers
+Dr. Charles Dorner
+
+1. Serving concurrently creates budgets before it creates speed
+Problem and first experiment
+
+SAY
+A thread per connection makes a blocking conversation easy to follow, but it does not make resources unlimited. Each admitted client may need a descriptor, stack reservation, request buffer, output buffer, and access to shared services. Those threads share the process's memory, so a cache or counter remains shared even if each thread has its own request object. Start by writing a budget and naming the resource that enforces it. A listening backlog does not cap active clients or worker memory. Concurrency is useful only when the accepted workload can make progress without overwhelming these shared limits.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.004: 52.1 Thread-per-connection
+
+------------------------------------------------------------
+
+2. Two separate checks can oversubscribe one remaining slot
+Problem and first experiment
+
+SAY
+The gate has capacity two and already holds one client. We model two arrivals by making both decisions before either increment. Each sees one active client and says yes. Applying both approvals increases active to three, violating the cap. This program is deliberately single-threaded and contains no data race; it models the logical interleaving of an incorrectly split check and update. A real unsynchronized shared integer would additionally have undefined behavior in C++. Protecting each increment alone is insufficient. The capacity check and the reservation must be one critical section so later arrivals see the earlier reservation.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.010: 52.4 Synchronization
+
+------------------------------------------------------------
+
+3. An admitted request needs one release on every exit
+Problem and first experiment
+
+SAY
+This complete example adds lifetime management to a mutex-protected gate. Permit asks the gate to reserve a slot and remembers whether it succeeded. When the scope ends, its destructor releases only a slot it actually owns. The request body deliberately throws after admission. Stack unwinding destroys the permit, and the catch reports the failure. A second permit can then acquire the same capacity, so the output ends with reusable equals one. The permit is not copied because two copied owners could release one reservation twice. This mechanism bounds admitted work; it does not automatically bound every buffer or downstream request.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+4. Use the smallest applicable resource ceiling
+Problem and first experiment
+
+SAY
+Suppose descriptor accounting permits nine hundred sixty clients, while a memory model permits thirteen hundred sixty-five. The arithmetic ceiling is the smaller number, not their average. The source then chooses an operational cap of two hundred fifty-six to preserve headroom. Those numbers are modeled assumptions, not measurements of this machine. A thread's reserved virtual stack is different from currently resident physical pages, and kernel socket buffers may sit outside a simple application-memory estimate. A defensible budget lists what it includes, what it omits, and which measured workload could force a lower limit.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.014: Worked example — Derive an admission budget
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A server has 64 MiB reserved for connection state and budgets 2 MiB per admitted connection. Compute the maximum and test the next admission.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Create a gate with a maximum active count. Admit only below the limit, release one existing permit at a time, and reject a release when none is held.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Creating an unlimited thread for every connection can exhaust memory long before CPU utilization reaches 100%.
+
+A related failure in the generalized operation is concrete: Check the count without a lock, then lock only while incrementing. Two callers can both pass the same old count.
+
+The repair changes the operation at the point where the rule can be enforced: Guard the check and state change together. Treat cleanup pairing as part of the admission contract.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Checking the count and incrementing it form one critical section, otherwise two arrivals could both observe spare capacity. The gate bounds admitted work, not every byte the server owns. Callers must still pair successful admission with release on every completion and error path; a scope-based permit object is a useful next extension.
+
+A plausible alternative: A worker pool caps active work; a bounded queue and admission policy are still needed to control waiting work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.03
+
+------------------------------------------------------------
+
+8. Chapter 52 — Concurrent Servers
+Systems mechanisms and source lecture
+
+SAY
+A concurrent server handles overlapping client lifecycles while sharing finite resources. The architecture must balance simplicity, throughput, latency, isolation, and failure containment. The most important scaling question is not “How many threads can I create?” but “What resources does one admitted connection consume, and what happens when the budget is exhausted?”
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.001, SP52.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+52.1 Thread-per-connection 52.2 Connection state 52.3 Shared resources 52.4 Synchronization ...plus 5 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.003
+
+------------------------------------------------------------
+
+10. Thread-per-connection
+Systems mechanisms and source lecture
+
+SAY
+A thread-per-connection design assigns a worker to each accepted client. Blocking I/O becomes straightforward because one slow connection blocks its own worker rather than the entire server loop. The control flow resembles a sequential protocol handler. The cost grows with active connections: thread stacks, scheduler state, per-connection buffers, and synchronization overhead accumulate. An unbounded thread-per-connection loop can exhaust resources before useful work completes. Bound admission and ensure every thread is joined or otherwise owned through shutdown.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.004, SP52.005
+
+------------------------------------------------------------
+
+11. Connection state
+Systems mechanisms and source lecture
+
+SAY
+Connection state includes protocol progress, input and output buffers, authentication or session information, deadlines, and lifecycle status. A connection may be reading a prefix, reading a body, computing a response, writing a partial response, or closing. Make state transitions explicit. “Socket exists” is not enough to determine which operation is valid next. A half-closed connection can still have data to drain or a response to send, depending on the protocol. Cleanup should occur only when no worker or event handler can still reference the connection object.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.006, SP52.007
+
+------------------------------------------------------------
+
+12. Shared resources
+Systems mechanisms and source lecture
+
+SAY
+Connections compete for descriptors, memory, CPU, downstream services, caches, and application data. Per-connection limits do not replace global limits. A thousand individually acceptable requests can collectively overwhelm a shared database or work queue. Define budgets at each stage. An accepted socket may count against a connection limit, a parsed request against a queued-work limit, and an executing task against a worker limit. Transfer the corresponding ownership credits when work moves between stages, and release them on every failure path.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.008, SP52.009
+
+------------------------------------------------------------
+
+13. Synchronization
+Systems mechanisms and source lecture
+
+SAY
+Shared application state requires the same synchronization rules developed in Parts X and XI. A server should avoid holding global locks while waiting for a client or downstream service. Slow external activity inside a critical section can stall otherwise independent clients. Use snapshots, immutable request objects, and bounded queues to separate I/O from protected updates. A worker pool limits simultaneously executing handlers, but an unbounded queue in front of it can still consume unlimited memory and produce extreme waiting times.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.010, SP52.011
+
+------------------------------------------------------------
+
+14. Resource exhaustion
+Systems mechanisms and source lecture
+
+SAY
+Exhaustion occurs when demand exceeds a resource limit. Symptoms include failed thread creation, descriptor exhaustion, allocation failure, long queues, and timeout cascades. Rejecting or deferring work deliberately is often safer than accepting everything and failing unpredictably later. A robust policy specifies admission limits, maximum frame sizes, idle and whole-request deadlines, output-buffer limits, and shutdown behavior. Per-operation socket timeouts alone do not defeat a client that makes tiny amounts of progress just before each timeout; a whole-request deadline bounds the complete transaction.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.012, SP52.013
+
+------------------------------------------------------------
+
+15. Derive an admission budget
+Systems mechanisms and source lecture
+
+SAY
+Assume a hypothetical service budget , not a measurement of the host system: The descriptor bound is 1024 - 64 = 960 clients when each client uses one descriptor. The modeled per-client memory is 72 KiB. The remaining memory is 96 MiB, which permits floor(96 × 1024 / 72) = 1365 clients under those assumptions. The combined arithmetic ceiling is therefore 960. Choosing an operational cap of 256 leaves headroom. Its modeled client memory is 256 × 72 KiB = 18 MiB ; adding the 32-MiB base gives 50 MiB. This does not include every possible kernel buffer or thread reservation. The assumptions must be replaced with measurements and explicit accounting before using the number as a deployment limit. Companion listing: ch52/budget.py The output is ceiling=960 cap=256 modeled_MiB=50 . The code verifies the budget calculation, not a claim that 960 live threads or clients are safe on the current machine. Real thread stack reservation and committed use are distinct quantities, and downstream capacity may impose a much lower cap.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.014, SP52.015
+
+------------------------------------------------------------
+
+16. Thread-per-connection budget
+Systems mechanisms and source lecture
+
+SAY
+If each connection thread reserves an 8 MiB stack, 1,000 concurrent connections can imply roughly 8 GiB of virtual stack reservation before application buffers and kernel state. Even when pages are demand allocated, this architecture has scaling costs. Admission limits and smaller controlled stacks can matter as much as CPU throughput.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.016, SP52.017
+
+------------------------------------------------------------
+
+17. Shared cache synchronization
+Systems mechanisms and source lecture
+
+SAY
+A concurrent server may let every connection consult a shared in-memory cache. Reads and updates need a synchronization strategy: a mutex, reader-writer scheme, sharding, or another concurrency-safe design. Per-connection threading does not make shared application state private.
+
+In plain English: A cache is like keeping the things you use most often on your desk instead of walking to a storage room every time.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.018, SP52.019
+
+------------------------------------------------------------
+
+18. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 52. Add a downstream service limit of 32 simultaneous requests and a pending-work queue of 128 items. Explain why the connection cap, executing-work cap, and queued-work cap should remain separate. Specify what response or closure policy applies when each limit is reached. Review 1. Why can a bounded worker pool still run out of memory? Review 2. Why is a whole-request deadline stronger than repeatedly renewed per-read timeouts?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.020, SP52.021
+
+------------------------------------------------------------
+
+19. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is concurrent servers. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.022
+
+------------------------------------------------------------
+
+20. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Event-Driven I/O.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.023
+
+------------------------------------------------------------
+
+21. Per-connection state should stay with its connection
+Reason about the implementation
+
+SAY
+Two clients can each have half of a header buffered at the same time. Putting both fragments into one global scratch buffer mixes unrelated conversations even if individual writes are locked. Keep framing state, output offsets, deadline information, and the descriptor together in a connection object. That object needs a clear owner, while callbacks and workers may borrow it under a lifetime rule. Closing a descriptor from another thread is not a universal cancellation mechanism, and the integer may later be reused. A stale callback that recognizes only the integer can act on the wrong connection after reuse.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.006: 52.2 Connection state
+
+------------------------------------------------------------
+
+22. Choose a lock boundary around a complete shared operation
+Reason about the implementation
+
+SAY
+A server cache often needs a compound operation: find a key, decide whether it exists, and possibly install a value. Locking only individual map methods can leave a gap between the decision and the update. Conversely, holding one global lock while writing a slow client's response blocks unrelated clients. A useful design protects the shared data operation, obtains a result with a clear lifetime, and releases the lock before slow I/O when the contract allows it. Returning a borrowed reference into a cache that another thread can erase requires more than simply unlocking quickly.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.018: Worked example — Shared cache synchronization
+
+------------------------------------------------------------
+
+23. Backpressure is a policy, not a full queue accident
+Reason about the implementation
+
+SAY
+When capacity is full, the server must choose what the next request experiences. It can reject promptly, wait within a bounded queue, or apply a documented shedding policy. An unlimited waiting queue only moves resource exhaustion from active workers to queued requests. A bounded queue also needs a waiting deadline or cancellation rule when clients disappear. Distinguish overload from a bad request so callers can respond appropriately, but do not encourage unbounded immediate retries. Admission, queueing, execution, and response delivery are separate stages; each should have a budget and an owner for abandoned work.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.012: 52.5 Resource exhaustion
+
+------------------------------------------------------------
+
+24. Creation failure is part of concurrency setup
+Reason about the implementation
+
+SAY
+Imagine that a server successfully starts three workers but fails to create the fourth. Returning immediately can leave the first three using queues or buffers that are being destroyed. Setup is therefore a sequence of resource acquisitions, not an all-or-nothing magic operation. Record each successful creation, publish shutdown if setup cannot continue, and collect the workers already created before destroying their shared state. Scope-based thread owners can help, but their joins must not wait on work that will never be signaled. The shutdown protocol and lifetime order need to be designed together.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.012: 52.5 Resource exhaustion
+
+------------------------------------------------------------
+
+25. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A server has 64 MiB reserved for connection state and budgets 2 MiB per admitted connection. Compute the maximum and test the next admission.
+
+Reserve a connection budget. 64 MiB. This budget is separate from executable, queues, caches, and other memory.
+
+Bound per-connection cost. 2 MiB. The estimate must include all state allocated for an admitted connection, not merely a socket handle.
+
+Apply admission. 32 active means no room for another. Overload needs a defined reject, defer, or bounded-queue policy.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch52/main.cpp
+
+------------------------------------------------------------
+
+26. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Reserve a connection budget. 64 MiB. This budget is separate from executable, queues, caches, and other memory.
+
+Bound per-connection cost. 2 MiB. The estimate must include all state allocated for an admitted connection, not merely a socket handle.
+
+Apply admission. 32 active means no room for another. Overload needs a defined reject, defer, or bounded-queue policy.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch52/main.cpp
+
+------------------------------------------------------------
+
+27. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Checking the count and incrementing it form one critical section, otherwise two arrivals could both observe spare capacity. The gate bounds admitted work, not every byte the server owns. Callers must still pair successful admission with release on every completion and error path; a scope-based permit object is a useful next extension.
+
+Guard the check and state change together. Treat cleanup pairing as part of the admission contract.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch52/main.cpp:1-12
+
+------------------------------------------------------------
+
+28. Limit admission before work exhausts memory
+Code, diagrams, and debugging
+
+SAY
+Limit admission before work exhausts memory. Dividing the memory budget by per-connection cost gives a modeled admission limit of 32. This assumes the stated cost accounts for all relevant per-connection memory.
+
+A server has 64 MiB reserved for connection state and budgets 2 MiB per admitted connection. Compute the maximum and test the next admission.
+
+This budget is separate from executable, queues, caches, and other memory. The estimate must include all state allocated for an admitted connection, not merely a socket handle. Overload needs a defined reject, defer, or bounded-queue policy.
+
+Dividing the memory budget by per-connection cost gives a modeled admission limit of 32. This assumes the stated cost accounts for all relevant per-connection memory.
+
+The fixture already has 32 active connections.
+
+The output begins with the computed limit and selects word-form Booleans using boolalpha.
+
+active < limit is false, so another connection is rejected. A real gate must combine this check with its count update under synchronization.
+
+Admission respects the stated resource budget. A concurrent gate must check and update its active count as one protected operation.
+
+Creating an unlimited thread for every connection can exhaust memory long before CPU utilization reaches 100%. In the extended lab: Check the count without a lock, then lock only while incrementing. Two callers can both pass the same old count.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch52/main.cpp:7-10
+
+------------------------------------------------------------
+
+29. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Check the count without a lock, then lock only while incrementing. Two callers can both pass the same old count.
+
+Guard the check and state change together. Treat cleanup pairing as part of the admission contract.
+
+The reference solution makes the contract executable with assertions. Checking the count and incrementing it form one critical section, otherwise two arrivals could both observe spare capacity. The gate bounds admitted work, not every byte the server owns. Callers must still pair successful admission with release on every completion and error path; a scope-based permit object is a useful next extension.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.06
+
+------------------------------------------------------------
+
+30. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch52/starter.cpp. Implement the first acceptance case for enforce an admission budget. State the function inputs and result before adding code. First case: A limit-two gate admits twice and rejects a third request.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.07
+
+------------------------------------------------------------
+
+31. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch52/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.08
+
+------------------------------------------------------------
+
+32. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Check the count without a lock, then lock only while incrementing. Two callers can both pass the same old count. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.09
+
+------------------------------------------------------------
+
+33. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Would switching to an event loop remove the need for limits? Compare the selected design with this plausible alternative: A worker pool caps active work; a bounded queue and admission policy are still needed to control waiting work.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.10
+
+------------------------------------------------------------
+
+34. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch52/starter.cpp. Create a gate with a maximum active count. Admit only below the limit, release one existing permit at a time, and reject a release when none is held. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch52/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.11
+
+------------------------------------------------------------
+
+35. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Enforce an admission budget belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.12
+
+------------------------------------------------------------
+
+36. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Create a gate with a maximum active count. Admit only below the limit, release one existing permit at a time, and reject a release when none is held.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch52/starter.cpp
+
+------------------------------------------------------------
+
+37. Review the extension solution
+Practice and extension
+
+SAY
+Checking the count and incrementing it form one critical section, otherwise two arrivals could both observe spare capacity. The gate bounds admitted work, not every byte the server owns. Callers must still pair successful admission with release on every completion and error path; a scope-based permit object is a useful next extension. Repair principle: Guard the check and state change together. Treat cleanup pairing as part of the admission contract.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Guard the check and state change together. Treat cleanup pairing as part of the admission contract.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch52/solution.cpp
+
+------------------------------------------------------------
+
+38. Application case: Concurrent Servers
+Practice and extension
+
+SAY
+A server handles each client synchronously before accepting more work.
+
+What can a slow client cause?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.CASE
+
+------------------------------------------------------------
+
+39. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Checking the count and incrementing it form one critical section, otherwise two arrivals could both observe spare capacity. The gate bounds admitted work, not every byte the server owns. Callers must still pair successful admission with release on every completion and error path; a scope-based permit object is a useful next extension.
+
+Choose a simpler approach when its narrower contract is enough. A worker pool caps active work; a bounded queue and admission policy are still needed to control waiting work.
+
+When this system changes, retain a check that exposes the known failure: Check the count without a lock, then lock only while incrementing. Two callers can both pass the same old count. Guard the check and state change together. Treat cleanup pairing as part of the admission contract.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch52.json → SYS52.14
+
+------------------------------------------------------------
+
+40. Test the admission invariant under overlap and failure
+Recall and transfer
+
+SAY
+A good gate test checks more than one happy admission. Fill the budget, verify the next request is rejected, release one permit, and verify reuse. Test a zero limit and error paths after successful admission. For actual concurrent tests, collect results after joining and verify the maximum protected active count never exceeded the limit. Do not infer correctness only because one run happened to finish. The logical split-check model shows why the invariant must be justified by the critical section. Leak checks and shutdown tests then cover lifetime obligations that the count alone cannot prove.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.020: Guided lab and review
+
+------------------------------------------------------------
+
+41. Choose the server architecture from the workload
+Recall and transfer
+
+SAY
+A few long, simple conversations may justify one thread each. A bounded worker pool fits tasks that can be handed off without leaving a thread attached to every idle client. An event loop can service many connections by acting when I/O is ready, but requires explicit partial-operation state. None eliminates framing, ownership, resource bounds, or shutdown. Compare the number of active versus idle clients, work per request, downstream limits, and implementation complexity. The next chapter changes how waiting is organized; it does not remove the shared-resource contracts established here.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch52.json → SP52.023: Review and Transition

@@ -1,0 +1,224 @@
+{
+  "chapter": 24,
+  "title": "Page Tables",
+  "opening": [
+    {
+      "title": "A mapping must answer where and whether",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "concept",
+      "keyPoints": [
+        "Location and access rights travel together",
+        "An entry can lead to another table or to a frame",
+        "The requested operation affects the answer"
+      ],
+      "narration": "A table that returns a frame number but ignores access rights is not a complete protection model. Reading, writing, and fetching an instruction can require different permissions. A page-table entry therefore carries control information as well as location information. At one level it may point to another table; at a leaf it may describe the mapped page. The exact encoding belongs to the architecture and configuration, not to a guessed C++ struct layout. Our added programs use explicit small fields to explain decomposition and combined checks. They neither read nor modify the operating system’s active page tables.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch24.json → SP24.004: 24.1 Page-table entries",
+      "question": {
+        "prompt": "Why can a known frame number still be insufficient to permit a write?",
+        "answer": "The mapping may be absent or its applicable permissions may forbid the requested write."
+      }
+    },
+    {
+      "title": "Split a tiny address into two indexes and an offset",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "code",
+      "keyPoints": [
+        "Model width: eight bits",
+        "Two bits per table index; four offset bits",
+        "Reconstruction checks that no address bits disappeared"
+      ],
+      "narration": "The address one hundred seven is hexadecimal six B. In this eight-bit model, four low bits give offset eleven, the next two give leaf index two, and the top two give root index one. The program prints those fields and reconstructs one hundred seven from them. This verifies decomposition only; it does not prove that root entry one or leaf entry two is present. A page-table walk would use those indexes to inspect entries and permissions. The small geometry keeps every operation visible. Actual x86-64 examples use different index widths and canonical-address rules, so copying these shifts into system code would be incorrect.",
+      "actions": [
+        "Predict the complete output, run the model, and distinguish its result from a real hardware observation."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch24.json → SP24.018: Worked example — A two-level address decomposition",
+      "question": {
+        "prompt": "What does successful reconstruction prove, and what does it leave unknown?",
+        "answer": "It proves the bit split preserved this modeled address; it does not establish mapping presence or permissions."
+      },
+      "code": {
+        "filename": "sys_ch24_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    constexpr unsigned address = 0x6B;\n    constexpr unsigned offset = address & 0xF;\n    constexpr unsigned leaf = (address >> 4) & 0x3;\n    constexpr unsigned root = (address >> 6) & 0x3;\n    const unsigned rebuilt = (root << 6) | (leaf << 4) | offset;\n    std::cout << \"root=\" << root << \" leaf=\" << leaf << \" offset=\" << offset << '\\n';\n    std::cout << \"rebuilt=\" << rebuilt << '\\n';\n}\n",
+        "expectedStdout": "root=1 leaf=2 offset=11\nrebuilt=107\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Eight-bit address decomposition with two two-bit indexes and a four-bit offset."
+      }
+    },
+    {
+      "title": "A missing entry can have several meanings",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "concept",
+      "keyPoints": [
+        "Absent hardware translation does not identify the policy",
+        "Demand-zero, file-backed, and invalid regions differ",
+        "The kernel consults additional mapping information"
+      ],
+      "narration": "An absent entry stops the current hardware translation path, but it does not say what recovery is allowed. A valid anonymous region may need a zero-filled page. A valid file mapping may need file data that is already cached or must be read. An address outside every permitted region should be rejected. Treating every absence as permission to allocate would turn invalid accesses into silently accepted memory. The chapter separates the present indicator from the kernel’s policy metadata for this reason. When debugging a fault, identify the mapping policy and requested operation before assuming the device or disk is involved.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch24.json → SP24.006: 24.2 Present bit",
+      "question": {
+        "prompt": "Does present=false necessarily mean the page must be read from disk?",
+        "answer": "No. It may need zero-filled backing, already cached data, or rejection as an invalid access."
+      }
+    },
+    {
+      "title": "A permissive leaf cannot cancel a restrictive parent",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "code",
+      "keyPoints": [
+        "This model combines write permission with logical AND",
+        "Leaf-only checking returns the wrong answer",
+        "Every required present and user bit also participates"
+      ],
+      "narration": "The root entry is present and user-accessible but not writable. The leaf is present, user-accessible, and writable. A careless leaf-only check prints true for a user write. The complete simplified check prints false because the path includes a nonwritable root. For a read, the same present and user conditions pass, so the model prints true. These results follow the explicit AND rule defined here; this struct is not an actual x86 page-table encoding. The lesson is to identify every level whose permissions constrain access rather than choosing the most convenient bit. The requested operation must be part of that decision.",
+      "actions": [
+        "Predict the complete output, run the model, and distinguish its result from a real hardware observation."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch24.json → SP24.008: 24.3 Writable bit",
+      "question": {
+        "prompt": "Why is the writable leaf insufficient for the user write in this model?",
+        "answer": "The root’s writable flag is false, and the model requires write permission at both levels."
+      },
+      "code": {
+        "filename": "sys_ch24_combined_permissions.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nstruct Entry { bool present; bool user; bool writable; };\nbool user_access(const Entry& root, const Entry& leaf, bool write) {\n    return root.present && leaf.present && root.user && leaf.user\n        && (!write || (root.writable && leaf.writable));\n}\nint main() {\n    const Entry root{true,true,false};\n    const Entry leaf{true,true,true};\n    std::cout << std::boolalpha;\n    std::cout << \"leaf-only-write=\" << (leaf.present && leaf.user && leaf.writable) << '\\n';\n    std::cout << \"combined-write=\" << user_access(root,leaf,true) << '\\n';\n    std::cout << \"combined-read=\" << user_access(root,leaf,false) << '\\n';\n}\n",
+        "expectedStdout": "leaf-only-write=true\ncombined-write=false\ncombined-read=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Simplified two-level permission model using AND across applicable levels; not an encoded hardware page table."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Sparse mappings motivate multiple table levels",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "concept",
+      "keyPoints": [
+        "A flat table reserves entries for the full modeled space",
+        "A hierarchy can omit unused subtrees",
+        "More levels introduce walking and metadata costs"
+      ],
+      "narration": "Imagine a large virtual space where a process uses only a few separated regions. A flat table would reserve a slot for every virtual page even across unused gaps. A hierarchy groups pages under intermediate entries, allowing an unused group to have no allocated lower-level table. This trades some lookup structure for reduced metadata in sparse cases. The tradeoff is not a promise that all page-table walks cost one fixed number of memory loads. Hardware can cache intermediate information and support large-page leaves that end a walk early. Explain both why the hierarchy exists and which caches may hide some of its cost.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch24.json → SP24.012: 24.5 Multilevel page tables",
+      "question": {
+        "prompt": "Why can multilevel tables save metadata for a sparse address space?",
+        "answer": "Unused address ranges can omit entire lower-level table subtrees instead of allocating one flat entry per possible page."
+      }
+    },
+    {
+      "title": "User permission and application authorization are different",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "concept",
+      "keyPoints": [
+        "User mode may access a buffer",
+        "A particular client may still lack permission to see its contents",
+        "Memory protection does not know application roles"
+      ],
+      "narration": "Suppose a server stores two clients’ records in the same user-accessible heap. Hardware allows the server’s thread to read those bytes. That permission does not authorize sending one client’s record to another client. Page-table user permissions separate execution privilege domains; the application still enforces account and data-access policy. Conversely, a correct account check cannot make a supervisor-only mapping readable from user mode. These are different boundaries with different evidence. In a review, name the subject of each permission: processor privilege, process credentials, or authenticated application identity. Calling all three access control without distinction makes debugging and security reasoning imprecise.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch24.json → SP24.010: 24.4 User-accessible bit",
+      "question": {
+        "prompt": "Does a user-accessible page mean every logged-in user should be able to receive its data?",
+        "answer": "No. Hardware access by the process and application-level disclosure authorization are separate decisions."
+      }
+    },
+    {
+      "title": "Execute permission applies to instruction fetch",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "concept",
+      "keyPoints": [
+        "Reading data and fetching instructions are different accesses",
+        "Writable data need not be executable",
+        "Permission policy must cover each operation"
+      ],
+      "narration": "A page can hold bytes that are readable as data without being permitted as instructions. This distinction supports separating writable storage from executable code. Do not model every operation with one Boolean called allowed and then assume the same result applies to reads, writes, and execution. Instead identify the requested access and combine the relevant permissions. Our short lab intentionally models only reads and writes, so it does not prove an execution policy. If instruction fetch is added, give it an explicit access kind and tests. This makes the omission visible and prevents a future feature from silently inheriting the wrong permission meaning.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch24.json → SP24.016: 24.7 Memory protection",
+      "question": {
+        "prompt": "Does the source read/write model establish whether a page is executable?",
+        "answer": "No. Execution permission is outside that model until an explicit access kind and rule are added."
+      }
+    },
+    {
+      "title": "Changing the table does not erase cached translations",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "concept",
+      "keyPoints": [
+        "A processor may retain an old mapping or permission",
+        "Invalidation must reach relevant execution contexts",
+        "Multicore coordination is part of the update contract"
+      ],
+      "narration": "Suppose the kernel changes a mapping from writable to read-only. If a processor still uses a cached translation with the older writable permission, merely updating memory does not complete the intended revocation. The architecture supplies invalidation mechanisms, and the kernel coordinates them with relevant processors and mapping changes. This is why table updates require a protocol, not just a store to a struct field. Our models omit actual translation caches unless explicitly introduced. When interpreting their output, remember that a successful model lookup cannot verify real invalidation ordering. The next chapter adds cached translation state so this dependency becomes visible.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch24.json → SP24.016: 24.7 Memory protection",
+      "question": {
+        "prompt": "Why might another core need notification after a mapping change?",
+        "answer": "It may retain a relevant cached translation or permission based on the old table state."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Test denied cases as complete paths",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "concept",
+      "keyPoints": [
+        "Present=false overrides permissive-looking fields",
+        "Read-only must reject writes",
+        "User access must respect every required level"
+      ],
+      "narration": "A useful protection test suite should not stop after one successful read. Try an absent entry whose other flags are true, a present read-only entry with a write request, and a user request through a supervisor-only path. In the two-level model, vary the parent and leaf separately. These cases expose an implementation that accidentally reads only one field or one level. The compiler can verify enum types and function signatures, but it cannot infer the intended permission algebra. State that algebra beside the tests so a maintenance change cannot replace AND with OR while still looking syntactically reasonable.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch24.json → SYS24.12: Exercise 6: Justify the boundary",
+      "question": {
+        "prompt": "Which test exposes a function that ignores presence and checks only writable?",
+        "answer": "An absent entry with writable=true must still reject a write."
+      }
+    },
+    {
+      "title": "Describe a walk as a sequence of justified steps",
+      "eyebrow": "SYSTEMS / CHAPTER 24",
+      "kind": "concept",
+      "keyPoints": [
+        "Decode indexes under a stated geometry",
+        "Check each encountered entry",
+        "Finish with a permitted mapping or a defined failure"
+      ],
+      "narration": "To explain a page-table walk, begin with the address model rather than a memorized number of levels. Extract the next index, inspect that entry, and determine whether it is present, a pointer to another level, or an allowed leaf. Carry applicable permission restrictions forward. At the end, combine the selected frame with the original offset only if the requested operation is permitted. An absent or restrictive step changes the result. This reasoning transfers from our two-level exercise to more complex architectures without pretending their encodings match. A strong explanation identifies what was checked, not merely that the walk eventually found a number.",
+      "actions": [
+        "Require a concrete mapping, access, or state example before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch24.json → SP24.020: Worked example — Walking a two-level table",
+      "question": {
+        "prompt": "What information must survive from the first index to the final physical address?",
+        "answer": "The original page offset and every applicable permission restriction, along with the selected mapping path."
+      }
+    }
+  ]
+}

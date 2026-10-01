@@ -1,0 +1,731 @@
+Systems Programming and Machine Organization
+Chapter 48: Condition Variables: durable predicates and safe waiting
+Dr. Charles Dorner
+
+1. Wait for a fact, not for a remembered notification
+Problem and first experiment
+
+SAY
+A consumer should wait because the queue is empty, not because it has not personally witnessed a notification. A predicate is a condition computed from shared state, such as queue contains an item or shutdown is requested. The condition variable helps a thread sleep until checking again may be useful. It is not the storage for that fact and does not preserve one future wakeup for every notify call. This distinction handles a producer that finishes before the consumer arrives: the item remains in the queue, so the later predicate check succeeds without needing another notification. Start every waiting design by writing that predicate in plain language.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.001
+
+------------------------------------------------------------
+
+2. The check and the decision to sleep must be coordinated
+Problem and first experiment
+
+SAY
+If a thread checks empty, releases its mutex, and then separately decides to sleep, a producer may insert and notify in the gap. The consumer could then sleep after the only notification. The condition-variable wait operation coordinates releasing the lock and entering the waiting state. When it returns, it has reacquired the mutex before the caller continues. That mechanism works with the rule that all predicate updates use the same mutex. An atomic flag does not automatically repair a protocol that separates these steps incorrectly. The source of correctness is the combined state, mutex, and wait relationship, not merely the presence of a condition_variable object.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.008
+
+------------------------------------------------------------
+
+3. A notification without a true predicate buys nothing
+Problem and first experiment
+
+SAY
+This demonstration uses wait_for with a zero duration so it cannot hang waiting for another event. First it calls notify_one while ready is still false. The predicate check returns false, printed as notification only=false. Then main sets ready true under the same lock and checks again. This time it prints state ready=true without a second notification. The program is intentionally single-threaded and illustrates condition-variable semantics, not scheduling or elapsed-time measurement. A zero-duration timeout does not prove a real workload should poll. In an actual worker, use an appropriate blocking wait and retain the same predicate discipline.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch48.json → SP48.018
+
+------------------------------------------------------------
+
+4. Wake everyone whose shutdown predicate is satisfied
+Problem and first experiment
+
+SAY
+Both workers wait for closed to become true. Main sets that flag while holding the mutex, unlocks, and notifies all. Each worker then records completion in its own result slot, and main joins before adding the slots. The output finished=2 is fixed. We do not claim that both workers were already asleep: either may start late and see the durable true predicate immediately. That is precisely why the protocol is robust. Closure is a state change that concerns every worker, so notify_all is appropriate. Replacing it with one notification could leave another already-blocked worker asleep with no future event to wake it.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch48.json → SP48.012
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Model a consumer that arrives after an item was queued and a notification already happened. The queue state must still let it proceed.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Implement a one-shot handoff using a mutex, condition variable, ready flag, and payload. It must work whether the producer sets ready before or after the consumer starts waiting.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+A condition variable is not a stored event counter. Waiting without a predicate can sleep despite available work or act after a spurious wakeup.
+
+A related failure in the generalized operation is concrete: Call changed.wait(lock) once without a predicate, then read payload. A spurious wakeup or an earlier notification can break the intended protocol.
+
+The repair changes the operation at the point where the rule can be enforced: Use the predicate overload or an explicit while loop. Keep state reads and writes under the same mutex.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The predicate is durable state; a notification is only a reason to recheck it. wait releases the lock while waiting and reacquires it before evaluating readiness and returning. If ready was already true, the consumer does not sleep. The final get ensures the notification call and producer lifetime finish before local synchronization objects are destroyed.
+
+A plausible alternative: A semaphore can naturally represent available permits, while a condition variable supports a general shared-state predicate.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.03
+
+------------------------------------------------------------
+
+8. Chapter 48 — Condition Variables
+Systems mechanisms and source lecture
+
+SAY
+A condition variable lets a thread wait until protected state satisfies a predicate. The condition variable is not the state itself and does not retain one durable token for each notification. Correctness comes from the predicate, its mutex, and the coordinated release-and-wait operation. [ R24 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.001, SP48.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+48.1 Waiting 48.2 Notification 48.3 wait 48.4 notify_one ...plus 8 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.003
+
+------------------------------------------------------------
+
+10. Waiting
+Systems mechanisms and source lecture
+
+SAY
+Waiting should mean “sleep until it is worth checking the predicate again,” not “assume the event must have happened because I woke up.” A waiter holds the mutex while inspecting state and uses the condition variable to release ownership while blocked. This avoids wasting CPU in a polling loop and allows the producer of the condition to acquire the mutex. Waiting while continuing to hold the needed mutex would prevent the state change that could satisfy the predicate.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.004, SP48.005
+
+------------------------------------------------------------
+
+11. Notification
+Systems mechanisms and source lecture
+
+SAY
+Notification makes one or more waiters eligible to reconsider their predicates. It does not transfer the mutex directly into a guarantee that the predicate remains true until the awakened thread runs. Another thread may acquire the mutex first and consume the resource. The waiter must therefore recheck under the lock. Notification is a scheduling hint within a state protocol, not the protocol’s authoritative record.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.006, SP48.007
+
+------------------------------------------------------------
+
+12. wait
+Systems mechanisms and source lecture
+
+SAY
+wait atomically releases the associated lock and enters the waiting operation, then reacquires the lock before returning to the caller. The predicate overload expresses the required loop directly. Use the same mutex discipline for the predicate’s shared state. Updating the predicate without its required protection can introduce a data race or lose the relationship between state change and sleeping. The mutex and condition variable must remain alive while waiters can use them.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.008, SP48.009
+
+------------------------------------------------------------
+
+13. notify_one
+Systems mechanisms and source lecture
+
+SAY
+notify_one wakes one eligible waiter. It is appropriate when one newly available unit of work can satisfy one interchangeable consumer. The awakened thread still competes for the mutex and checks the predicate. When different waiter classes use different predicates, waking an arbitrary one may not produce progress. Separate condition variables or broader notification may be needed. Choose based on the state machine, not solely on a desire to minimize wakeups.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.010, SP48.011
+
+------------------------------------------------------------
+
+14. notify_all
+Systems mechanisms and source lecture
+
+SAY
+notify_all wakes all current waiters so that each can check its condition. It is useful for closure, shutdown, or state changes that may satisfy several different predicates. Waking many threads can create contention, sometimes called a thundering herd. That cost does not justify omitting required wakeups. First ensure all affected waiters can make progress or terminate; then refine the notification policy if measurement shows a problem.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.012, SP48.013
+
+------------------------------------------------------------
+
+15. Predicate loops
+Systems mechanisms and source lecture
+
+SAY
+A predicate loop handles spurious wakeups and state changes consumed by another participant. The canonical form is condition.wait(lock, [&]{ return predicate; }); . After it returns, the predicate is true while the caller still owns the mutex. Do not move the predicate check outside the lock to save a few instructions. The check and decision to wait must be coordinated with the state updates. An atomic flag alone does not automatically repair a poorly designed condition-variable protocol.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.014, SP48.015
+
+------------------------------------------------------------
+
+16. Sleep/wakeup races
+Systems mechanisms and source lecture
+
+SAY
+A sleep/wakeup race occurs when a thread checks state, another thread changes it and notifies, and the first thread then sleeps without seeing a future notification. The condition-variable wait operation closes this gap when used with the shared mutex and predicate discipline. The structure resembles the signal-mask solution in Chapter 41, although the mechanisms differ. In both cases, the program needs an atomic relationship between checking whether to sleep and making itself eligible for notification.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.016, SP48.017
+
+------------------------------------------------------------
+
+17. Lost wakeups
+Systems mechanisms and source lecture
+
+SAY
+A notification sent when no thread is waiting is not retained as a future wakeup token. This is harmless when the state predicate remains true: a later waiter sees it and does not sleep. It is a bug only when the design incorrectly relies on notification history instead of persistent state. For example, set ready = true under the mutex, then notify. A worker that starts after the notification still observes ready and proceeds. Omitting the state variable and waiting for an imagined remembered notification is the broken design.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.018, SP48.019
+
+------------------------------------------------------------
+
+18. Notification before waiting is safe with a predicate
+Systems mechanisms and source lecture
+
+SAY
+The main thread publishes value 42 and marks it ready. The worker may begin waiting before or after publication; either schedule is correct because it tests the protected predicate. Companion listing: ch48/gate.cpp The result is 42 without any sleep-based timing assumption. Notification occurs after unlocking, which is valid for this protocol and can avoid waking a thread only to make it immediately wait for the same mutex. The correctness argument depends on the protected state, not on that performance-oriented placement.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.020, SP48.021
+
+------------------------------------------------------------
+
+19. Correct wait loop
+Systems mechanisms and source lecture
+
+SAY
+A consumer locks the mutex and evaluates while (queue.empty()) cv.wait(lock); . The wait operation atomically releases the mutex and sleeps, then reacquires the mutex before returning. The loop rechecks the predicate because wakeups can be spurious or another consumer may consume the item first. Notification is a hint to reevaluate shared state, not a transfer of ownership.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.022, SP48.023
+
+------------------------------------------------------------
+
+20. notify_one versus notify_all
+Systems mechanisms and source lecture
+
+SAY
+If adding one queue item can satisfy at most one waiting consumer, notify_one often avoids waking threads that cannot make progress. If a state change can enable many waiters, notify_all may be appropriate. The choice follows the predicate and resource semantics, not a blanket rule.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.024, SP48.025
+
+------------------------------------------------------------
+
+21. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 48. Move worker creation after the publication and notification while keeping the objects alive. Verify that the predicate overload returns immediately rather than waiting for another notification. Then trace two consumers competing for one available item. Review 1. Does a condition variable remember every notification? Review 2. Why must a woken consumer recheck whether an item remains?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.026, SP48.027
+
+------------------------------------------------------------
+
+22. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is condition variables. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.028
+
+------------------------------------------------------------
+
+23. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Producer–Consumer Systems.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.029
+
+------------------------------------------------------------
+
+24. Waking does not reserve the item
+Reason about the implementation
+
+SAY
+Suppose two consumers wait for one queued item. Both might be awakened, but only one can remove that item. When the other later acquires the mutex, the queue may be empty again. A wakeup did not reserve ownership of the item for that thread. Implement waiting as a loop that checks the predicate under the mutex; the predicate overload expresses that loop directly. It also handles spurious wakeups, which can occur without the expected state change. The guarantee after a successful predicate wait is that the condition is true while this caller holds the lock, so it can perform the protected removal before anyone else changes the state.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.014
+
+------------------------------------------------------------
+
+25. Match notify_one to interchangeable consumers
+Reason about the implementation
+
+SAY
+notify_one is useful when one new unit of work can satisfy one of several equivalent consumers. It avoids waking everyone merely to make most return to sleep. But consider one waiter needing count greater than zero and another needing a special batch boundary. Waking an arbitrary waiter may not enable the participant that can actually progress. Separate condition variables for distinct waiter classes or a broader notification can make the policy correct. Choose the notification from the state transition and predicates, not from a blanket preference for fewer wakeups. Optimization comes after proving that every enabled operation has a way to proceed.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.010
+
+------------------------------------------------------------
+
+26. notify_all has a cost and a purpose
+Reason about the implementation
+
+SAY
+When a shared closed flag becomes true, every waiting worker may need to stop. notify_all makes those waiters eligible to recheck. They still acquire the mutex one at a time, so waking many threads can create contention, sometimes called a thundering herd. That performance cost does not justify leaving required waiters blocked forever. First ensure the state machine has a complete termination path. Then measure whether finer waiter groups or a different queue design reduce unnecessary wakeups. In our shutdown demonstration, two workers are a tiny fixed set, and the simple broadcast clearly matches the meaning of closure.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.012
+
+------------------------------------------------------------
+
+27. Keep the predicate’s owners alive through every wait
+Reason about the implementation
+
+SAY
+A waiting thread retains a relationship to the mutex, condition variable, and predicate storage. Destroying any of those objects before the worker finishes invalidates the protocol even if the shutdown flag has been set. In our example, all shared objects are declared before the thread owners and both threads are joined before main returns. More complex components should make this order explicit: publish closure, notify affected groups, wait for users to finish, then destroy the queue and its synchronization objects. A close method can request termination without guaranteeing that callers have stopped. Keeping those lifecycle events separate prevents a common use-after-destruction bug.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.008
+
+------------------------------------------------------------
+
+28. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Model a consumer that arrives after an item was queued and a notification already happened. The queue state must still let it proceed.
+
+Producer changes state. queue contains 7. The queue is the lasting evidence that work exists.
+
+Consumer checks the predicate. queue.empty() is false. It should not wait merely because it missed an earlier notification.
+
+Generalize to real threads. check and wait under the associated mutex. Condition-variable wait atomically releases the lock while waiting and reacquires it; a loop rechecks after any wakeup.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch48/main.cpp
+
+------------------------------------------------------------
+
+29. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Producer changes state. queue contains 7. The queue is the lasting evidence that work exists.
+
+Consumer checks the predicate. queue.empty() is false. It should not wait merely because it missed an earlier notification.
+
+Generalize to real threads. check and wait under the associated mutex. Condition-variable wait atomically releases the lock while waiting and reacquires it; a loop rechecks after any wakeup.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch48/main.cpp
+
+------------------------------------------------------------
+
+30. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The predicate is durable state; a notification is only a reason to recheck it. wait releases the lock while waiting and reacquires it before evaluating readiness and returning. If ready was already true, the consumer does not sleep. The final get ensures the notification call and producer lifetime finish before local synchronization objects are destroyed.
+
+Use the predicate overload or an explicit while loop. Keep state reads and writes under the same mutex.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch48/main.cpp:1-12
+
+------------------------------------------------------------
+
+31. Wait for a predicate, not a remembered notification
+Code, diagrams, and debugging
+
+SAY
+Wait for a predicate, not a remembered notification. The producer’s item enters the queue before the modeled consumer checks it. The state survives even though there is no remembered notification.
+
+Model a consumer that arrives after an item was queued and a notification already happened. The queue state must still let it proceed.
+
+The queue is the lasting evidence that work exists. It should not wait merely because it missed an earlier notification. Condition-variable wait atomically releases the lock while waiting and reacquires it; a loop rechecks after any wakeup.
+
+The producer’s item enters the queue before the modeled consumer checks it. The state survives even though there is no remembered notification.
+
+The consumer waits only if the queue is empty. Here it is not empty, so waiting would be wrong.
+
+The stream begins reporting wait=false. In a real concurrent program, the predicate must be checked under the same mutex used for updates.
+
+The continuation prints the front value 7. The lab supplies an actual condition-variable wait whose predicate is rechecked on wakeup.
+
+The queue’s persistent state decides whether to wait. In the concurrent lab that predicate and all updates use the same mutex.
+
+A condition variable is not a stored event counter. Waiting without a predicate can sleep despite available work or act after a spurious wakeup. In the extended lab: Call changed.wait(lock) once without a predicate, then read payload. A spurious wakeup or an earlier notification can break the intended protocol.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch48/main.cpp:7-10
+
+------------------------------------------------------------
+
+32. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Call changed.wait(lock) once without a predicate, then read payload. A spurious wakeup or an earlier notification can break the intended protocol.
+
+Use the predicate overload or an explicit while loop. Keep state reads and writes under the same mutex.
+
+The reference solution makes the contract executable with assertions. The predicate is durable state; a notification is only a reason to recheck it. wait releases the lock while waiting and reacquires it before evaluating readiness and returning. If ready was already true, the consumer does not sleep. The final get ensures the notification call and producer lifetime finish before local synchronization objects are destroyed.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.06
+
+------------------------------------------------------------
+
+33. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch48/starter.cpp. Implement the first acceptance case for use a condition variable with a lasting predicate. State the function inputs and result before adding code. First case: The consumer sees payload 42.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.07
+
+------------------------------------------------------------
+
+34. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch48/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.08
+
+------------------------------------------------------------
+
+35. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Call changed.wait(lock) once without a predicate, then read payload. A spurious wakeup or an earlier notification can break the intended protocol. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.09
+
+------------------------------------------------------------
+
+36. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why must the predicate be checked again after waking? Compare the selected design with this plausible alternative: A semaphore can naturally represent available permits, while a condition variable supports a general shared-state predicate.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.10
+
+------------------------------------------------------------
+
+37. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch48/starter.cpp. Implement a one-shot handoff using a mutex, condition variable, ready flag, and payload. It must work whether the producer sets ready before or after the consumer starts waiting. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch48/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.11
+
+------------------------------------------------------------
+
+38. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Use a condition variable with a lasting predicate belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.12
+
+------------------------------------------------------------
+
+39. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Implement a one-shot handoff using a mutex, condition variable, ready flag, and payload. It must work whether the producer sets ready before or after the consumer starts waiting.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch48/starter.cpp
+
+------------------------------------------------------------
+
+40. Review the extension solution
+Practice and extension
+
+SAY
+The predicate is durable state; a notification is only a reason to recheck it. wait releases the lock while waiting and reacquires it before evaluating readiness and returning. If ready was already true, the consumer does not sleep. The final get ensures the notification call and producer lifetime finish before local synchronization objects are destroyed. Repair principle: Use the predicate overload or an explicit while loop. Keep state reads and writes under the same mutex.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Use the predicate overload or an explicit while loop. Keep state reads and writes under the same mutex.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch48/solution.cpp
+
+------------------------------------------------------------
+
+41. Application case: Condition Variables
+Practice and extension
+
+SAY
+A condition-variable wait wakes up.
+
+What should the consumer do before consuming?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.CASE
+
+------------------------------------------------------------
+
+42. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The predicate is durable state; a notification is only a reason to recheck it. wait releases the lock while waiting and reacquires it before evaluating readiness and returning. If ready was already true, the consumer does not sleep. The final get ensures the notification call and producer lifetime finish before local synchronization objects are destroyed.
+
+Choose a simpler approach when its narrower contract is enough. A semaphore can naturally represent available permits, while a condition variable supports a general shared-state predicate.
+
+When this system changes, retain a check that exposes the known failure: Call changed.wait(lock) once without a predicate, then read payload. A spurious wakeup or an earlier notification can break the intended protocol. Use the predicate overload or an explicit while loop. Keep state reads and writes under the same mutex.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch48.json → SYS48.14
+
+------------------------------------------------------------
+
+43. A timeout answers a waiting question, not a state proof
+Recall and transfer
+
+SAY
+A timeout can let a caller stop waiting, but it does not prove that no producer will complete immediately afterward. The operation must define whether timed-out work is cancelled, still queued, or still owned by its original caller. Repeatedly waiting for the full relative duration after each wake can also extend a supposed overall timeout; a fixed deadline better represents one bounded operation. Our zero-duration demonstration deliberately avoids timing claims and only checks predicate semantics. In a real queue, combine timeouts with the same protected state machine used for ordinary success and closure, then test the boundary where completion and timeout compete.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.004
+
+------------------------------------------------------------
+
+44. Retell the protocol without the word notification first
+Recall and transfer
+
+SAY
+To explain a condition-variable design, first state the fact being awaited. Then identify the data that represents that fact and the mutex used by every reader and writer. Explain how the waiter releases the mutex and sleeps as one coordinated operation, and why it loops after reacquiring. Only then discuss notify_one or notify_all. This order keeps the durable state at the center of the design. Test publication before waiting, waiting before publication, competing consumers, closure, and object destruction after joins. If the explanation begins and ends with a notify call, it probably omits the rule that actually makes the program correct.
+
+DO
+Predict the result before opening the answer.
+Identify the protected state and the point where the next observer may use it.
+
+SOURCE
+content/systems-programming/ch48.json → SP48.026

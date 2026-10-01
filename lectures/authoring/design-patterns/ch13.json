@@ -1,0 +1,258 @@
+{
+  "chapter": 13,
+  "title": "Chain of Responsibility",
+  "opening": [
+    {
+      "title": "One print job must reach at most one desk",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Labels prefer the label desk",
+        "The general desk can be a fallback",
+        "Reject invalid pages before selecting any desk"
+      ],
+      "narration": "A print workshop has a special desk for labels and a general desk that can also handle labels. A job names a format and a page count. We need one destination, not two. Every configuration must reject a page count outside one through one thousand, and unknown formats must produce an explicit unhandled result. This example chooses a destination; it does not print pages or confirm a printer completed work. The new design pressure is that different shifts may choose different ordered sets of desks. We want to change that order without copying page validation and fallback logic into several unrelated routing functions.",
+      "actions": [
+        "Ask why a label can be accepted by two desks while still receiving only one destination."
+      ],
+      "sourceRef": "manuscript/ch13.json → The problem: one job, one responsible desk",
+      "question": {
+        "prompt": "Does a returned destination prove that printing succeeded?",
+        "answer": "No. It reports routing responsibility; actual printing and delivery failure are separate concerns."
+      }
+    },
+    {
+      "title": "Fixed choices deserve a fixed direct function",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "code",
+      "keyPoints": [
+        "Validate mandatory bounds first",
+        "Use clear conditions for stable choices",
+        "A changing rule set creates pressure to separate assembly"
+      ],
+      "narration": "This complete baseline directly maps formats to destinations. It uses string_view to borrow text during the call without owning or extending that text's lifetime. Our calls pass string literals, which remain valid. The first condition checks a shared requirement before either desk is considered. With two fixed choices, this is clear and sufficient; no class hierarchy is missing. The limitation arrives when shifts need different priorities, a temporary fallback, or a new express desk. Rewriting the whole function for each shift duplicates the guard and the unhandled case. We then want the routing algorithm to stay fixed while a separately assembled ordered set supplies the decisions.",
+      "actions": [
+        "Run the four inputs, then propose how a shift without a label desk would change this function."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch13.json → The problem: one job, one responsible desk",
+      "question": {
+        "prompt": "When is the direct if-based implementation preferable to a configurable chain?",
+        "answer": "When the destinations and their priority are fixed and simple, so separate handlers add complexity without useful variation."
+      },
+      "code": {
+        "filename": "dp_ch13_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string_view>\nstd::string_view choose(std::string_view format, int pages) {\n    // Mandatory validation is independent of the selected desk.\n    if (pages < 1 || pages > 1000) return \"rejected\";\n    if (format == \"label\") return \"label desk\";\n    if (format == \"report\") return \"general desk\";\n    return \"unhandled\";\n}\nint main() {\n    std::cout << choose(\"label\", 2) << '\\n';\n    std::cout << choose(\"report\", 6) << '\\n';\n    std::cout << choose(\"archive\", 1) << '\\n';\n    std::cout << choose(\"label\", 0) << '\\n';\n}\n",
+        "expectedStdout": "label desk\ngeneral desk\nunhandled\nrejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "The final assignment is not the first answer",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "code",
+      "keyPoints": [
+        "Both desks can accept a label",
+        "Return stops the search immediately",
+        "Assignment followed by continuation changes the policy"
+      ],
+      "narration": "To isolate the stop rule, this short program starts with two already-computed desk replies. Both are present because both desks can handle a label. The first function returns the first present reply. The second deliberately keeps assigning and returns only after the loop. It therefore replaces the special label destination with the general one. Both functions are well-typed, and the code runs without undefined behavior. The error is the changed routing contract. In the chapter, continuing could also call later handlers unnecessarily. If handlers performed real external work, that could be worse than a wrong name. Keep selection separate from printing so the routing decision remains easy to test.",
+      "actions": [
+        "Predict first and last before running, then identify the control-flow difference."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch13.json → First-handler routing is not an all-stage pipeline",
+      "question": {
+        "prompt": "Why is replacing return *reply with result = *reply not an equivalent cleanup?",
+        "answer": "The assignment continues the loop, allowing a later accepted reply to replace the first one."
+      },
+      "code": {
+        "filename": "dp_ch13_stop_rule.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <optional>\n#include <string>\n#include <vector>\nusing Reply = std::optional<std::string>;\nstd::string first_answer(const std::vector<Reply>& replies) {\n    for (const auto& reply : replies) {\n        if (reply) return *reply;\n    }\n    return \"unhandled\";\n}\nstd::string last_answer(const std::vector<Reply>& replies) {\n    std::string result = \"unhandled\";\n    for (const auto& reply : replies) {\n        if (reply) result = *reply; // Intentional policy change.\n    }\n    return result;\n}\nint main() {\n    // Precomputed replies isolate the stopping rule from handler code.\n    const std::vector<Reply> replies{\"label desk\", \"general desk\"};\n    std::cout << \"first=\" << first_answer(replies) << '\\n';\n    std::cout << \"last=\" << last_answer(replies) << '\\n';\n}\n",
+        "expectedStdout": "first=label desk\nlast=general desk\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "A handler answers or deliberately declines",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Every Rule borrows the same read-only Job",
+        "A present Reply accepts responsibility",
+        "No Reply passes the request onward"
+      ],
+      "narration": "A handler is a piece of code that decides whether it is responsible for one request. Chain of Responsibility arranges such handlers in an order and defines when to pass or stop. Our version stops at the first answer. Reply is an optional string: either one destination exists or no destination exists. No answer is a normal decline, so label_rule need not throw when it sees a report. Route then gives the next rule a chance. The shared rule shape allows assembly without forcing each handler to know its neighbor. A vector owns the order; the handlers stay focused on their own acceptance decision.",
+      "actions": [
+        "Ask learners to explain decline without using the word error."
+      ],
+      "sourceRef": "manuscript/ch13.json → Make each choice a small, honest question",
+      "question": {
+        "prompt": "What happens when every handler declines a valid archive job?",
+        "answer": "The loop finishes and route returns the explicit unhandled result."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Read the callable type from the inside out",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Reply is optional<string>",
+        "Rule is function<Reply(const Job&)>",
+        "using introduces a readable type alias"
+      ],
+      "narration": "Start with the call we want: a rule receives a Job and returns a Reply. The parameter const Job& borrows the existing job without changing it through that reference. Std::function can hold different callable objects that support this shape, and using gives that longer type the short name Rule. The compiler checks whether each stored callable fits. At execution, the wrapper invokes whichever callable it holds. In this chapter those are ordinary free functions, not objects with captured state. That keeps their lifetimes simple. A function-pointer table could be smaller for this exact fixed set; std::function leaves room for stateful callables if a later requirement justifies them.",
+      "actions": [
+        "Read Rule aloud as “a callable from a borrowed read-only Job to a Reply.”"
+      ],
+      "sourceRef": "manuscript/ch13.json → Make each choice a small, honest question",
+      "question": {
+        "prompt": "Does using Rule create a new inherited base class?",
+        "answer": "No. It is a type alias for the callable wrapper; the chapter does not require handler inheritance."
+      }
+    },
+    {
+      "title": "Presence is not the same as nonempty text",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "nullopt means no destination was supplied",
+        "An optional holding \"\" is still present",
+        "Check presence before dereferencing"
+      ],
+      "narration": "Optional separates absence from the contents of a value. An empty optional means this handler declines. An optional containing an empty string still contains a value and therefore stops this router, even though that destination would be unhelpful to a person. This distinction prevents a sentinel string from doing two jobs at once. If the application requires nonempty destination names, add that as a separate invariant and validate it. The code tests if (reply) before evaluating *reply. Reversing the condition would dereference an empty optional for a decline, violating the operation's precondition. There is no defined output to predict in that incorrect program, so do not teach a guaranteed crash.",
+      "actions": [
+        "Ask whether Reply{\"\"} and std::nullopt follow the same branch."
+      ],
+      "sourceRef": "manuscript/ch13.json → Make each choice a small, honest question",
+      "question": {
+        "prompt": "Why is return *reply safe in the correct route loop?",
+        "answer": "The immediately preceding presence test establishes that the optional contains a string."
+      }
+    },
+    {
+      "title": "Order is executable policy",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Specific rules normally precede broad fallbacks",
+        "A decline advances; an answer returns",
+        "Reordering affects overlapping acceptance sets"
+      ],
+      "narration": "For a label job, both handlers are willing, so their order matters. With label_rule first, route returns label desk and never calls general_rule. Reverse the vector and the general desk wins immediately. For a report, the label rule declines, so the general desk still answers in either order. This is why order tests need overlapping cases, not only one request per unique format. The range-based loop visits vector entries in sequence. In const auto& rule, auto obtains the wrapper's type, the reference avoids a wrapper copy, and const prevents reassignment through that name. The colon means take each item from rules, not inheritance or a conditional expression.",
+      "actions": [
+        "Predict label, report, and archive under both rule orders before revealing the chapter tests."
+      ],
+      "sourceRef": "manuscript/ch13.json → Follow control and data through the chain",
+      "question": {
+        "prompt": "Which existing request is the strongest test of priority between the two chapter handlers?",
+        "answer": "A label request, because both handlers accept it and the first one must win."
+      }
+    },
+    {
+      "title": "Mandatory validation must survive an empty chain",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Page bounds apply before all optional rules",
+        "Removing a handler must not remove safety",
+        "Unhandled and rejected report different facts"
+      ],
+      "narration": "A routing rule is optional in a configuration; a mandatory input rule is not. If page validation lived only inside label_rule, a shift that removes that handler could accidentally accept zero-page reports. Route instead checks the shared bounds before touching the vector. This also gives a precise result for an empty chain: invalid input is rejected, while valid input is unhandled because no destination was available. Those outcomes should not be merged. Rejected means the request breaks an input rule; unhandled means it passed those rules but found no responsible desk. That distinction helps a caller decide whether to fix the request or change the available routing configuration.",
+      "actions": [
+        "Ask for the results of zero pages with no rules and one valid page with no rules."
+      ],
+      "sourceRef": "manuscript/ch13.json → First-handler routing is not an all-stage pipeline",
+      "question": {
+        "prompt": "Why should the express handler not become the sole owner of the positive-page requirement?",
+        "answer": "The handler may be omitted or reordered; a mandatory requirement must hold independently of optional routing choices."
+      }
+    },
+    {
+      "title": "A router and a pipeline have different success meanings",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Here, success means stop",
+        "In a pipeline, success may mean continue",
+        "Choose a result type that makes the rule clear"
+      ],
+      "narration": "The word chain does not establish a stopping rule by itself. Our first-handler router stops when one destination appears. A document pipeline might validate, add a tracking number, record an event, and then print; success at each intermediate stage means continue. If a single Boolean is used in both designs, true could mean either finished or allowed to proceed. That ambiguity invites an apparently harmless refactor to change behavior. Choose a result type that expresses the actual decision. Optional destination fits this router. An enum such as Continue or Reject fits some validation pipelines. Also separate external effects from selection: retrying a destination decision is much simpler than retrying a chain that may already have printed twice.",
+      "actions": [
+        "Have learners translate one routing step and one validation step into explicit result words."
+      ],
+      "sourceRef": "manuscript/ch13.json → First-handler routing is not an all-stage pipeline",
+      "question": {
+        "prompt": "Can a successful page validation return a destination and stop this chain?",
+        "answer": "No. Validation establishes eligibility to route; it has not selected a desk."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "An express rule extends the policy without copying the guard",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Reports of at most five pages use express",
+        "Keep label and general behavior intact",
+        "Test overlap, boundaries, and no-handler cases"
+      ],
+      "narration": "The lab adds an express desk for reports of up to five pages. The new rule joins a new vector before the broader existing rules, while the original vector and its checks remain intact. A five-page report now takes express; a six-page report reaches general. A label still follows label_rule, and a zero-page report is rejected before express_rule can accept it. Notice that the local express rule checks at most five, while route establishes the lower bound first. This is safe through route but matters if somebody later calls the rule directly and assumes it validates the whole request. State the boundary where the common guarantee is established.",
+      "actions": [
+        "Ask learners to list tests for page counts zero, five, and six plus a label and an archive."
+      ],
+      "sourceRef": "manuscript/ch13.json → Boundaries, costs, and a practical review",
+      "question": {
+        "prompt": "Why does installing express_rule first not steal label jobs in this implementation?",
+        "answer": "Its acceptance condition requires report format, so labels still fall through to label_rule."
+      }
+    },
+    {
+      "title": "Runtime flexibility has lifetime and cost obligations",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "An unsupported job invokes all n handlers",
+        "Large stored callables may allocate",
+        "Captured references can outlive their targets"
+      ],
+      "narration": "A chain trades a fixed decision tree for a configurable search. A valid unsupported job requires one call to every handler, so cost grows with the number of rules. A broad match placed early may be fast but can hide a more specific policy. Std::function may allocate when it stores a large callable, whereas this chapter's free functions are simple to retain. If you add a lambda that captures a local variable by reference, check whether the rule vector can outlive that variable. A surviving callable does not keep a borrowed capture alive. The vector avoids linked-chain cycles, but it does not solve every ownership problem a future handler might introduce.",
+      "actions": [
+        "Propose a rule that captures a temporary configuration by reference and ask when it becomes unsafe."
+      ],
+      "sourceRef": "manuscript/ch13.json → Boundaries, costs, and a practical review",
+      "question": {
+        "prompt": "Would using a vector automatically make captured references safe?",
+        "answer": "No. The vector owns the callable wrapper, but a reference captured inside it still borrows an independently lived object."
+      }
+    },
+    {
+      "title": "Remember the three decisions, not a class diagram alone",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Eligibility: may this job enter routing?",
+        "Responsibility: will this handler answer?",
+        "Termination: does an answer stop the search?"
+      ],
+      "narration": "Explain this pattern through three decisions. First, the shared guard decides whether the job is eligible for routing. Second, each handler decides whether it is responsible. Third, the router decides whether to stop or continue based on the handler's result. In this chapter a present answer stops immediately; absence advances to the next rule; exhaustion produces unhandled. Those decisions remain clear even though the implementation has no linked nodes or inherited handler base. When reviewing a new rule, inspect its overlap with existing rules and its position, then test its boundary cases. The memorable mechanism is ordered responsibility with an explicit stop rule, not a required arrangement of class names.",
+      "actions": [
+        "Ask learners to explain a label, an archive, and an invalid job using the three decisions."
+      ],
+      "sourceRef": "manuscript/ch13.json → Follow control and data through the chain",
+      "question": {
+        "prompt": "What two code locations prove that this is first-handler routing?",
+        "answer": "A handler returns nullopt to decline or a present Reply to accept, and route immediately returns the first present reply."
+      }
+    }
+  ]
+}

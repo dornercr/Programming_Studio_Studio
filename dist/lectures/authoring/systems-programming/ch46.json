@@ -1,0 +1,232 @@
+{
+  "chapter": 46,
+  "title": "Atomic Operations: values, ordering, and publication",
+  "opening": [
+    {
+      "title": "Atomic describes an operation, not an entire design",
+      "eyebrow": "ATOMIC DESCRIBES AN OPERATION, NOT AN ENTIRE DESIGN",
+      "kind": "concept",
+      "keyPoints": [
+        "One indivisible update can be useful",
+        "Other data still needs publication",
+        "Object lifetime remains a separate obligation"
+      ],
+      "narration": "An atomic operation is indivisible with respect to its defined observers, but that statement has a limited scope. An atomic counter can safely hand out positions without proving that the data at those positions is initialized. An atomic pointer can be read without tearing while its target has already been destroyed. We need to name the complete protocol: what value changes, what other data the change announces, and how long each object remains alive. This chapter adds tools for those questions. Start with the simplest default ordering, then choose weaker memory orders only when the reasoning and a measured need justify the added complexity.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch46.json \u2192 SP46.001",
+      "question": {
+        "prompt": "Does an atomic pointer automatically keep its pointed-to object alive?",
+        "answer": "No. Atomic access to the pointer value and ownership of the target object are separate responsibilities."
+      }
+    },
+    {
+      "title": "The old value can identify a unique slot",
+      "eyebrow": "THE OLD VALUE CAN IDENTIFY A UNIQUE SLOT",
+      "kind": "concept",
+      "keyPoints": [
+        "fetch_add returns the previous value",
+        "Each read-modify-write occupies one place in modification order",
+        "Overflow needs an explicit bound"
+      ],
+      "narration": "Suppose three tasks need distinct sequence positions starting at ten. fetch_add with an increment of one returns the previous value while updating the counter as one operation. The tasks therefore receive ten, eleven, and twelve in some order, and the next position becomes thirteen. A plain load followed by store cannot provide that guarantee under contention. The returned ticket identifies an allocation decision; it does not publish a payload automatically. Our fixed three-request example stays far from numeric limits. A long-lived service must define what happens at exhaustion or wraparound before treating ticket values as permanently unique identities.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch46.json \u2192 SP46.008",
+      "question": {
+        "prompt": "Why does fetch_add return the old value rather than requiring another load for the ticket?",
+        "answer": "The returned old value belongs to that indivisible update, giving the caller the unique position it claimed."
+      }
+    },
+    {
+      "title": "Run three ticket allocations with stable reporting",
+      "eyebrow": "RUN THREE TICKET ALLOCATIONS WITH STABLE REPORTING",
+      "kind": "code",
+      "keyPoints": [
+        "Each worker stores its ticket in its own slot",
+        "Relaxed suffices for this independent counter",
+        "Join and sort before printing"
+      ],
+      "narration": "The code launches three workers. Each performs one relaxed fetch_add and stores its returned ticket in a separate array element. After joining, main sorts the tickets so output does not depend on which worker ran first. It prints tickets=10,11,12 next=13. Relaxed is enough for the counter's indivisible allocation here because this counter is not being used to publish unrelated payload data. The joins order the parent's later reads of the result slots. Sorting is a reporting choice, not synchronization. The example verifies unique ticket allocation for a bounded workload and makes no claim about the hardware instruction used or whether this atomic type is lock-free.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch46.json \u2192 SP46.008",
+      "question": {
+        "prompt": "What orders main\u2019s reads of the ordinary ticket array?",
+        "answer": "The joins, not the relaxed counter operations. Each worker writes a distinct slot, then main reads after completion."
+      },
+      "code": {
+        "filename": "sys_ch46_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <array>\n#include <atomic>\n#include <iostream>\n#include <thread>\nint main() {\n    std::atomic<int> next{10};\n    std::array<int,3> tickets{};\n    const auto allocate = [&](int id) {\n        tickets[id] = next.fetch_add(1, std::memory_order_relaxed);\n    };\n    std::jthread a(allocate,0), b(allocate,1), c(allocate,2);\n    a.join(); b.join(); c.join();\n    std::sort(tickets.begin(), tickets.end());\n    std::cout << \"tickets=\" << tickets[0] << ',' << tickets[1] << ',' << tickets[2]\n              << \" next=\" << next.load() << '\\n';\n}\n",
+        "expectedStdout": "tickets=10,11,12 next=13\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "A failed compare updates the expectation",
+      "eyebrow": "A FAILED COMPARE UPDATES THE EXPECTATION",
+      "kind": "code",
+      "keyPoints": [
+        "The expected argument is passed by reference",
+        "Failure reports the observed current value",
+        "Recompute the desired value before retrying"
+      ],
+      "narration": "The atomic begins at three, but expected begins at two. The first compare_exchange_strong therefore fails, leaves the atomic at three, and replaces expected with three. The first line prints first=false observed=3. The second attempt computes expected plus one from that refreshed value and succeeds, printing second=true value=4. This single-thread mechanism demonstration isolates the C++ argument contract without scheduling noise. In a real retry loop, weak comparison may fail spuriously, and other threads may change the value again. A bound check must be repeated before forming the increment. Failure is useful information, not merely an instruction to retry the same stale desired value forever.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch46.json \u2192 SP46.012",
+      "question": {
+        "prompt": "Which ordinary variable changes when the first comparison fails?",
+        "answer": "expected is updated to the observed value 3; the atomic itself remains 3."
+      },
+      "code": {
+        "filename": "sys_ch46_compare_exchange.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <atomic>\n#include <iostream>\nint main() {\n    std::atomic<int> value{3};\n    int expected = 2;\n    const bool first = value.compare_exchange_strong(expected, expected+1);\n    std::cout << std::boolalpha;\n    std::cout << \"first=\" << first << \" observed=\" << expected << '\\n';\n    const bool second = value.compare_exchange_strong(expected, expected+1);\n    std::cout << \"second=\" << second << \" value=\" << value.load() << '\\n';\n}\n",
+        "expectedStdout": "first=false observed=3\nsecond=true value=4\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Publication connects an ordinary payload to a flag",
+      "eyebrow": "PUBLICATION CONNECTS AN ORDINARY PAYLOAD TO A FLAG",
+      "kind": "concept",
+      "keyPoints": [
+        "Producer writes payload before release",
+        "Consumer acquire observes that publication",
+        "The payload stays unchanged during reading"
+      ],
+      "narration": "Imagine a producer filling three ordinary integers, then setting an atomic ready flag. A consumer must not infer payload safety merely from the flag's atomic type. The producer uses a release store, and the consumer uses an acquire load that observes the corresponding publication. That relationship carries the earlier payload writes into the consumer's later reads under the language model. The payload also stays alive and is not modified again during this one-shot read. A later join cannot retroactively justify a payload read that happened too early. Name the exact release and observing acquire when explaining the source's publication example.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch46.json \u2192 SP46.020",
+      "question": {
+        "prompt": "Why is a join after the consumer has already read the payload insufficient to justify that earlier read?",
+        "answer": "Synchronization must order the write before the read itself; a later completion event cannot repair an earlier unsynchronized access."
+      }
+    },
+    {
+      "title": "Relaxed counting is not relaxed publication",
+      "eyebrow": "RELAXED COUNTING IS NOT RELAXED PUBLICATION",
+      "kind": "concept",
+      "keyPoints": [
+        "Relaxed preserves atomic-object guarantees",
+        "It does not publish unrelated ordinary fields",
+        "Choose an order from the protocol\u2019s needs"
+      ],
+      "narration": "Our ticket counter can use relaxed ordering because its job is only to allocate distinct bounded integers; results are collected through joins. Change the counter's meaning to payload ready, and the proof changes. An observer that sees the flag needs a relationship to the producer's ordinary payload writes, not just an indivisible flag load. Replacing release and acquire with relaxed would remove that publication argument and can make ordinary accesses invalid. Do not run such a variant as a harmless performance comparison. The useful question is which data needs ordering and which operation supplies that edge, rather than a hardware slogan about one processor being strong enough.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch46.json \u2192 SP46.014",
+      "question": {
+        "prompt": "Why is relaxed appropriate for one demo but not automatically for a ready flag?",
+        "answer": "The ticket demo needs only atomic allocation plus joins; a ready flag may need to publish unrelated ordinary memory before it is read."
+      }
+    },
+    {
+      "title": "Sequential consistency does not combine separate operations",
+      "eyebrow": "SEQUENTIAL CONSISTENCY DOES NOT COMBINE SEPARATE OPERATIONS",
+      "kind": "concept",
+      "keyPoints": [
+        "Default ordering gives a stronger common order",
+        "Load and store remain distinct operations",
+        "Use an RMW when the update must be indivisible"
+      ],
+      "narration": "Suppose two workers each perform a default-order atomic load and later a default-order store of old plus one. Sequential consistency constrains the order of those atomic actions, but it still permits both loads before both stores. The final count can therefore lose an intended update even though there is no data race. Stronger ordering does not change the operation boundaries. fetch_add combines the read and update into one read-modify-write; a compare-and-swap loop conditionally combines a checked update. If the rule spans several related objects, one mutex may be easier to prove correct than a collection of atomic fields whose cross-field states remain inconsistent.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch46.json \u2192 SP46.014",
+      "question": {
+        "prompt": "Can sequential consistency alone turn load then store into an atomic increment?",
+        "answer": "No. They remain two operations; use fetch_add or another coordinated transaction for the intended increment."
+      }
+    },
+    {
+      "title": "A reused flag needs a handoff protocol",
+      "eyebrow": "A REUSED FLAG NEEDS A HANDOFF PROTOCOL",
+      "kind": "concept",
+      "keyPoints": [
+        "One-shot publication has one payload lifetime",
+        "Resetting ready does not prove the reader finished",
+        "Acknowledgment or ownership transfer controls reuse"
+      ],
+      "narration": "The one-shot source writes a payload once and never changes it after publication. Reusing the same buffer introduces a second question: when may the producer overwrite it? Resetting a Boolean flag does not by itself prove that the consumer has finished reading. A correct reusable protocol needs an acknowledgment, sequence scheme, ownership transfer, or a protected queue whose state machine covers both directions. The initial release/acquire pair can be correct while a later overwrite races with the reader. Trace the entire cycle, including who owns the buffer after consumption. A small first example should establish one guarantee clearly rather than imply it solves every repeated exchange.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch46.json \u2192 SP46.006",
+      "question": {
+        "prompt": "What new guarantee is needed before a producer overwrites a published reusable buffer?",
+        "answer": "It must know that no consumer still reads the prior contents, through an explicit acknowledgment or ownership protocol."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Atomic is not a performance promise",
+      "eyebrow": "ATOMIC IS NOT A PERFORMANCE PROMISE",
+      "kind": "concept",
+      "keyPoints": [
+        "Lock-free depends on type and implementation",
+        "A hot atomic can still serialize traffic",
+        "Measure after establishing correctness"
+      ],
+      "narration": "The type std::atomic does not guarantee that every operation uses one instruction or avoids internal locks. The implementation and target platform determine lock-free properties. Even a lock-free counter may scale poorly when many cores repeatedly request exclusive access to the same cache line. Our three-ticket demonstration is far too small to measure that cost. If contention matters, compare designs with per-worker batches or private accumulation while preserving the allocation contract. Performance work needs a workload, measurement method, and correctness baseline. Choosing relaxed everywhere to chase speed can remove required communication guarantees without addressing the actual bottleneck.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch46.json \u2192 SP46.010",
+      "question": {
+        "prompt": "Does lock-free mean a shared counter cannot become a bottleneck?",
+        "answer": "No. Many workers can still contend on one atomic location and its cache line, limiting throughput."
+      }
+    },
+    {
+      "title": "Review values, ordering, and lifetime separately",
+      "eyebrow": "REVIEW VALUES, ORDERING, AND LIFETIME SEPARATELY",
+      "kind": "concept",
+      "keyPoints": [
+        "What does each operation return?",
+        "Which edge publishes other data?",
+        "Who keeps the referenced objects alive?"
+      ],
+      "narration": "Use three passes when reviewing atomic code. First, check the value algorithm: whether fetch_add returns the old value, whether failed comparison refreshes expected, and whether arithmetic is bounded. Second, check ordering: identify the exact communication edge needed before ordinary payload reads. Third, check lifetime: a correctly published address must still point to a live object for every use. Pointer-based structures also need a reclamation plan, and compare-and-swap alone does not solve a value changing away and back while object identity changes. Keeping these questions separate makes it easier to explain what an atomic operation guarantees and where the surrounding design must do more.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch46.json \u2192 SP46.022",
+      "question": {
+        "prompt": "What three independent arguments are needed for an atomic pointer publication design?",
+        "answer": "Correct pointer-value updates, sufficient ordering for the target data, and a lifetime or reclamation protocol that keeps the target valid."
+      }
+    }
+  ]
+}

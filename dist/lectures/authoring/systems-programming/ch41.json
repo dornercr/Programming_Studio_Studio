@@ -1,0 +1,233 @@
+{
+  "chapter": 41,
+  "title": "Signals: safe notification and coordinated waiting",
+  "opening": [
+    {
+      "title": "Signals: an interruption is not an ordinary call",
+      "eyebrow": "SIGNALS",
+      "kind": "concept",
+      "keyPoints": [
+        "The interrupted code chooses no clean boundary",
+        "A handler may interrupt library bookkeeping",
+        "Ordinary work should handle the real request"
+      ],
+      "narration": "Suppose a process is formatting a status line when a shutdown request arrives. The request did not wait for the formatting library to finish updating its private buffers. That is the central signal problem: the handler can run at an inconvenient point inside ordinary work. A signal is an event notification delivered under operating-system rules. It may request termination, report child changes, or reflect a fault. We must distinguish a routine request from a fault caused by an invalid instruction or memory access. Catching a fault does not establish that the interrupted program is healthy enough to continue. Begin with a minimal notification contract, not a large handler.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch41.json \u2192 SP41.004",
+      "question": {
+        "prompt": "Why is calling the usual logging function from a handler risky?",
+        "answer": "It may reenter library state that was interrupted halfway through an update or while holding an internal lock."
+      }
+    },
+    {
+      "title": "Choose the promise: request noticed, not events counted",
+      "eyebrow": "CHOOSE THE PROMISE",
+      "kind": "concept",
+      "keyPoints": [
+        "A flag records that work may be needed",
+        "Standard signals may coalesce",
+        "Normal flow discovers the actual work"
+      ],
+      "narration": "A pending notification is not necessarily an exact event count. If several standard signals of the same kind arrive while blocked, they can be represented by one pending instance. A flag set to one therefore means inspect the underlying state, not process exactly one request. For child changes, ordinary code should collect all available child statuses instead of assuming one status for each signal delivery. If every event must carry data and be counted, a queue or another explicit communication mechanism may be needed. The choice comes from the requirement. Replacing a flag with an ordinary increment inside a handler does not create a reliable general event queue.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch41.json \u2192 SP41.016",
+      "question": {
+        "prompt": "What should a SIGCHLD-style notification cause the main loop to do?",
+        "answer": "Inspect and collect all available child-state changes under the chosen wait policy, rather than infer an exact count from signal deliveries."
+      }
+    },
+    {
+      "title": "Run a minimal real handler",
+      "eyebrow": "RUN A MINIMAL REAL HANDLER",
+      "kind": "code",
+      "keyPoints": [
+        "sigaction installs one explicit disposition",
+        "The handler only assigns the flag",
+        "Output occurs after raise returns"
+      ],
+      "narration": "This Linux/POSIX demonstration installs a handler for a signal sent only to the current process. The handler stores one in a volatile sig_atomic_t flag and returns. It does not print, allocate, or take a mutex. raise sends the signal; after successful handling returns, ordinary main prints observed=true. The program checks setup and raise results, and restores the earlier disposition before exiting. This demonstrates real delivery, not an interleaving model. The flag's special type supports this limited handler communication. It is not a replacement for std::atomic in general thread communication, nor does its value tell us how many notifications might have been combined.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch41.json \u2192 SP41.012",
+      "question": {
+        "prompt": "Which statement prints, and why is its location important?",
+        "answer": "The std::cout statement in main prints after handling. Keeping stream use outside the asynchronous handler avoids unsafe reentry into stream state."
+      },
+      "code": {
+        "filename": "sys_ch41_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <csignal>\n#include <iostream>\n#include <signal.h>\nvolatile std::sig_atomic_t observed = 0;\nextern \"C\" void notice(int) { observed = 1; }\nint main() {\n    struct sigaction action{}, previous{};\n    action.sa_handler = notice;\n    if (sigemptyset(&action.sa_mask) == -1) return 1;\n    if (sigaction(SIGUSR1, &action, &previous) == -1) return 2;\n    const int raised = raise(SIGUSR1);\n    const int restored = sigaction(SIGUSR1, &previous, nullptr);\n    if (raised != 0 || restored == -1) return 3;\n    std::cout << \"observed=\" << std::boolalpha << (observed == 1) << '\\n';\n}\n",
+        "expectedStdout": "observed=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Model the check-then-sleep gap safely",
+      "eyebrow": "MODEL THE CHECK-THEN-SLEEP GAP SAFELY",
+      "kind": "code",
+      "keyPoints": [
+        "A notification can occur after the check",
+        "Sleeping afterward needs another notification",
+        "A coordinated check and wait removes that gap"
+      ],
+      "narration": "This program is a serialized model, not an actual signal wait. The first path checks a false request flag, then models delivery, then models sleeping because of the stale decision. It prints broken sleeps=true request=true: the request exists while the imagined waiter is asleep. The corrected model makes delivery pending while the decision is protected, then handles it when the coordinated wait enables delivery. Its printed blocked=false means it does not remain asleep after that pending request is handled. No real pause is called, so the demonstration cannot hang waiting for another signal. The model explains why volatile alone cannot combine a check and a later sleep into one operation.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch41.json \u2192 SP41.022",
+      "question": {
+        "prompt": "What stale fact causes the first path to sleep?",
+        "answer": "It uses the earlier need_to_wait decision after the request has already become true."
+      },
+      "code": {
+        "filename": "sys_ch41_wait_model.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    // Serialized model only: no real signals or sleeping occur here.\n    bool request = false;\n    const bool need_to_wait = !request;\n    request = true; // Delivery between check and sleep.\n    const bool asleep = need_to_wait;\n    bool protected_request = false;\n    const bool pending = true; // Delivery is held pending during checking.\n    bool blocked = !protected_request;\n    if (pending) { protected_request = true; blocked = false; }\n    std::cout << std::boolalpha;\n    std::cout << \"broken sleeps=\" << asleep << \" request=\" << request << '\\n';\n    std::cout << \"coordinated blocked=\" << blocked\n              << \" request=\" << protected_request << '\\n';\n}\n",
+        "expectedStdout": "broken sleeps=true request=true\ncoordinated blocked=false request=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Serialized state model of notification and wait decisions; no operating-system wait."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Masks and dispositions answer different questions",
+      "eyebrow": "MASKS AND DISPOSITIONS ANSWER DIFFERENT QUESTIONS",
+      "kind": "concept",
+      "keyPoints": [
+        "Disposition selects handle, ignore, or default",
+        "A thread mask controls delivery eligibility",
+        "Blocking delays rather than erases pending state"
+      ],
+      "narration": "A disposition answers what action a signal should cause. A mask answers whether delivery is currently allowed for a thread. These are different pieces of state, with different scopes in a multithreaded process. Imagine installing a shutdown handler while workers are being created. If masking is part of the plan, establish the intended mask before worker creation and deliberately select who consumes notifications. Otherwise a process-directed signal may reach an eligible worker rather than the thread whose state machine expected it. Blocking an event during setup can preserve it as pending; it does not necessarily throw it away. Describe this lifecycle before adding calls that enable the event source.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch41.json \u2192 SP41.006",
+      "question": {
+        "prompt": "Does blocking a signal mean its disposition becomes ignore?",
+        "answer": "No. Masking controls delivery eligibility; the disposition remains a separate action policy."
+      }
+    },
+    {
+      "title": "sigsuspend links checking with eligibility to wake",
+      "eyebrow": "SIGSUSPEND LINKS CHECKING WITH ELIGIBILITY TO WAKE",
+      "kind": "concept",
+      "keyPoints": [
+        "Check the predicate while the signal is blocked",
+        "Temporarily unblock and wait together",
+        "Recheck after each return"
+      ],
+      "narration": "The correct waiting shape begins by blocking the relevant signal while checking the flag. If work is still absent, sigsuspend temporarily changes the mask and waits in one coordinated operation. A signal already pending can then be delivered without falling into a gap between checking and sleeping. When control returns, the earlier mask is restored and normal code checks the predicate again. A return does not necessarily mean the particular work we want is ready, because another handled signal may be involved. This resembles a condition-variable predicate loop, although its mechanism is a signal mask rather than a mutex. The predicate remains the source of truth.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch41.json \u2192 SP41.022",
+      "question": {
+        "prompt": "Why must the flag be checked again after the waiting function returns?",
+        "answer": "The return can be caused by another handled event, and the actual work condition must be confirmed rather than inferred from waking."
+      }
+    },
+    {
+      "title": "Thread-safe is weaker than signal-safe here",
+      "eyebrow": "THREAD-SAFE IS WEAKER THAN SIGNAL-SAFE HERE",
+      "kind": "concept",
+      "keyPoints": [
+        "An internal mutex may make ordinary calls safe",
+        "The handler may interrupt that mutex owner",
+        "Reentering can wait for the interrupted code itself"
+      ],
+      "narration": "Consider a library routine that locks its private mutex before changing a buffer. Two normal threads can call it safely because one waits for the other. Now imagine a handler interrupts the owning thread and calls that same routine. It waits for a mutex that the interrupted work cannot release until the handler returns. That is why ordinary thread safety does not imply asynchronous signal safety. Keep complex work in normal flow. A self-pipe can bridge a handler to an event loop using a carefully bounded notification write, but a full pipe must not make the handler block. Even a small bridge has a capacity and failure policy.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch41.json \u2192 SP41.018",
+      "question": {
+        "prompt": "Why can a mutex-protected library function deadlock when reentered by a handler?",
+        "answer": "The handler can wait for a lock held by the code it interrupted, while that code cannot resume and unlock until the handler returns."
+      }
+    },
+    {
+      "title": "Restart policy does not erase I/O contracts",
+      "eyebrow": "RESTART POLICY DOES NOT ERASE I/O CONTRACTS",
+      "kind": "concept",
+      "keyPoints": [
+        "SA_RESTART affects only eligible operations",
+        "Interpret each system call\u2019s result",
+        "Preserve errno when handler work can change it"
+      ],
+      "narration": "Installing a handler includes a choice of flags. SA_RESTART can restart some interrupted operations, but it does not promise that every blocking interface behaves as though no signal occurred. I/O code must still examine return values, byte counts, and documented interruption behavior. If a handler calls a permitted operation that may change errno, it may need to save and restore the interrupted value so ordinary error reporting remains meaningful. Keep the roles separate: the handler requests work, the normal operation reports its own progress, and the caller decides whether retrying is valid. Blindly retrying an operation with side effects can be as wrong as blindly treating interruption as fatal.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch41.json \u2192 SP41.010",
+      "question": {
+        "prompt": "Does SA_RESTART justify ignoring all interrupted-operation errors?",
+        "answer": "No. Restart behavior is interface-specific, and callers still need to interpret progress and errors under each operation\u2019s contract."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Debug a shutdown that is asleep forever",
+      "eyebrow": "DEBUG A SHUTDOWN THAT IS ASLEEP FOREVER",
+      "kind": "concept",
+      "keyPoints": [
+        "Record predicate and mask transitions",
+        "Look for an unprotected check-then-wait gap",
+        "Avoid diagnosing by adding sleeps"
+      ],
+      "narration": "A process that stops responding during shutdown may have received the only notification before it actually began waiting. Adding a longer delay can change the symptom without closing the race. Record the sequence instead: when was the flag checked, when was the signal blocked, when did it become pending, and when was delivery enabled? Our safe model gives one concrete failing order. The repair must remove that order from the allowed protocol, not make it unlikely. Also check whether complex handler work is blocked on a library lock. A trace of state and ownership is more useful than a claim that the problem disappeared during ten quiet test runs.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch41.json \u2192 SP41.020",
+      "question": {
+        "prompt": "What evidence distinguishes a lost-wakeup problem from simply receiving no request?",
+        "answer": "The request or pending event is present, but the waiter made a stale decision and remains asleep without a future notification."
+      }
+    },
+    {
+      "title": "Carry the notification pattern into larger systems",
+      "eyebrow": "CARRY THE NOTIFICATION PATTERN INTO LARGER SYSTEMS",
+      "kind": "concept",
+      "keyPoints": [
+        "Minimal handler, durable predicate, normal work",
+        "Choose counting separately from waking",
+        "Restore process-wide settings when the component ends"
+      ],
+      "narration": "A reusable signal component needs more than a successful one-shot example. It must define installation, mask ownership, pending work, restoration of earlier dispositions, and shutdown while other threads still exist. The key lesson transfers to queues and condition variables: a notification says inspect state, while the state records what work remains. If a supervisor needs ten distinct messages, use a protocol that preserves ten messages rather than a flag that merely says yes. If it needs only a shutdown request, the simpler flag may be appropriate. State exactly what the component promises, then test notification before waiting, during waiting, repeated notification, and teardown under that promise.",
+      "actions": [
+        "Ask for a prediction or explanation before revealing the answer.",
+        "Trace the named state changes against the chapter contract."
+      ],
+      "sourceRef": "content/systems-programming/ch41.json \u2192 SP41.030",
+      "question": {
+        "prompt": "When is a single flag sufficient?",
+        "answer": "When the requirement is a durable yes/no request, such as shutdown requested, rather than an exact count or payload for every event."
+      }
+    }
+  ]
+}

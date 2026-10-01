@@ -1,0 +1,223 @@
+{
+  "chapter": 15,
+  "title": "Assembly Arithmetic",
+  "opening": [
+    {
+      "title": "Arithmetic has a width and an interpretation",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "concept",
+      "keyPoints": [
+        "Machine results keep a defined number of bits.",
+        "Carry and signed overflow ask different questions.",
+        "C++ signed overflow is not rescued by hardware wraparound."
+      ],
+      "narration": "An addition does not only produce a number; it operates in a width and may report facts about bits that do not fit. Adding two eight-bit patterns can yield the same low eight result bits whether we interpret the inputs as signed or unsigned, while the meaning of overflow differs. Unsigned carry asks whether the mathematical unsigned sum exceeded the largest representable unsigned value. Signed overflow asks whether the signed result lies outside its signed range. At the source level, C++ gives unsigned arithmetic a modular rule but does not generally define signed overflow as wrapping. Keep the hardware description and language contract separate.",
+      "actions": [
+        "Use eight bits so every bit and range boundary remains visible."
+      ],
+      "sourceRef": "content/systems-programming/ch15.json → SP15.004",
+      "question": {
+        "prompt": "Can the same low result bits accompany different signed and unsigned overflow answers?",
+        "answer": "Yes. Carry and signed overflow evaluate different numeric interpretations of the operation."
+      }
+    },
+    {
+      "title": "Model carry and signed overflow independently",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "code",
+      "keyPoints": [
+        "250 plus 10 wraps to 4 in eight bits.",
+        "127 plus 1 becomes bit pattern 128.",
+        "Only the second example has signed overflow."
+      ],
+      "narration": "This demonstration computes eight-bit flag meanings using wider unsigned arithmetic, so no invalid signed operation occurs. For 250 plus ten, the full unsigned sum is 260 and the low eight bits are four. Carry is true, but signed overflow is false because the input pattern 250 means minus six in signed eight-bit interpretation and minus six plus ten is four. For 127 plus one, the unsigned sum fits eight bits, so carry is false. Both signed inputs are positive but the result's sign bit becomes one, so signed overflow is true. The program models these conditions; it does not read processor flags.",
+      "actions": [
+        "Predict result, carry, and signed-overflow for both rows."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch15.json → SP15.004",
+      "question": {
+        "prompt": "Why is the carry answer false for 127 plus 1?",
+        "answer": "The unsigned sum 128 still fits in eight bits, even though the signed eight-bit result cannot represent positive 128."
+      },
+      "code": {
+        "filename": "sys_ch15_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nvoid show(unsigned a, unsigned b) {\n    const unsigned wide = a + b; // Inputs below 256 keep this safely small.\n    const unsigned result = wide & 255u;\n    const bool carry = wide > 255u;\n    const bool overflow = ((~(a ^ b) & (a ^ result)) & 128u) != 0;\n    std::cout << a << '+' << b << \" result=\" << result\n              << \" carry=\" << carry << \" signed-overflow=\" << overflow << '\\n';\n}\nint main() {\n    std::cout << std::boolalpha;\n    show(250, 10);\n    show(127, 1);\n}\n",
+        "expectedStdout": "250+10 result=4 carry=true signed-overflow=false\n127+1 result=128 carry=false signed-overflow=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Safe eight-bit arithmetic/flag model using wider unsigned C++ values."
+      }
+    },
+    {
+      "title": "Replacing division with a shift changes negative rounding",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "code",
+      "keyPoints": [
+        "Signed division truncates toward zero.",
+        "C++20 signed right shift rounds toward negative infinity.",
+        "Minus seven demonstrates the difference."
+      ],
+      "narration": "The program prints two possible answers for reducing minus seven by a factor of two. Signed division truncates toward zero, giving minus three. In C++20, a right shift of a signed negative value by one rounds toward negative infinity, giving minus four. The positive input seven produces three either way, which explains why a positive-only test can miss the changed behavior. All shift counts here are one and within the integer width. This is a valid language-level demonstration, not undefined overflow. A strength-reduction rewrite must preserve the required result for the entire accepted input domain, including its negative boundary cases.",
+      "actions": [
+        "Predict the negative row before running the positive row."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch15.json → SP15.020",
+      "question": {
+        "prompt": "Why can tests using only positive inputs approve a wrong division-to-shift rewrite?",
+        "answer": "For these positive values the results agree; negative odd values reveal the different rounding rule."
+      },
+      "code": {
+        "filename": "sys_ch15_rounding_difference.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    const int negative = -7;\n    const int positive = 7;\n    std::cout << \"negative division=\" << negative / 2\n              << \" shift=\" << (negative >> 1) << '\\n';\n    std::cout << \"positive division=\" << positive / 2\n              << \" shift=\" << (positive >> 1) << '\\n';\n}\n",
+        "expectedStdout": "negative division=-3 shift=-4\npositive division=3 shift=3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Division consumes a prepared double-width dividend",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "concept",
+      "keyPoints": [
+        "Signed IDIV uses RDX:RAX.",
+        "Sign extension prepares a negative dividend.",
+        "The quotient and remainder overwrite different registers."
+      ],
+      "narration": "In the chapter's signed sixty-four-bit division, the dividend is not only RAX. The instruction reads the double-width pair RDX:RAX. For an ordinary negative value in RAX, sign extension fills the high half with ones so the pair represents that same negative number. Clearing the high half instead changes the dividend into a very large positive number. After division, RAX holds the quotient and RDX the remainder. This matters when another argument originally arrived in RDX: a pointer needed after the division must be preserved elsewhere. The instruction's implicit operands are part of its contract even when they are not written in the operand list.",
+      "actions": [
+        "Trace the pointer, dividend halves, quotient, and remainder separately."
+      ],
+      "sourceRef": "content/systems-programming/ch15.json → SP15.010",
+      "question": {
+        "prompt": "Why must a remainder-output pointer originally in RDX be moved before IDIV?",
+        "answer": "Division uses and overwrites RDX, so the pointer would otherwise be lost."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Guard both forbidden signed-division cases",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "concept",
+      "keyPoints": [
+        "Reject a zero divisor.",
+        "Reject minimum signed value divided by minus one.",
+        "Verify dividend equals quotient times divisor plus remainder."
+      ],
+      "narration": "A checked division interface needs more than a zero check. The most negative signed value has no positive counterpart in the same signed type, so dividing it by minus one produces an unrepresentable quotient. The lab rejects both cases before evaluating the division. For valid cases, the identity dividend equals quotient times divisor plus remainder provides a useful test when the verification arithmetic stays representable. The remainder's sign follows the dividend under the source language rule. Test all sign combinations rather than assuming a positive example explains the negative cases. The hardware fault mechanism is not a substitute for a documented function-level error result.",
+      "actions": [
+        "Build a test table with zero, positive, negative, and minimum-value cases."
+      ],
+      "sourceRef": "content/systems-programming/ch15.json → SYS15.13",
+      "question": {
+        "prompt": "Why is minimum int divided by minus one special?",
+        "answer": "Its mathematical positive result lies outside the same int type’s representable range."
+      }
+    },
+    {
+      "title": "Subtraction order controls the interpretation",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "concept",
+      "keyPoints": [
+        "AT&T writes source before destination.",
+        "SUB computes destination minus source.",
+        "CMP computes related flags while discarding the result."
+      ],
+      "narration": "When switching assembly syntax, operand order is an easy source of apparently reasonable wrong answers. In the chapter's AT&T notation, subtract source from destination, not the other way around. A comparison similarly establishes flags as though it performed destination minus source, while leaving the input values themselves unchanged. The later signed or unsigned branch interprets those flags. Write a tiny numeric example before analyzing a longer sequence: subtracting three from ten gives seven, while reversing them gives minus seven. This is not merely a notation preference; the direction changes arithmetic, borrow, and ordering evidence used by following instructions.",
+      "actions": [
+        "Translate one subtraction into words before evaluating it."
+      ],
+      "sourceRef": "content/systems-programming/ch15.json → SP15.006",
+      "question": {
+        "prompt": "Does CMP store its subtraction result back into an operand?",
+        "answer": "No. It updates the relevant condition flags and discards the arithmetic result."
+      }
+    },
+    {
+      "title": "Masks transform bits; they do not validate a request",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "concept",
+      "keyPoints": [
+        "AND keeps selected bits.",
+        "OR sets bits; XOR toggles differences.",
+        "Truncating a bad input may hide the required rejection."
+      ],
+      "narration": "A bit mask can isolate a field, clear a flag, or align a numeric address downward. Those are useful transformations, but they do not prove a request was valid. If a protocol permits lengths from zero through fifteen, masking an incoming length with fifteen changes sixteen into zero rather than rejecting it. That may silently authorize a different operation. Similarly, rounding a numeric address to a boundary does not establish ownership of the resulting object. During maintenance, distinguish normalization that the contract allows from validation that must reject bad input. The same short AND instruction can implement either a correct transformation or a hidden policy defect.",
+      "actions": [
+        "Compare the accepted meaning of input sixteen under validation and masking."
+      ],
+      "sourceRef": "content/systems-programming/ch15.json → SP15.014",
+      "question": {
+        "prompt": "Why is length & 15 not equivalent to checking length <= 15?",
+        "answer": "The mask changes larger inputs into smaller ones rather than rejecting them."
+      }
+    },
+    {
+      "title": "Small arithmetic instructions still affect dependencies",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "concept",
+      "keyPoints": [
+        "INC and DEC leave carry unchanged.",
+        "XOR zeroing changes flags.",
+        "The next flag consumer determines whether that is safe."
+      ],
+      "narration": "Instruction spelling alone cannot tell us which replacement is safe. Increment and decrement update several arithmetic flags but preserve carry, while ordinary add or subtract by one updates carry too. A zeroing XOR produces zero efficiently on many processors but also changes flags. If a later branch or multiword arithmetic operation expects earlier carry or comparison evidence, that difference matters. Follow the flags as values that are produced and consumed. Only after the semantic dependencies are correct should a performance discussion compare code size or processor behavior. A shorter instruction that destroys needed state is not an optimization.",
+      "actions": [
+        "Mark an example carry dependency across an increment."
+      ],
+      "sourceRef": "content/systems-programming/ch15.json → SP15.012",
+      "question": {
+        "prompt": "Why can ADD by one differ from INC even when both produce the same integer?",
+        "answer": "They differ in their effects on the carry flag, which later instructions may consume."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Hardware shift masking does not legalize every source shift",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "concept",
+      "keyPoints": [
+        "C++ shift counts must satisfy the type-width rule.",
+        "x86 count handling is a different contract.",
+        "Validate before evaluating an input-controlled shift."
+      ],
+      "narration": "Some x86 shifts mask their count, so a large hardware count may behave like a smaller one. A C++ expression does not inherit permission to use any count just because the compiler targets that hardware. A negative count or a count at least the promoted left operand's width violates the source-level precondition. Validate an input-controlled count before performing the shift, and remember that integer promotions can change the relevant width. Our demonstration uses the constant one, so that issue is excluded deliberately. Tests should include the largest permitted count and the first rejected count whenever the public interface accepts a variable count.",
+      "actions": [
+        "Ask learners to state the valid count interval for a thirty-two-bit unsigned operation."
+      ],
+      "sourceRef": "content/systems-programming/ch15.json → SP15.020",
+      "question": {
+        "prompt": "Why is observing one hardware result for an excessive count not a source-level guarantee?",
+        "answer": "The source expression can already violate C++ rules before the target instruction’s masking behavior becomes relevant."
+      }
+    },
+    {
+      "title": "Maintain arithmetic by preserving its domain",
+      "eyebrow": "SYSTEMS / CHAPTER 15",
+      "kind": "concept",
+      "keyPoints": [
+        "Name width, signedness, rounding, and failure behavior.",
+        "Keep valid and rejected boundary cases.",
+        "Measure transformations only after proving equivalence."
+      ],
+      "narration": "To propose an arithmetic rewrite, describe its full domain first. Does it accept negative inputs? Is wraparound intended? Which errors are returned, and which inputs are forbidden? These answers determine whether multiplying by eight can become a shift, whether division can use a simpler sequence, and whether one overflow flag is the right test. The chapter's complete source handles a narrow stated contract; a reusable API needs a stronger boundary when it accepts arbitrary values. A maintenance review should preserve those rules in tests and comments, then evaluate speed on the target. Correct output for seven is not evidence about minus seven or the type minimum.",
+      "actions": [
+        "Ask for one counterexample that defeats a positive-only equivalence argument."
+      ],
+      "sourceRef": "content/systems-programming/ch15.json → SP15.028",
+      "question": {
+        "prompt": "What must be established before replacing division by a power of two with a shift?",
+        "answer": "The replacement must preserve rounding and validity for every accepted signedness, value, and shift count."
+      }
+    }
+  ]
+}

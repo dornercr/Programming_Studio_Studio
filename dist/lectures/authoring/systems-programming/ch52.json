@@ -1,0 +1,234 @@
+{
+  "chapter": 52,
+  "title": "Concurrent Servers",
+  "opening": [
+    {
+      "title": "Serving concurrently creates budgets before it creates speed",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "concept",
+      "keyPoints": [
+        "Each connection owns state and consumes resources",
+        "Threads share process memory",
+        "Admission must bound accepted work"
+      ],
+      "narration": "A thread per connection makes a blocking conversation easy to follow, but it does not make resources unlimited. Each admitted client may need a descriptor, stack reservation, request buffer, output buffer, and access to shared services. Those threads share the process's memory, so a cache or counter remains shared even if each thread has its own request object. Start by writing a budget and naming the resource that enforces it. A listening backlog does not cap active clients or worker memory. Concurrency is useful only when the accepted workload can make progress without overwhelming these shared limits.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.004: 52.1 Thread-per-connection",
+      "question": {
+        "prompt": "Does one thread per client make a shared cache private?",
+        "answer": "No. The threads share the address space. The cache still needs an appropriate synchronization and ownership contract."
+      }
+    },
+    {
+      "title": "Two separate checks can oversubscribe one remaining slot",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "code",
+      "keyPoints": [
+        "Both arrivals observe the same spare capacity",
+        "Later increments accept too much work",
+        "This is a serialized interleaving model, not a C++ data race"
+      ],
+      "narration": "The gate has capacity two and already holds one client. We model two arrivals by making both decisions before either increment. Each sees one active client and says yes. Applying both approvals increases active to three, violating the cap. This program is deliberately single-threaded and contains no data race; it models the logical interleaving of an incorrectly split check and update. A real unsynchronized shared integer would additionally have undefined behavior in C++. Protecting each increment alone is insufficient. The capacity check and the reservation must be one critical section so later arrivals see the earlier reservation.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.010: 52.4 Synchronization",
+      "question": {
+        "prompt": "Why can individually synchronized reads and increments still violate the admission cap?",
+        "answer": "The combined check-and-reserve operation must be atomic with respect to other arrivals. Separating the steps permits both to approve the same remaining slot."
+      },
+      "code": {
+        "filename": "sys_ch52_split_admission.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    const unsigned limit = 2;\n    unsigned active = 1;\n    // Explicit serialized interleaving: no threads and no data race.\n    const bool first_yes = active < limit;\n    const bool second_yes = active < limit;\n    if (first_yes) ++active;\n    if (second_yes) ++active;\n    std::cout << \"active=\" << active << \" limit=\" << limit << '\\n';\n    std::cout << \"within-budget=\" << std::boolalpha << (active <= limit) << '\\n';\n}\n",
+        "expectedStdout": "active=3 limit=2\nwithin-budget=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Serialized check-then-update interleaving; not an executed data race."
+      }
+    },
+    {
+      "title": "An admitted request needs one release on every exit",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "code",
+      "keyPoints": [
+        "A permit represents successful admission",
+        "Its destructor returns the slot",
+        "Exception cleanup can make capacity reusable"
+      ],
+      "narration": "This complete example adds lifetime management to a mutex-protected gate. Permit asks the gate to reserve a slot and remembers whether it succeeded. When the scope ends, its destructor releases only a slot it actually owns. The request body deliberately throws after admission. Stack unwinding destroys the permit, and the catch reports the failure. A second permit can then acquire the same capacity, so the output ends with reusable equals one. The permit is not copied because two copied owners could release one reservation twice. This mechanism bounds admitted work; it does not automatically bound every buffer or downstream request.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SYS52.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why is the permit\u2019s copy constructor deleted?",
+        "answer": "A copied permit could release the same admission twice. One successful reservation must have one lifetime owner."
+      },
+      "code": {
+        "filename": "sys_ch52_scoped_permit.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <mutex>\n#include <stdexcept>\nclass Gate {\n    std::mutex mutex_;\n    bool busy_ = false;\npublic:\n    bool acquire() { std::lock_guard lock(mutex_); if (busy_) return false; busy_ = true; return true; }\n    void release() { std::lock_guard lock(mutex_); busy_ = false; }\n};\nclass Permit {\n    Gate& gate_;\n    bool owns_;\npublic:\n    explicit Permit(Gate& gate) : gate_(gate), owns_(gate.acquire()) {}\n    Permit(const Permit&) = delete;\n    Permit& operator=(const Permit&) = delete;\n    ~Permit() { if (owns_) gate_.release(); }\n    bool owns() const { return owns_; }\n};\nint main() {\n    Gate gate;\n    try {\n        Permit permit(gate);\n        std::cout << \"admitted=\" << permit.owns() << '\\n';\n        throw std::runtime_error(\"request failed\");\n    } catch (const std::runtime_error&) { std::cout << \"request failed\\n\"; }\n    Permit next(gate);\n    std::cout << \"reusable=\" << next.owns() << '\\n';\n}\n",
+        "expectedStdout": "admitted=1\nrequest failed\nreusable=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Use the smallest applicable resource ceiling",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "concept",
+      "keyPoints": [
+        "Descriptors and memory impose separate limits",
+        "Reserve headroom for non-client work",
+        "Treat stack reservation and resident memory separately"
+      ],
+      "narration": "Suppose descriptor accounting permits nine hundred sixty clients, while a memory model permits thirteen hundred sixty-five. The arithmetic ceiling is the smaller number, not their average. The source then chooses an operational cap of two hundred fifty-six to preserve headroom. Those numbers are modeled assumptions, not measurements of this machine. A thread's reserved virtual stack is different from currently resident physical pages, and kernel socket buffers may sit outside a simple application-memory estimate. A defensible budget lists what it includes, what it omits, and which measured workload could force a lower limit.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.014: Worked example \u2014 Derive an admission budget",
+      "question": {
+        "prompt": "If descriptors permit 960 clients but another dependency permits only 120, what limit can the server justify from those constraints?",
+        "answer": "At most 120 under that model, often less operationally to leave headroom. Every required resource must fit."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Per-connection state should stay with its connection",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "concept",
+      "keyPoints": [
+        "Partial input and pending output are not global scratch space",
+        "One owner closes the descriptor",
+        "Borrowed access must finish before closure"
+      ],
+      "narration": "Two clients can each have half of a header buffered at the same time. Putting both fragments into one global scratch buffer mixes unrelated conversations even if individual writes are locked. Keep framing state, output offsets, deadline information, and the descriptor together in a connection object. That object needs a clear owner, while callbacks and workers may borrow it under a lifetime rule. Closing a descriptor from another thread is not a universal cancellation mechanism, and the integer may later be reused. A stale callback that recognizes only the integer can act on the wrong connection after reuse.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.006: 52.2 Connection state",
+      "question": {
+        "prompt": "Why does protecting one global request buffer with a mutex still leave a design problem?",
+        "answer": "The buffer does not represent separate in-progress protocols for separate clients. Mutual exclusion alone does not give each connection its own state."
+      }
+    },
+    {
+      "title": "Choose a lock boundary around a complete shared operation",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "concept",
+      "keyPoints": [
+        "Cache lookup plus insertion may be one logical action",
+        "Do not hold a global lock across slow client I/O",
+        "A copied or owned result can outlive the lock safely"
+      ],
+      "narration": "A server cache often needs a compound operation: find a key, decide whether it exists, and possibly install a value. Locking only individual map methods can leave a gap between the decision and the update. Conversely, holding one global lock while writing a slow client's response blocks unrelated clients. A useful design protects the shared data operation, obtains a result with a clear lifetime, and releases the lock before slow I/O when the contract allows it. Returning a borrowed reference into a cache that another thread can erase requires more than simply unlocking quickly.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.018: Worked example \u2014 Shared cache synchronization",
+      "question": {
+        "prompt": "What extra lifetime question appears when a cache returns a reference after releasing its mutex?",
+        "answer": "Whether another thread can erase or replace the referenced object before the caller finishes. The result needs ownership, copying, or another valid protection scheme."
+      }
+    },
+    {
+      "title": "Backpressure is a policy, not a full queue accident",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "concept",
+      "keyPoints": [
+        "Reject, wait, or shed work deliberately",
+        "Bound the waiting queue as well as active clients",
+        "Report overload separately from malformed input"
+      ],
+      "narration": "When capacity is full, the server must choose what the next request experiences. It can reject promptly, wait within a bounded queue, or apply a documented shedding policy. An unlimited waiting queue only moves resource exhaustion from active workers to queued requests. A bounded queue also needs a waiting deadline or cancellation rule when clients disappear. Distinguish overload from a bad request so callers can respond appropriately, but do not encourage unbounded immediate retries. Admission, queueing, execution, and response delivery are separate stages; each should have a budget and an owner for abandoned work.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.012: 52.5 Resource exhaustion",
+      "question": {
+        "prompt": "Why does capping worker threads at eight not by itself cap server memory?",
+        "answer": "Queued requests, connections, input buffers, and pending output can still grow unless they have separate limits."
+      }
+    },
+    {
+      "title": "Creation failure is part of concurrency setup",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "concept",
+      "keyPoints": [
+        "Some workers may exist when a later creation fails",
+        "Track acquired resources as setup progresses",
+        "Stop and collect existing workers before shared state dies"
+      ],
+      "narration": "Imagine that a server successfully starts three workers but fails to create the fourth. Returning immediately can leave the first three using queues or buffers that are being destroyed. Setup is therefore a sequence of resource acquisitions, not an all-or-nothing magic operation. Record each successful creation, publish shutdown if setup cannot continue, and collect the workers already created before destroying their shared state. Scope-based thread owners can help, but their joins must not wait on work that will never be signaled. The shutdown protocol and lifetime order need to be designed together.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.012: 52.5 Resource exhaustion",
+      "question": {
+        "prompt": "Why can automatic joining still hang after partial setup failure?",
+        "answer": "A worker may be waiting for a condition that no surviving producer will satisfy. The failure path must close or signal the work source before joining."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Test the admission invariant under overlap and failure",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "concept",
+      "keyPoints": [
+        "Never exceed the configured active count",
+        "Reuse a released slot",
+        "Reject without leaking a descriptor or permit",
+        "Check zero capacity explicitly"
+      ],
+      "narration": "A good gate test checks more than one happy admission. Fill the budget, verify the next request is rejected, release one permit, and verify reuse. Test a zero limit and error paths after successful admission. For actual concurrent tests, collect results after joining and verify the maximum protected active count never exceeded the limit. Do not infer correctness only because one run happened to finish. The logical split-check model shows why the invariant must be justified by the critical section. Leak checks and shutdown tests then cover lifetime obligations that the count alone cannot prove.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.020: Guided lab and review",
+      "question": {
+        "prompt": "What test exposes a permit leak that ordinary successful requests hide?",
+        "answer": "Throw or return early after successful admission, then verify that a later request can reuse the slot and that other owned resources were released."
+      }
+    },
+    {
+      "title": "Choose the server architecture from the workload",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 52",
+      "kind": "concept",
+      "keyPoints": [
+        "Thread per connection favors simple blocking flows",
+        "A worker pool bounds executing tasks",
+        "An event loop can manage many mostly idle connections"
+      ],
+      "narration": "A few long, simple conversations may justify one thread each. A bounded worker pool fits tasks that can be handed off without leaving a thread attached to every idle client. An event loop can service many connections by acting when I/O is ready, but requires explicit partial-operation state. None eliminates framing, ownership, resource bounds, or shutdown. Compare the number of active versus idle clients, work per request, downstream limits, and implementation complexity. The next chapter changes how waiting is organized; it does not remove the shared-resource contracts established here.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch52.json \u2192 SP52.023: Review and Transition",
+      "question": {
+        "prompt": "Would an event loop make unlimited pending output safe?",
+        "answer": "No. Event-driven waiting changes scheduling, not memory limits. Each connection and the service still need bounded output queues."
+      }
+    }
+  ]
+}

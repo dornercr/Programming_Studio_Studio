@@ -1,0 +1,725 @@
+Systems Programming and Machine Organization
+Chapter 53: Event-Driven I/O
+Dr. Charles Dorner
+
+1. Readiness means try now, not a whole request is ready
+Problem and first experiment
+
+SAY
+A readiness loop waits for endpoints that may make progress and then attempts their operations. The notification does not promise a complete message, a complete write, or permanent readiness. Another thread or event can change the state before the handler runs. Nonblocking descriptors let the handler discover would-block and return to servicing other connections. A blocking read for the rest of one client's request can stall every other client sharing the loop. The price of efficient waiting is explicit state: buffered input, parsing position, output offset, close status, and any deadline must survive across callbacks.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.024: Worked example — Why nonblocking matters
+
+------------------------------------------------------------
+
+2. A partial write advances an offset, not the whole response
+Problem and first experiment
+
+SAY
+This deterministic write-progress model starts with hello and supplied accepted counts of two, one, and two. After the first step only he has been accepted; the next starts at offset two and adds l; the final step adds lo. The output reports sent equals hello and pending equals zero. No socket or timing claim is involved. The point is the state that a real nonblocking handler must preserve across writes. Starting from the beginning after partial progress duplicates bytes, while discarding the response after the first call loses its suffix. The owning response must outlive every borrowed pointer used for an attempted write.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.014: 53.6 Event loops
+
+------------------------------------------------------------
+
+3. A busy connection can monopolize a correct loop
+Problem and first experiment
+
+SAY
+In this scheduling model, busy client A has eight work items ready and client B has one. Draining all of A first puts B in ninth position. A two-item service budget puts B in third position instead. Both schedules complete the same nine items, but the delay seen by B differs. These are modeled service positions, not measured milliseconds. In a real edge-triggered reactor, stopping before would-block needs a deliberate continuation mechanism; otherwise already-buffered work might never produce a new edge. Fairness therefore requires coordinating handler budgets with the readiness mode, rather than simply breaking every loop early.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.018: 53.8 Scaling large numbers of connections
+
+------------------------------------------------------------
+
+4. Would-block, EOF, and error require different transitions
+Problem and first experiment
+
+SAY
+The source workshop assigns minus one a special modeled would-block meaning, but a real read returning minus one requires inspecting errno. A zero result on a stream indicates EOF, while a positive count adds valid bytes. Those cases must remain distinct. If a temporary lack of data closes the connection, valid clients are dropped. If EOF is treated as temporary emptiness forever, dead connections remain in the loop. A framing layer adds one more question: does EOF occur between complete frames or inside an unfinished one? The answer determines graceful completion versus truncation.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Model draining currently available bytes from a nonblocking input. Stop on would-block and keep the partial application message.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Consume a supplied trace of read results: positive counts add bytes, -1 means would-block in this model, and zero means EOF. Reject other negative values.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+In real read calls, -1 requires inspecting errno; this model uses -1 only as a named would-block event. Treating every -1 as would-block loses real errors.
+
+A related failure in the generalized operation is concrete: Treat every nonpositive result as EOF. A live connection is closed when it merely has no bytes ready now.
+
+The repair changes the operation at the point where the rule can be enforced: Distinguish success, EOF, would-block, interruption, and permanent errors according to the API. Return control to the event loop on would-block.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Would-block means the operation cannot make immediate progress; EOF means the stream has ended. Keeping them separate prevents a temporary lack of data from closing a connection. The model gives -1 one special meaning, while a real read returning -1 requires inspecting errno. The fixture uses small counts; production accumulation also needs an explicit buffer-size bound.
+
+A plausible alternative: Blocking I/O can be appropriate in a bounded worker design where waiting does not freeze unrelated connections.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.03
+
+------------------------------------------------------------
+
+8. Chapter 53 — Event-Driven I/O
+Systems mechanisms and source lecture
+
+SAY
+An event-driven server keeps many connection state machines in a smaller number of execution threads. Instead of blocking one thread per idle connection, it waits for readiness and advances the corresponding state only as far as current I/O permits. This trades simple sequential control flow for explicit state, buffers, and scheduling policy. Readiness is not completion. A readable socket may provide only part of a frame, and a writable socket may accept only part of a response. A correct event loop records partial progress and resumes later without losing ownership or duplicating bytes. [ R28 , R29 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.001, SP53.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+53.1 Blocking 53.2 Polling 53.3 select 53.4 poll ...plus 8 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.003
+
+------------------------------------------------------------
+
+10. Blocking
+Systems mechanisms and source lecture
+
+SAY
+A blocking operation can suspend the calling thread until progress or failure occurs. In a one-thread event loop, an unexpected blocking call can stall every connection managed by that loop. Set nonblocking mode on all endpoints whose operations must never stall the reactor. On Linux, accepted sockets need their flags established explicitly; inheriting the listener’s intended behavior is not a portable assumption. Potentially blocking computation and filesystem operations also require architectural attention.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.004, SP53.005
+
+------------------------------------------------------------
+
+11. Polling
+Systems mechanisms and source lecture
+
+SAY
+Polling can mean repeatedly checking state without sleeping, or using an interface named poll that waits for readiness. Distinguish the two. A tight loop around EAGAIN is busy polling; it consumes CPU without creating data or capacity. A readiness wait lets the kernel block the event-loop thread until an event or timeout is relevant. Some low-latency systems deliberately busy-poll under controlled budgets, but that is a specialized tradeoff, not a default error-handling loop.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.006, SP53.007
+
+------------------------------------------------------------
+
+12. select
+Systems mechanisms and source lecture
+
+SAY
+select monitors descriptor sets for readiness. The caller prepares sets and a descriptor-range bound, then inspects the modified sets after return. The interface’s set representation imposes limits, including the fixed FD_SETSIZE constraint in common libc implementations. Do not place an arbitrary large descriptor into a fixed-size set. The highest descriptor number, not merely the count of active descriptors, matters. For larger or more dynamic sets, other interfaces often provide a more suitable representation. [ R41 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.008, SP53.009
+
+------------------------------------------------------------
+
+13. poll
+Systems mechanisms and source lecture
+
+SAY
+poll uses an array of descriptor-event entries rather than fixed descriptor bit sets. It reports readiness and error conditions per entry. The array must still be scanned and maintained by the application. A readiness event can coexist with hangup or error indicators. Read buffered data before treating a hangup as proof that no data remains. The operation’s return value remains authoritative when attempted after readiness. [ R28 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.010, SP53.011
+
+------------------------------------------------------------
+
+14. epoll
+Systems mechanisms and source lecture
+
+SAY
+Linux epoll maintains an interest set and returns ready events. It supports level-triggered and edge-triggered modes. Level-triggered behavior continues to report readiness while the condition remains; edge-triggered use requires carefully draining nonblocking operations until they would block. [ R29 ] Do not describe epoll as making every network operation universally constant-time. Registration changes, event delivery, application state lookup, and actual I/O still cost work. Its usefulness comes from avoiding repeated handling of large inactive descriptor sets in suitable workloads.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.012, SP53.013
+
+------------------------------------------------------------
+
+15. Event loops
+Systems mechanisms and source lecture
+
+SAY
+An event loop waits, dispatches ready connections, performs bounded work, updates interest masks, and handles timers and shutdown. Each connection retains input progress, output progress, and protocol state between dispatches. Register write readiness only when output remains pending; an idle socket is often writable and can otherwise wake the loop continuously. For edge-triggered operation, stopping before EAGAIN for fairness requires an explicit rescheduling strategy so that remaining work is not forgotten while waiting for a new edge.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.014, SP53.015
+
+------------------------------------------------------------
+
+16. Active connections
+Systems mechanisms and source lecture
+
+SAY
+Connection lifetime must outlast every queued event and task that refers to it. Descriptor numbers can be reused, so identifying a connection solely by an old integer in delayed work can target a new connection accidentally. Use ownership-aware objects, generation identifiers, or another strategy that validates event identity. Closing and deleting a connection is a state transition coordinated with the reactor, not an arbitrary action another thread should perform while callbacks still hold raw pointers.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.016, SP53.017
+
+------------------------------------------------------------
+
+17. Scaling large numbers of connections
+Systems mechanisms and source lecture
+
+SAY
+Event-driven designs reduce thread-per-idle-connection overhead, but active work still consumes CPU, memory, and bandwidth. Bound input, output, queued tasks, and per-dispatch work. Backpressure is as important in an event loop as in a threaded server. A common architecture combines a small set of I/O reactors with a bounded worker pool for heavier computation. The handoff must preserve connection lifetime and return results through a safe queue. More architectural layers create more ownership transitions to test.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.018, SP53.019
+
+------------------------------------------------------------
+
+18. Drain an edge-triggered stream through EOF
+Systems mechanisms and source lecture
+
+SAY
+This Linux-only test uses a local nonblocking socket pair rather than a public listener. One endpoint sends ping and half-closes its write direction. The epoll-managed endpoint drains two-byte chunks until EOF, demonstrating that the final data must be read even when closure is also observable. Companion listing: ch53/epoll_read.cpp The expected output is epoll received: ping . The tiny fixed send is performed on an empty local socket buffer; the shared send_all helper treats EAGAIN as failure rather than implementing an output reactor. This test therefore demonstrates the receive-side edge-triggered state machine, not a complete nonblocking server.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.020, SP53.021
+
+------------------------------------------------------------
+
+19. Readiness loop with epoll
+Systems mechanisms and source lecture
+
+SAY
+Register nonblocking client descriptors with an epoll instance. The event loop waits for readiness, then services whichever descriptors are reported. In edge-triggered mode, a read handler typically continues until EAGAIN so all currently available bytes are drained; otherwise no new edge may arrive for already-buffered data.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.022, SP53.023
+
+------------------------------------------------------------
+
+20. Why nonblocking matters
+Systems mechanisms and source lecture
+
+SAY
+If an event-loop thread performs a blocking read on one client that has no complete request, the entire loop can stall and stop servicing other ready clients. Nonblocking descriptors let the loop attempt work, detect that an operation would block, and return to multiplexing other connections.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.024, SP53.025
+
+------------------------------------------------------------
+
+21. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 53. Extend the fixture to feed a length-prefixed frame in several chunks and retain prefix/body progress across readiness events. Add an output buffer with an offset and enable write interest only while unsent bytes remain. Keep all fixtures local and impose a bounded test deadline. Review 1. Why must edge-triggered reads continue to EAGAIN or EOF? Review 2. Why can a stale descriptor number identify the wrong connection?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.026, SP53.027
+
+------------------------------------------------------------
+
+22. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is event-driven i/o. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.028
+
+------------------------------------------------------------
+
+23. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Measuring Performance.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.029
+
+------------------------------------------------------------
+
+24. Level and edge notifications create different obligations
+Reason about the implementation
+
+SAY
+Suppose four bytes are buffered and a handler reads only two. A level-triggered readiness mechanism can continue reporting that readable data remains. With edge-triggered notification, another event is not guaranteed merely because the remaining two bytes are still there. The usual receive-side rule is to continue reading until would-block or EOF. The source Linux example sends ping through a local socket pair and drains it in small chunks, making that obligation visible. Readiness does not itself consume bytes. The handler must also enforce buffer bounds and protocol limits while draining, rather than accepting unlimited input in pursuit of EAGAIN.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.020: Worked example — Drain an edge-triggered stream through EOF
+
+------------------------------------------------------------
+
+25. Closure notification does not erase the last bytes
+Reason about the implementation
+
+SAY
+A peer can send its final response and then close its sending direction. The receiver may observe both readable data and a closure condition during one event cycle. Closing immediately on the notification can discard the final bytes. The local epoll example demonstrates this by sending ping and half-closing, then reading through EOF. Half-close means one direction has ended; the application may still need to finish pending output in the other direction. The state machine must decide when no further input is possible, whether a frame is complete, and when all owned resources can finally be released.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.020: Worked example — Drain an edge-triggered stream through EOF
+
+------------------------------------------------------------
+
+26. select, poll, and epoll change the waiting interface
+Reason about the implementation
+
+SAY
+These interfaces all help one thread wait for I/O across multiple descriptors, but they organize the request differently. select uses descriptor sets and has limits tied to that representation. poll passes an array describing desired events. Linux epoll retains registered interests and returns events through its own descriptor. Choosing epoll does not automatically make every operation nonblocking, allocate connection state, or solve fairness. Those remain application responsibilities. Compare portability, expected connection counts, registration changes, and the available readiness modes. Keep protocol handlers separate enough that changing the waiting interface does not require rewriting message validation.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.012: 53.5 epoll
+
+------------------------------------------------------------
+
+27. Writable interest should follow pending output
+Reason about the implementation
+
+SAY
+A service that always subscribes to writable events may repeatedly wake even when it has nothing to send. That consumes CPU without completing useful work. A common policy enables writable interest when the output queue becomes nonempty and removes it after the queue drains. If a write would block, the unsent suffix remains owned by the connection until later readiness. The queue must also have a size bound: a fast producer and slow client can otherwise retain unlimited memory. This connects event registration to application state rather than treating readiness subscriptions as a one-time setup choice.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.014: 53.6 Event loops
+
+------------------------------------------------------------
+
+28. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Model draining currently available bytes from a nonblocking input. Stop on would-block and keep the partial application message.
+
+First successful read. 2 bytes buffered. Readiness allowed an attempt; the result reports actual progress.
+
+Second successful read. 3 bytes buffered. An edge-triggered design normally drains until the API reports no more available data.
+
+Would-block. keep connection open and return to the event loop. Would-block is not EOF and not proof that the application frame is complete.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch53/main.cpp
+
+------------------------------------------------------------
+
+29. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+First successful read. 2 bytes buffered. Readiness allowed an attempt; the result reports actual progress.
+
+Second successful read. 3 bytes buffered. An edge-triggered design normally drains until the API reports no more available data.
+
+Would-block. keep connection open and return to the event loop. Would-block is not EOF and not proof that the application frame is complete.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch53/main.cpp
+
+------------------------------------------------------------
+
+30. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Would-block means the operation cannot make immediate progress; EOF means the stream has ended. Keeping them separate prevents a temporary lack of data from closing a connection. The model gives -1 one special meaning, while a real read returning -1 requires inspecting errno. The fixture uses small counts; production accumulation also needs an explicit buffer-size bound.
+
+Distinguish success, EOF, would-block, interruption, and permanent errors according to the API. Return control to the event loop on would-block.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch53/main.cpp:1-14
+
+------------------------------------------------------------
+
+31. Readiness permits an attempt, not unlimited blocking
+Code, diagrams, and debugging
+
+SAY
+Readiness permits an attempt, not unlimited blocking. In this deliberately tagged fixture, -1 means would-block: stop draining now and keep the connection open. A real API requires examining the specific error code.
+
+Model draining currently available bytes from a nonblocking input. Stop on would-block and keep the partial application message.
+
+Readiness allowed an attempt; the result reports actual progress. An edge-triggered design normally drains until the API reports no more available data. Would-block is not EOF and not proof that the application frame is complete.
+
+In this deliberately tagged fixture, -1 means would-block: stop draining now and keep the connection open. A real API requires examining the specific error code.
+
+Positive results add the actual byte count to the buffer. EOF and other errors need separate handling, provided by the generalized lab.
+
+Positive results represent actual progress. Would-block preserves the connection and returns control to the event protocol; it is different from EOF.
+
+In real read calls, -1 requires inspecting errno; this model uses -1 only as a named would-block event. Treating every -1 as would-block loses real errors. In the extended lab: Treat every nonpositive result as EOF. A live connection is closed when it merely has no bytes ready now.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch53/main.cpp:9-10
+
+------------------------------------------------------------
+
+32. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Treat every nonpositive result as EOF. A live connection is closed when it merely has no bytes ready now.
+
+Distinguish success, EOF, would-block, interruption, and permanent errors according to the API. Return control to the event loop on would-block.
+
+The reference solution makes the contract executable with assertions. Would-block means the operation cannot make immediate progress; EOF means the stream has ended. Keeping them separate prevents a temporary lack of data from closing a connection. The model gives -1 one special meaning, while a real read returning -1 requires inspecting errno. The fixture uses small counts; production accumulation also needs an explicit buffer-size bound.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.06
+
+------------------------------------------------------------
+
+33. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch53/starter.cpp. Implement the first acceptance case for model nonblocking drain outcomes. State the function inputs and result before adding code. First case: 2,1,-1 buffers three bytes and reports blocked, not EOF.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.07
+
+------------------------------------------------------------
+
+34. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch53/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.08
+
+------------------------------------------------------------
+
+35. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Treat every nonpositive result as EOF. A live connection is closed when it merely has no bytes ready now. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.09
+
+------------------------------------------------------------
+
+36. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why can a blocking socket stall an event loop even after a readiness notification? Compare the selected design with this plausible alternative: Blocking I/O can be appropriate in a bounded worker design where waiting does not freeze unrelated connections.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.10
+
+------------------------------------------------------------
+
+37. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch53/starter.cpp. Consume a supplied trace of read results: positive counts add bytes, -1 means would-block in this model, and zero means EOF. Reject other negative values. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch53/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.11
+
+------------------------------------------------------------
+
+38. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Model nonblocking drain outcomes belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.12
+
+------------------------------------------------------------
+
+39. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Consume a supplied trace of read results: positive counts add bytes, -1 means would-block in this model, and zero means EOF. Reject other negative values.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch53/starter.cpp
+
+------------------------------------------------------------
+
+40. Review the extension solution
+Practice and extension
+
+SAY
+Would-block means the operation cannot make immediate progress; EOF means the stream has ended. Keeping them separate prevents a temporary lack of data from closing a connection. The model gives -1 one special meaning, while a real read returning -1 requires inspecting errno. The fixture uses small counts; production accumulation also needs an explicit buffer-size bound. Repair principle: Distinguish success, EOF, would-block, interruption, and permanent errors according to the API. Return control to the event loop on would-block.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Distinguish success, EOF, would-block, interruption, and permanent errors according to the API. Return control to the event loop on would-block.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch53/solution.cpp
+
+------------------------------------------------------------
+
+41. Application case: Event-Driven I/O
+Practice and extension
+
+SAY
+A nonblocking socket was reported ready, but a read now returns EAGAIN.
+
+What is appropriate?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.CASE
+
+------------------------------------------------------------
+
+42. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Would-block means the operation cannot make immediate progress; EOF means the stream has ended. Keeping them separate prevents a temporary lack of data from closing a connection. The model gives -1 one special meaning, while a real read returning -1 requires inspecting errno. The fixture uses small counts; production accumulation also needs an explicit buffer-size bound.
+
+Choose a simpler approach when its narrower contract is enough. Blocking I/O can be appropriate in a bounded worker design where waiting does not freeze unrelated connections.
+
+When this system changes, retain a check that exposes the known failure: Treat every nonpositive result as EOF. A live connection is closed when it merely has no bytes ready now. Distinguish success, EOF, would-block, interruption, and permanent errors according to the API. Return control to the event loop on would-block.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch53.json → SYS53.14
+
+------------------------------------------------------------
+
+43. Descriptor reuse makes stale event identity dangerous
+Recall and transfer
+
+SAY
+After one connection closes, the operating system may reuse its descriptor integer for another connection. A delayed task that stores only the integer can then act on the wrong peer. The problem is lifetime and identity, not whether integers compare correctly. Event data should refer to connection state whose lifetime remains valid, or include a generation scheme that lets the program reject stale work. Shutdown must coordinate unregistering interest, pending callbacks, worker jobs, and final closure. A pointer inside an event record is also only a borrow unless the design explicitly keeps its target alive.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.016: 53.7 Active connections
+
+------------------------------------------------------------
+
+44. Test event sequences, not only one successful exchange
+Recall and transfer
+
+SAY
+A reliable event handler should survive several schedules for the same logical conversation. Split the header across reads, make writes accept short prefixes, deliver final bytes with EOF, and insert would-block between successful steps. Compare the completed message and the remaining state after every event. The portable models make such sequences deterministic, while the local socket fixture checks the real Linux receive mechanism. Neither is a complete production server. Tests for resource limits, cancellation, timeouts, output backpressure, and stale events must grow with the application's contract rather than being assumed from a passing ping exchange.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch53.json → SP53.026: Guided lab and review

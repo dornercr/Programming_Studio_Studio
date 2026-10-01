@@ -1,0 +1,680 @@
+Systems Programming and Machine Organization
+Chapter 22: Virtual Address Spaces
+Dr. Charles Dorner
+
+1. An address needs a context and a lifetime
+Problem and first experiment
+
+SAY
+Think of apartment number twelve without a building name. The number alone does not identify a home. A virtual address similarly needs an address-space context. It also needs a time: a mapping can be removed and a later object can occupy the same range. This is why comparing numeric addresses across processes does not prove sharing, and why keeping a pointer after its object dies is unsafe even if the bytes remain mapped. The compiler checks pointer types, while the operating system checks mappings and permissions. Neither check alone proves the full lifetime contract a C++ program requires.
+
+DO
+Predict the result and name the mapping or invariant that supports it before revealing the answer.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.004: 22.1 Virtual addresses
+
+------------------------------------------------------------
+
+2. Use an offset when a shared region moves
+Problem and first experiment
+
+SAY
+This arithmetic model has two views of the same sixteen-byte region, one starting at one thousand and the other at five thousand. Both use offset twelve, so their numeric locations are one thousand twelve and five thousand twelve. The offset remains twelve in each view. Offset sixteen is rejected because it is just past the region, not a byte inside it. These integers are not actual pointers and the program performs no memory mapping. The model isolates the representation choice: sharing an offset can survive different virtual bases, while copying one participant’s raw address cannot. A real implementation must also check object alignment, size, and synchronization.
+
+DO
+Predict every output line, run the program, then explain each value from the operations in main.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch22.json → SP22.012: 22.5 Shared memory
+
+------------------------------------------------------------
+
+3. Private and shared describe permitted observations
+Problem and first experiment
+
+SAY
+A private mapping can initially share physical backing through copy-on-write. That does not mean one process is allowed to change another process’s logically private value. The operating system preserves private modification when a writer needs a separate view. A shared mapping has a different contract: changes to common storage may be visible through another mapping under the platform’s synchronization rules. Therefore, count neither physical copies nor pointer values as the definition of privacy. Ask which observations the program is allowed to make after a store. This distinction becomes important when reviewing memory use: shared backing may save storage without changing the private behavior visible to applications.
+
+DO
+Predict the result and name the mapping or invariant that supports it before revealing the answer.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.010: 22.4 Memory isolation
+
+------------------------------------------------------------
+
+4. Two real mappings can reach one backing byte
+Problem and first experiment
+
+SAY
+This Linux/POSIX demonstration creates a temporary one-byte file, removes its directory name, and maps it twice with shared access. The two mapping addresses are distinct, but both refer to the same backing byte. Writing Q through the first view lets the second view read Q. The printed true reports distinct views, not two independent files. Both mappings are released and the descriptor is closed on the successful path. This is a real mapping demonstration within one process; it does not claim to create two processes or implement a cross-process synchronization protocol. A production wrapper should also release already acquired resources when an intermediate call fails.
+
+DO
+Predict every output line, run the program, then explain each value from the operations in main.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch22.json → SP22.018: Worked example — Intentional shared mapping
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Two process models both use virtual address 0x1000. Their private maps must hold independent values.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Use two maps whose entries own backing integers. Private mappings must point to distinct objects; one intentionally shared mapping must point to the same object in both maps.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Logging only the numeric address loses the process context needed to identify memory.
+
+A related failure in the generalized operation is concrete: Create a fresh integer for each supposed shared mapping. The initial values match, but later writes do not propagate.
+
+The repair changes the operation at the point where the rule can be enforced: Share the backing object when the contract calls for sharing. Do not infer sharing from equal values or equal numeric virtual addresses.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The maps model address spaces and the owned integers model backing storage. Equal address keys do not imply equal objects. Sharing is represented by two entries holding handles to one backing object. The smart pointers operate within this demonstration process; they are not a cross-process shared-memory mechanism.
+
+A plausible alternative: Use ordinary references within one process. Cross-process sharing needs an OS-supported mapping and a synchronization contract.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.03
+
+------------------------------------------------------------
+
+8. Chapter 22 — Virtual Address Spaces
+Systems mechanisms and source lecture
+
+SAY
+A pointer used by an ordinary process usually identifies a location in that process’s virtual address space. It is not a direct index into installed DRAM. Translation lets the system place data in physical storage independently of the addresses used by the program, share selected storage, and reject accesses that violate mapping permissions. Virtual memory is not simply “using disk as extra RAM.” Paging to storage is one possible policy built on translation. Isolation, controlled sharing, sparse address spaces, and flexible placement are useful even when every actively used page remains in physical memory. [ R3 , R10 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.001, SP22.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+22.1 Virtual addresses 22.2 Physical addresses 22.3 Address translation 22.4 Memory isolation ...plus 5 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.003
+
+------------------------------------------------------------
+
+10. Virtual addresses
+Systems mechanisms and source lecture
+
+SAY
+A virtual address is interpreted in an address-space context. The same numeric address in two processes can designate unrelated objects. The meaning of an address also changes over time when a mapping is removed and another mapping occupies the same range. Do not infer usable address-space size from pointer size alone. A 64-bit pointer representation does not imply that all 64 bits are available as independent implemented virtual-address bits. x86-64 configurations support particular address widths and canonical-address rules. The examples here use explicitly stated simplified widths rather than treating one hardware configuration as universal.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.004, SP22.005
+
+------------------------------------------------------------
+
+11. Physical addresses
+Systems mechanisms and source lecture
+
+SAY
+A physical address identifies a location in the processor’s physical address map. That map can include ordinary memory and regions associated with devices; physical does not mean that every possible address corresponds to an installed DRAM byte. The operating system manages physical frames and establishes mappings that connect them to virtual pages. Applications normally neither choose arbitrary frames nor rely on a mapping remaining attached to one frame forever. Moving or replacing backing storage is possible as long as the required observable behavior is preserved and the translation machinery is updated correctly.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.006, SP22.007
+
+------------------------------------------------------------
+
+12. Address translation
+Systems mechanisms and source lecture
+
+SAY
+Translation maps a virtual address to a physical address while checking the requested access. A useful teaching decomposition is virtual address = virtual page number + page offset . The page number selects a mapping; the offset identifies the byte within that page. With equal-sized pages and frames, translation preserves the offset. Translation is therefore not an arbitrary byte-by-byte lookup. Contiguous bytes within one mapped page share the same mapping and permissions at the paging granularity. An access that spans a page boundary can involve more than one translation and can encounter different permissions on the two pages.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.008, SP22.009
+
+------------------------------------------------------------
+
+13. Memory isolation
+Systems mechanisms and source lecture
+
+SAY
+Separate address-space mappings allow the kernel to keep one process’s private storage inaccessible to another. Permission checks further distinguish reads, writes, instruction fetches, and user versus supervisor access, subject to the architecture and configuration. The word private requires context. A private mapping can initially share physical storage through copy-on-write while preserving logically private modification semantics. Isolation describes what each process is allowed to observe and change, not necessarily whether every byte has a unique physical copy at every instant.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.010, SP22.011
+
+------------------------------------------------------------
+
+14. Shared memory
+Systems mechanisms and source lecture
+
+SAY
+Shared memory deliberately maps common storage into more than one execution environment. A store through one mapping can become visible through another according to the platform’s memory and synchronization rules. This avoids copying every message through a separate transfer buffer, but it does not remove the need for a communication protocol. Shared-memory programs must define ownership, synchronization, initialization, and recovery from participant failure. They must also avoid assuming equal virtual base addresses. An offset of 128 bytes from the shared region’s base is portable across mappings of that region; an ordinary process-local pointer stored there may not be.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.012, SP22.013
+
+------------------------------------------------------------
+
+15. Equal numbers, different storage
+Systems mechanisms and source lecture
+
+SAY
+Assume 4-KiB pages. Process A maps virtual page 4 to physical frame 12; process B maps virtual page 4 to physical frame 27. Both load from virtual address 0x4123 . The virtual page number is 0x4 , and the offset is 0x123 . A reaches physical address 0xC123 ; B reaches 0x1B123 . The same pointer bits do not imply shared data. Now suppose A maps virtual page 8 and B maps virtual page 9 to physical frame 30. A’s 0x8080 and B’s 0x9080 both identify physical address 0x1E080 . These calculations illustrate two independent properties: equal virtual addresses can refer to different storage, and different virtual addresses can refer to shared storage. They say nothing by themselves about access permission or synchronization. A correct access requires the mapping and the requested operation to be allowed.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.014, SP22.015
+
+------------------------------------------------------------
+
+16. Same virtual address, different memory
+Systems mechanisms and source lecture
+
+SAY
+Process A and process B can each map virtual address 0x400000 to different physical frames. Both programs can therefore use the same conventional layout without reading each other’s data. Address translation combines the active process’s mapping state with the virtual address; the numeric virtual address alone does not identify a unique physical byte system-wide.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.016, SP22.017
+
+------------------------------------------------------------
+
+17. Intentional shared mapping
+Systems mechanisms and source lecture
+
+SAY
+Two processes may map the same shared-memory object into different virtual addresses. A store by one process then changes the underlying physical storage observed by the other, subject to synchronization requirements. Shared memory is therefore created by common backing, not by requiring identical virtual addresses.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.018, SP22.019
+
+------------------------------------------------------------
+
+18. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 22. Build a two-column mapping table for two processes. Give each two private pages and one shared page at different virtual locations. Translate three addresses and mark which writes could affect the other process. Review 1. Why are raw pointers problematic in shared-memory file formats? Review 2. Why is virtual memory useful without swapping?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.020, SP22.021
+
+------------------------------------------------------------
+
+19. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is virtual address spaces. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.022
+
+------------------------------------------------------------
+
+20. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Paging.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.023
+
+------------------------------------------------------------
+
+21. Translation preserves the position within a page
+Reason about the implementation
+
+SAY
+With four-thousand-ninety-six-byte pages, address four thousand one hundred is page one with offset four. If page one maps to frame seven, translation selects frame seven’s base and keeps offset four. It does not independently choose a new physical location for every byte. The next byte in that same page keeps the same frame mapping, but crossing the page boundary may select a completely different frame. A contiguous C++ array can therefore span noncontiguous physical frames without changing its indexing behavior. Conversely, remaining inside one mapped page does not make an out-of-bounds array index legal in C++.
+
+DO
+Predict the result and name the mapping or invariant that supports it before revealing the answer.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.008: 22.3 Address translation
+
+------------------------------------------------------------
+
+22. A 64-bit pointer does not promise 64 implemented address bits
+Reason about the implementation
+
+SAY
+A pointer may occupy eight bytes while the machine implements a smaller virtual-address space with rules for the remaining bits. The chapter discusses particular x86-64 configurations rather than treating one address width as universal. For arithmetic exercises, write the assumed width explicitly: a thirty-two-bit model with four-kibibyte pages has twelve offset bits and twenty page-number bits. Changing either assumption changes the split. Do not derive the machine’s supported page-table layout from sizeof(void*) alone. In maintenance work, query or document the actual platform interface instead of turning a classroom diagram into an undocumented hardware dependency.
+
+DO
+Predict the result and name the mapping or invariant that supports it before revealing the answer.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.004: 22.1 Virtual addresses
+
+------------------------------------------------------------
+
+23. Physical addresses include more than installed DRAM
+Reason about the implementation
+
+SAY
+Physical means interpreted in the processor’s physical address map. It does not mean every possible numeric address corresponds to an installed DRAM byte. Some ranges refer to devices, and some may not be populated. Ordinary application code usually requests memory through an allocation or mapping interface; the kernel chooses and manages backing frames. That backing can change while the required visible behavior remains stable. A program that treats a virtual pointer as a physical device address has crossed an interface boundary without authorization from the platform. Device I/O needs its own mapping and access rules, including ordering rules that ordinary memory examples do not supply.
+
+DO
+Predict the result and name the mapping or invariant that supports it before revealing the answer.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.006: 22.2 Physical addresses
+
+------------------------------------------------------------
+
+24. Shared storage does not provide a message protocol
+Reason about the implementation
+
+SAY
+Suppose two participants share a record containing length and payload. Sharing makes the bytes reachable, but it does not guarantee that a reader sees a complete update. A writer could publish a new length before finishing the payload, and a reader could act on inconsistent fields. The communication design must specify ownership of updates and synchronization that establishes when the record is ready. An offset-based representation solves different virtual bases, not this publication problem. It also does not recover automatically if a writer stops halfway through an update. Separate address interpretation, data consistency, and recovery instead of asking the word shared to promise all three.
+
+DO
+Predict the result and name the mapping or invariant that supports it before revealing the answer.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.012: 22.5 Shared memory
+
+------------------------------------------------------------
+
+25. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Two process models both use virtual address 0x1000. Their private maps must hold independent values.
+
+Look up A:0x1000. value 7 in A’s map. A virtual address is interpreted in a particular address space.
+
+Write A:0x1000. A’s value becomes 11. Changing one private mapping does not change the other.
+
+Read B:0x1000. value remains 9. The same numeric address alone does not establish shared backing storage.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch22/main.cpp
+
+------------------------------------------------------------
+
+26. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Look up A:0x1000. value 7 in A’s map. A virtual address is interpreted in a particular address space.
+
+Write A:0x1000. A’s value becomes 11. Changing one private mapping does not change the other.
+
+Read B:0x1000. value remains 9. The same numeric address alone does not establish shared backing storage.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch22/main.cpp
+
+------------------------------------------------------------
+
+27. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The maps model address spaces and the owned integers model backing storage. Equal address keys do not imply equal objects. Sharing is represented by two entries holding handles to one backing object. The smart pointers operate within this demonstration process; they are not a cross-process shared-memory mechanism.
+
+Share the backing object when the contract calls for sharing. Do not infer sharing from equal values or equal numeric virtual addresses.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch22/main.cpp:1-11
+
+------------------------------------------------------------
+
+28. Equal virtual addresses need not share data
+Code, diagrams, and debugging
+
+SAY
+Equal virtual addresses need not share data. at looks up a key and returns access to its mapped value. Updating A’s map at numeric address 0x1000 changes only A’s stored value.
+
+Two process models both use virtual address 0x1000. Their private maps must hold independent values.
+
+A virtual address is interpreted in a particular address space. Changing one private mapping does not change the other. The same numeric address alone does not establish shared backing storage.
+
+at looks up a key and returns access to its mapped value. Updating A’s map at numeric address 0x1000 changes only A’s stored value.
+
+B uses the same numeric key in a different map, so the two reads print 11 and 9. Address-space identity is part of the translation context.
+
+The assertion verifies B’s independent value. Shared memory would require a shared backing object, introduced in the extension lab.
+
+Address interpretation includes the owning address-space map. Updating one private map does not change the other map’s value.
+
+Logging only the numeric address loses the process context needed to identify memory. In the extended lab: Create a fresh integer for each supposed shared mapping. The initial values match, but later writes do not propagate.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch22/main.cpp:8-10
+
+------------------------------------------------------------
+
+29. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Create a fresh integer for each supposed shared mapping. The initial values match, but later writes do not propagate.
+
+Share the backing object when the contract calls for sharing. Do not infer sharing from equal values or equal numeric virtual addresses.
+
+The reference solution makes the contract executable with assertions. The maps model address spaces and the owned integers model backing storage. Equal address keys do not imply equal objects. Sharing is represented by two entries holding handles to one backing object. The smart pointers operate within this demonstration process; they are not a cross-process shared-memory mechanism.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.06
+
+------------------------------------------------------------
+
+30. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch22/starter.cpp. Implement the first acceptance case for represent private and shared mappings. State the function inputs and result before adding code. First case: Writes to A’s private address leave B’s private address unchanged.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.07
+
+------------------------------------------------------------
+
+31. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch22/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.08
+
+------------------------------------------------------------
+
+32. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Create a fresh integer for each supposed shared mapping. The initial values match, but later writes do not propagate. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.09
+
+------------------------------------------------------------
+
+33. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+What would intentional shared memory change? Compare the selected design with this plausible alternative: Use ordinary references within one process. Cross-process sharing needs an OS-supported mapping and a synchronization contract.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.10
+
+------------------------------------------------------------
+
+34. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch22/starter.cpp. Use two maps whose entries own backing integers. Private mappings must point to distinct objects; one intentionally shared mapping must point to the same object in both maps. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch22/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.11
+
+------------------------------------------------------------
+
+35. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Represent private and shared mappings belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.12
+
+------------------------------------------------------------
+
+36. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Use two maps whose entries own backing integers. Private mappings must point to distinct objects; one intentionally shared mapping must point to the same object in both maps.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch22/starter.cpp
+
+------------------------------------------------------------
+
+37. Review the extension solution
+Practice and extension
+
+SAY
+The maps model address spaces and the owned integers model backing storage. Equal address keys do not imply equal objects. Sharing is represented by two entries holding handles to one backing object. The smart pointers operate within this demonstration process; they are not a cross-process shared-memory mechanism. Repair principle: Share the backing object when the contract calls for sharing. Do not infer sharing from equal values or equal numeric virtual addresses.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Share the backing object when the contract calls for sharing. Do not infer sharing from equal values or equal numeric virtual addresses.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch22/solution.cpp
+
+------------------------------------------------------------
+
+38. Application case: Virtual Address Spaces
+Practice and extension
+
+SAY
+A virtual range is mapped in a process.
+
+Does that alone prove every page is resident in RAM?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.CASE
+
+------------------------------------------------------------
+
+39. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The maps model address spaces and the owned integers model backing storage. Equal address keys do not imply equal objects. Sharing is represented by two entries holding handles to one backing object. The smart pointers operate within this demonstration process; they are not a cross-process shared-memory mechanism.
+
+Choose a simpler approach when its narrower contract is enough. Use ordinary references within one process. Cross-process sharing needs an OS-supported mapping and a synchronization contract.
+
+When this system changes, retain a check that exposes the known failure: Create a fresh integer for each supposed shared mapping. The initial values match, but later writes do not propagate. Share the backing object when the contract calls for sharing. Do not infer sharing from equal values or equal numeric virtual addresses.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch22.json → SYS22.14
+
+------------------------------------------------------------
+
+40. Debug an access at both language and system boundaries
+Recall and transfer
+
+SAY
+Imagine an array of four integers stored in a large writable page. Writing its fifth element can violate the language’s object bounds even though hardware permission checks allow the address. Now reverse the problem: a correctly typed pointer may refer to a region that was unmapped. The language-level type does not restore its mapping. Debugging needs both questions: does the object still exist with the required bounds, and does the environment permit this operation on its storage? Memory tools, checked boundaries, and clear ownership help answer different pieces. Do not treat the absence of a protection fault as proof that a C++ memory access was correct.
+
+DO
+Predict the result and name the mapping or invariant that supports it before revealing the answer.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.010: 22.4 Memory isolation
+
+------------------------------------------------------------
+
+41. Choose the smallest communication boundary
+Recall and transfer
+
+SAY
+Shared memory is useful when repeated transfers would otherwise copy substantial data, but it introduces a shared-state protocol. A small occasional message may be easier to send through a pipe or socket, where ownership moves through a clearer boundary. Make the choice using required throughput, data size, update frequency, and failure handling. Our examples establish two facts: equal addresses do not imply equal storage, and unequal addresses do not prevent shared backing. Neither fact alone selects the best architecture. In a review, ask who initializes the region, who can remove it, how readers recognize a complete record, and how every offset is checked.
+
+DO
+Predict the result and name the mapping or invariant that supports it before revealing the answer.
+
+SOURCE
+content/systems-programming/ch22.json → SP22.020: Guided lab and review

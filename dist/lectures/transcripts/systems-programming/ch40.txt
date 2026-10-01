@@ -1,0 +1,738 @@
+Systems Programming and Machine Organization
+Chapter 40: Pipes and Redirection — bytes, EOF, and endpoint ownership
+Dr. Charles Dorner
+
+1. A pipe needs both data state and writer state
+Problem and first experiment
+
+SAY
+A pipe connects a write endpoint to a read endpoint through a kernel-managed byte buffer. Empty does not always mean finished. If a writer still exists, an empty blocking read may wait for future data. Once every write reference is closed, already-buffered bytes must still be delivered before the reader observes EOF. These two facts explain many pipeline hangs and truncation bugs. The useful state description therefore includes both buffered bytes and open writer references. Start there before adding child processes, because a forgotten duplicate descriptor can keep a writer reference alive even after the process you thought of as the producer has finished.
+
+DO
+Ask learners to classify empty-with-writer and nonempty-without-writer separately.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.004 · 40.1 Pipes
+
+------------------------------------------------------------
+
+2. Closing the writer does not erase buffered bytes
+Problem and first experiment
+
+SAY
+This actual pipe demo writes three bytes, closes the only write descriptor, then reads. The first read returns the pending word cat. A later read returns zero because the buffer is now drained and no writer remains. The program prints data equals cat and next equals EOF. It checks transfer and close results and owns both endpoints within a short scope. No child or external command is needed to demonstrate the pipe contract. This is different from a model that immediately returns EOF whenever writer count reaches zero: that mistaken rule would drop the final buffered data, exactly the failure the chapter's lab asks students to avoid.
+
+DO
+Predict the first read and the following read before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch40.json → SP40.004 · 40.1 Pipes
+
+------------------------------------------------------------
+
+3. Every duplicated writer is a new cleanup obligation
+Problem and first experiment
+
+SAY
+If the parent duplicates a pipe's write end, the kernel now has another reference that can keep the stream open for writing. Closing the original number does not remove the duplicate. The same problem arises through fork when children inherit ends they do not use. A consumer may wait forever because an unrelated process still holds a writer, even though the useful producer has exited. Draw an ownership table for every process and every endpoint. Mark both intended use and release. Copying an integer is not duplication, but every actual duplicated or inherited entry must be considered in the EOF contract.
+
+DO
+Count real descriptor references rather than named producer processes.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.010 · 40.4 File-descriptor duplication
+
+------------------------------------------------------------
+
+4. Expose a leaked-writer condition without hanging
+Problem and first experiment
+
+SAY
+The program duplicates the write endpoint, closes the original, and sets the reader to nonblocking mode. The buffer is empty, but the duplicate writer remains, so read reports EAGAIN or EWOULDBLOCK rather than EOF. After closing that duplicate, another read returns zero. The output makes the transition explicit: retained-writer equals would-block, then all-writers-closed equals EOF. Nonblocking mode makes this a bounded diagnostic demo instead of an intentional hang. The code preserves the existing descriptor flags when adding O_NONBLOCK and captures errno immediately after the first read. In a real event loop, would-block means wait for readiness rather than repeatedly retrying without pause.
+
+DO
+Predict the state change caused only by closing the duplicate.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch40.json → SP40.008 · 40.3 Blocking
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A pipe model begins with two open write endpoints. Closing only one must not cause EOF after its buffered bytes are drained.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Return a pipe-read state from buffered-byte count and open-writer count. Buffered data must be delivered even after the last writer closes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Leaving an unused inherited write descriptor open can make a pipeline reader wait forever for EOF.
+
+A related failure in the generalized operation is concrete: Return EOF as soon as writer count reaches zero. This discards the final buffered bytes.
+
+The repair changes the operation at the point where the rule can be enforced: Check for available data before checking whether further data can arrive. Test a closed pipe that still has buffered bytes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+EOF describes a drained stream whose producer ends are closed. Closing the last writer does not erase already-buffered bytes. The three-state result prevents an empty buffer from being confused with a finished stream. A nonblocking real pipe would report would-block rather than waiting when writers still exist but no data is available.
+
+A plausible alternative: A temporary file avoids live backpressure but changes latency, storage needs, and streaming behavior.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.03
+
+------------------------------------------------------------
+
+8. Chapter 40 — Pipes and Redirection
+Systems mechanisms and source lecture
+
+SAY
+A pipe connects a byte-producing endpoint to a byte-consuming endpoint. Descriptors and duplication let a shell attach those endpoints to a program’s standard input or output without changing the program’s own source. The difficult part is not creating the pipe; it is closing every unused reference and coordinating concurrent execution. [ R18 , R19 , R48 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.001, SP40.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+40.1 Pipes 40.2 Pipe buffers 40.3 Blocking 40.4 File-descriptor duplication ...plus 9 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.003
+
+------------------------------------------------------------
+
+10. Pipes
+Systems mechanisms and source lecture
+
+SAY
+pipe returns two descriptors: one for reading and one for writing. Bytes written to the write end become available at the read end in order. The pipe does not preserve arbitrary application message boundaries as a record protocol. A reader sees end of file only after all write-end references are closed and buffered bytes have been consumed. “The original writer exited” is insufficient when another process accidentally retains a write descriptor.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.004, SP40.005
+
+------------------------------------------------------------
+
+11. Pipe buffers
+Systems mechanisms and source lecture
+
+SAY
+The kernel stores a bounded amount of pending pipe data. Buffer capacity is not the same as PIPE_BUF , which concerns atomicity guarantees for appropriately sized writes under the documented conditions. Large writes from several writers can interleave. A multiwriter protocol must define record sizes and synchronization rather than assume that one source-level write always becomes one indivisible record. Capacity can vary with system configuration and policy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.006, SP40.007
+
+------------------------------------------------------------
+
+12. Blocking
+Systems mechanisms and source lecture
+
+SAY
+A blocking read waits when the pipe is empty but writers still exist. A blocking write can wait when capacity is unavailable. If all read ends are closed, writing can cause SIGPIPE or report EPIPE when signal policy permits the error to be observed. These rules make lifecycle mistakes visible as hangs or unexpected termination. Waiting for a producer before starting its consumer can deadlock when the producer fills the pipe. Start communicating participants before waiting for their completion.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.008, SP40.009
+
+------------------------------------------------------------
+
+13. File-descriptor duplication
+Systems mechanisms and source lecture
+
+SAY
+Duplication creates another descriptor referring to the same open file description. Both descriptors keep the underlying open object referenced until each is closed. The new descriptor is a new ownership obligation even though it refers to the same object. Duplication shares the underlying offset and status where applicable; it does not copy file contents or create an independent seek position. Descriptor-specific flags have separate rules and should be set deliberately.
+
+In plain English: The program asks the operating system to move bytes to or from a resource, much like using a numbered ticket to ask a clerk for the right item.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.010, SP40.011
+
+------------------------------------------------------------
+
+14. dup
+Systems mechanisms and source lecture
+
+SAY
+dup chooses an available descriptor number and makes it refer to the same open file description as the source. It is useful when preserving an existing stream before temporary redirection. The copied integer value alone would not preserve anything: closing the original table entry would invalidate all variables holding that number. dup creates an actual additional kernel reference.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.012, SP40.013
+
+------------------------------------------------------------
+
+15. dup2
+Systems mechanisms and source lecture
+
+SAY
+dup2(oldfd, newfd) makes a specific descriptor number refer to the source object, atomically replacing an existing target reference when appropriate. This avoids the race in a separate close(newfd) followed by dup(oldfd) sequence. When oldfd == newfd and the descriptor is valid, the operation leaves it as that descriptor. Cleanup code must not then blindly close the source number if doing so would close the newly intended standard stream. The example below tests this case before closing the source reference.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.014, SP40.015
+
+------------------------------------------------------------
+
+16. Input redirection
+Systems mechanisms and source lecture
+
+SAY
+Input redirection opens or obtains a source descriptor and duplicates it onto descriptor 0 before exec. The executed program reads standard input normally and need not know that a file or pipe supplied it. Apply redirections in the defined order. Shell constructs that duplicate descriptors can produce different results depending on whether an earlier redirection has already changed the source descriptor. A shell implementation must preserve syntax order rather than sort redirections arbitrarily.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.016, SP40.017
+
+------------------------------------------------------------
+
+17. Output redirection
+Systems mechanisms and source lecture
+
+SAY
+Output redirection duplicates a destination onto descriptor 1. File creation, append behavior, and truncation must be requested explicitly. Diagnostics should remain on descriptor 2 unless the command syntax redirects them as well. Opening a destination can fail before exec. The child should report the setup failure and terminate rather than execute the requested program with an unintended output destination. Resource setup is part of launch correctness.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.018, SP40.019
+
+------------------------------------------------------------
+
+18. Pipelines
+Systems mechanisms and source lecture
+
+SAY
+A pipeline connects several processes so that one process’s output feeds the next process’s input. The parent creates pipes, launches all stages, closes its unused ends, and then waits according to its policy. Every child must close pipe ends it does not need. In a longer pipeline, this includes descriptors for other stages, not only its immediate neighbor. A descriptor ownership table is often the clearest way to design and review the launch sequence.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.020, SP40.021
+
+------------------------------------------------------------
+
+19. Two concurrently started stages
+Systems mechanisms and source lecture
+
+SAY
+This program runs a fixed, harmless pipeline equivalent to producing two lines and counting them. It assumes the reference environment provides printf and wc in the controlled system path. It is not a general shell. Companion listing: ch40/pipeline.c The output contains the line count 2, with formatting determined by wc . Both processes are launched before either is waited for. On second-fork failure, the parent closes both ends and reaps the already-created producer; the fixed producer exits when its output cannot be delivered under the ordinary broken-pipe policy.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.022, SP40.023
+
+------------------------------------------------------------
+
+20. Constructing producer | consumer
+Systems mechanisms and source lecture
+
+SAY
+Create a pipe, fork both children, connect the producer’s standard output to the pipe’s write end with dup2 , and connect the consumer’s standard input to the read end. Close unused pipe ends in every process. If the parent accidentally keeps a write end open, the consumer may never observe EOF after the producer exits.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.024, SP40.025
+
+------------------------------------------------------------
+
+21. Redirecting output
+Systems mechanisms and source lecture
+
+SAY
+To implement cmd > out.txt , open the destination file with the desired creation/truncation flags, then duplicate that descriptor onto standard output before executing the program. After dup2 , ordinary writes to descriptor 1 flow to the file. Close the now-redundant original descriptor when safe.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.026, SP40.027
+
+------------------------------------------------------------
+
+22. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 40. Draw a descriptor table for parent, producer, and consumer immediately after both forks and again after cleanup. For a larger temporary payload, explain why starting the consumer before waiting is essential. Review 1. Why can an unused write descriptor prevent EOF? Review 2. How does PIPE_BUF differ from total pipe capacity?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.028, SP40.029
+
+------------------------------------------------------------
+
+23. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is pipes and redirection. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.030
+
+------------------------------------------------------------
+
+24. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Signals.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.031
+
+------------------------------------------------------------
+
+25. Capacity and atomic-write size answer different questions
+Reason about the implementation
+
+SAY
+A pipe has finite capacity, so a producer can wait when the consumer falls behind. PIPE_BUF names a different property: the size bound used in documented atomicity guarantees for appropriately sized writes. It is not the pipe's total storage capacity. Even when a qualifying write is not interleaved with another writer's bytes, a reader's calls need not match the application's message boundaries. A protocol still needs framing, such as a length or delimiter with clear escaping rules. Large multiwriter writes can interleave under the interface rules. Design record size and synchronization deliberately rather than treating each write call as one guaranteed read record.
+
+DO
+Ask whether one write necessarily equals one read message.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.006 · 40.2 Pipe buffers
+
+------------------------------------------------------------
+
+26. Start communication partners before waiting
+Reason about the implementation
+
+SAY
+A tiny producer may finish before the pipe fills, hiding a flawed launch order. A larger producer can fill the buffer and block until a reader consumes data. If the parent is waiting for that producer before it launches the consumer, neither can make progress: the producer needs the missing consumer, and the parent waits for the blocked producer. Start the pipeline stages before waiting for their completion. Then close unused parent endpoints so EOF remains possible. A regression test should use a payload large enough to expose the ordering assumption, with a timeout in the test harness to diagnose hangs safely rather than relying on small happy-path output.
+
+DO
+Trace the dependency cycle in the incorrect launch order.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.020 · 40.9 Pipelines
+
+------------------------------------------------------------
+
+27. dup2 changes a chosen descriptor atomically
+Reason about the implementation
+
+SAY
+A shell uses dup2 to connect an already-open source or destination to a specific standard descriptor. The operation replaces the target reference as specified, avoiding a separate close-and-allocate sequence in which another action could take the desired number. There is a subtle equal-number case: if source and target are already the same valid descriptor, dup2 leaves that descriptor in place. Cleanup must not then blindly close the source number, because it is also the intended standard stream. Correct setup code checks whether the numbers differ before closing a redundant source. The resource graph, not variable names, determines whether an entry is still needed.
+
+DO
+Trace both distinct-number and equal-number cases.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.014 · 40.6 dup2
+
+------------------------------------------------------------
+
+28. Redirection order changes which object is copied
+Reason about the implementation
+
+SAY
+Consider two requests: redirect stdout to a file and duplicate stdout onto stderr. If stdout changes first, stderr receives a reference to the file too. If stderr first duplicates the old stdout and stdout changes afterward, stderr still points to the old destination. Duplicating a descriptor creates a relationship at that moment; it is not a live alias that follows future table replacements. A shell must therefore preserve the defined order rather than sort redirections by descriptor number. Keep diagnostics separate unless the requested syntax joins them. If opening the output fails, report setup failure instead of executing the target with an unintended destination.
+
+DO
+Compare the two redirection orders using object targets rather than integers alone.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.016 · 40.7 Input redirection
+
+------------------------------------------------------------
+
+29. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A pipe model begins with two open write endpoints. Closing only one must not cause EOF after its buffered bytes are drained.
+
+One writer closes. one remains; empty buffer. An empty pipe with a writer still open can later receive more data.
+
+Reader tests EOF. false. In a blocking real pipe, an empty read can wait for data or closure instead.
+
+Last writer closes. zero writers; empty buffer. Now a reader can observe end of stream.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch40/main.cpp
+
+------------------------------------------------------------
+
+30. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+One writer closes. one remains; empty buffer. An empty pipe with a writer still open can later receive more data.
+
+Reader tests EOF. false. In a blocking real pipe, an empty read can wait for data or closure instead.
+
+Last writer closes. zero writers; empty buffer. Now a reader can observe end of stream.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch40/main.cpp
+
+------------------------------------------------------------
+
+31. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+EOF describes a drained stream whose producer ends are closed. Closing the last writer does not erase already-buffered bytes. The three-state result prevents an empty buffer from being confused with a finished stream. A nonblocking real pipe would report would-block rather than waiting when writers still exist but no data is available.
+
+Check for available data before checking whether further data can arrive. Test a closed pipe that still has buffered bytes.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch40/main.cpp:1-13
+
+------------------------------------------------------------
+
+32. EOF depends on every writer closing
+Code, diagrams, and debugging
+
+SAY
+EOF depends on every writer closing. The lambda tests two conditions: the buffer has no bytes and every writer handle is closed. It borrows both state variables by reference.
+
+A pipe model begins with two open write endpoints. Closing only one must not cause EOF after its buffered bytes are drained.
+
+An empty pipe with a writer still open can later receive more data. In a blocking real pipe, an empty read can wait for data or closure instead. Now a reader can observe end of stream.
+
+The lambda tests two conditions: the buffer has no bytes and every writer handle is closed. It borrows both state variables by reference.
+
+One writer closes, leaving one open writer. An empty buffer now means more data could still arrive.
+
+The first EOF test prints false because one writer remains.
+
+After the last writer closes, EOF becomes true if the buffer is still empty. Buffered bytes would have to drain first.
+
+EOF requires both an empty buffer and zero open writers. Closing only one of several writer handles is insufficient.
+
+Leaving an unused inherited write descriptor open can make a pipeline reader wait forever for EOF. In the extended lab: Return EOF as soon as writer count reaches zero. This discards the final buffered bytes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch40/main.cpp:7-10
+
+------------------------------------------------------------
+
+33. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Return EOF as soon as writer count reaches zero. This discards the final buffered bytes.
+
+Check for available data before checking whether further data can arrive. Test a closed pipe that still has buffered bytes.
+
+The reference solution makes the contract executable with assertions. EOF describes a drained stream whose producer ends are closed. Closing the last writer does not erase already-buffered bytes. The three-state result prevents an empty buffer from being confused with a finished stream. A nonblocking real pipe would report would-block rather than waiting when writers still exist but no data is available.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.06
+
+------------------------------------------------------------
+
+34. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch40/starter.cpp. Implement the first acceptance case for distinguish data, waiting, and eof. State the function inputs and result before adding code. First case: Buffered data takes priority over EOF.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.07
+
+------------------------------------------------------------
+
+35. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch40/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.08
+
+------------------------------------------------------------
+
+36. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Return EOF as soon as writer count reaches zero. This discards the final buffered bytes. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.09
+
+------------------------------------------------------------
+
+37. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why should a shell start both pipeline stages before waiting for the producer? Compare the selected design with this plausible alternative: A temporary file avoids live backpressure but changes latency, storage needs, and streaming behavior.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.10
+
+------------------------------------------------------------
+
+38. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch40/starter.cpp. Return a pipe-read state from buffered-byte count and open-writer count. Buffered data must be delivered even after the last writer closes. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch40/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.11
+
+------------------------------------------------------------
+
+39. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Distinguish data, waiting, and EOF belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.12
+
+------------------------------------------------------------
+
+40. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Return a pipe-read state from buffered-byte count and open-writer count. Buffered data must be delivered even after the last writer closes.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch40/starter.cpp
+
+------------------------------------------------------------
+
+41. Review the extension solution
+Practice and extension
+
+SAY
+EOF describes a drained stream whose producer ends are closed. Closing the last writer does not erase already-buffered bytes. The three-state result prevents an empty buffer from being confused with a finished stream. A nonblocking real pipe would report would-block rather than waiting when writers still exist but no data is available. Repair principle: Check for available data before checking whether further data can arrive. Test a closed pipe that still has buffered bytes.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Check for available data before checking whether further data can arrive. Test a closed pipe that still has buffered bytes.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch40/solution.cpp
+
+------------------------------------------------------------
+
+42. Application case: Pipes and Redirection
+Practice and extension
+
+SAY
+A pipe reader never receives EOF after the intended writer exits.
+
+What should you check?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.CASE
+
+------------------------------------------------------------
+
+43. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+EOF describes a drained stream whose producer ends are closed. Closing the last writer does not erase already-buffered bytes. The three-state result prevents an empty buffer from being confused with a finished stream. A nonblocking real pipe would report would-block rather than waiting when writers still exist but no data is available.
+
+Choose a simpler approach when its narrower contract is enough. A temporary file avoids live backpressure but changes latency, storage needs, and streaming behavior.
+
+When this system changes, retain a check that exposes the known failure: Return EOF as soon as writer count reaches zero. This discards the final buffered bytes. Check for available data before checking whether further data can arrive. Test a closed pipe that still has buffered bytes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch40.json → SYS40.14
+
+------------------------------------------------------------
+
+44. Broken readers and retained writers fail differently
+Recall and transfer
+
+SAY
+When every read end is closed, a later write has a different problem from an empty pipe with a live writer. Under ordinary policy it may raise SIGPIPE, or report EPIPE when the signal policy allows the error to be observed. A retained write end instead keeps a reader from concluding that no more data can arrive. These failures point in opposite ownership directions. Review the endpoints in each parent and child after setup, after exec, and during failure cleanup. For a longer pipeline, a child must close unrelated stages' endpoints too. One forgotten reference anywhere can change the observable lifecycle of the whole stream.
+
+DO
+Use a per-process endpoint table to locate the extra writer.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.008 · 40.3 Blocking
+
+------------------------------------------------------------
+
+45. Recall the stream state and the launch state together
+Recall and transfer
+
+SAY
+The pipe's byte state and the processes' lifecycle must agree. Buffered data remains readable after the last writer closes, while an empty buffer with a live writer is not EOF. The first demo showed data then EOF; the second showed would-block then EOF when one extra writer disappeared. Redirection changes descriptor references before program replacement, and pipeline launch must let producers and consumers run together before waiting. These are ownership and ordering rules, not timing tricks. When extending a shell or task runner, preserve them with exact-output tests, endpoint tables, bounded failure tests, and checks that every created child is eventually reaped.
+
+DO
+Explain both demos as state transitions, then map them onto a two-process pipeline.
+
+SOURCE
+content/systems-programming/ch40.json → SP40.020 · 40.9 Pipelines

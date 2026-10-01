@@ -1,0 +1,845 @@
+Design Patterns in C++
+Chapter 11: Flyweight
+Dr. Charles Dorner
+
+1. A thousand marks need not mean a thousand shapes
+Problem and first design
+
+SAY
+A drawing tool places marks at different horizontal positions. A mark has a style name and size as well as its position. Storing all three values in every mark is easy to understand, and for a small drawing it may be the best design. Now imagine each style also includes a large shape outline. Copying that outline into ten thousand marks spends memory on the same information again and again. Our question is whether we can keep that common part once without making the positions common too. Before designing the sharing, measure the repeated data. The small strings in this teaching example do not by themselves prove a memory saving.
+
+DO
+Ask learners to separate facts about a shape from facts about one placement.
+
+SOURCE
+manuscript/ch11.json → Repeated data can outweigh useful differences
+
+------------------------------------------------------------
+
+2. The direct value model is a valid starting point
+Problem and first design
+
+SAY
+Run this complete value-based model before introducing pointers. Each Mark owns a string, a size, and a position. The brace lists supply those fields in declaration order. A const reference in draw borrows one mark so printing does not copy its string. We first draw two equal styles at different positions, then change only the left style's size. The right mark remains size twelve because it owns a separate value. That independence is a useful default, not a defect. The cost appears only if the style payload becomes large and many marks repeat it. Any sharing design must preserve the independence of position while deliberately changing how the style is stored.
+
+DO
+Predict the last two output lines before running.
+
+SOURCE
+Lecture demonstration for manuscript/ch11.json → Repeated data can outweigh useful differences
+
+------------------------------------------------------------
+
+3. A pool can share the wrong thing perfectly
+Problem and first design
+
+SAY
+This demonstration intentionally uses an incomplete lookup key. The bad pool remembers styles by name only. Requesting stamp size twelve creates an object; requesting stamp size twenty finds the same name and returns the earlier object. The output therefore reports requested twenty but received twelve. Nothing crashed, no object died early, and the pointer is valid. The failure is a false claim about equality: the key treats two different styles as interchangeable. The correct chapter pool uses both name and size. If color later becomes shared state, color must enter the key too. A compiler cannot infer that design promise from the name of a map.
+
+DO
+Ask which one field must be added to the key before discussing pointer changes.
+
+SOURCE
+Lecture demonstration for manuscript/ch11.json → Split stable shared data from each use
+
+------------------------------------------------------------
+
+4. Share the stable facts; keep each use separate
+Problem and first design
+
+SAY
+Flyweight is a design that shares repeated state while leaving each use's changing details outside the shared object. The shared part has the technical name intrinsic state. In our chapter that is the style name and size. The per-use part is extrinsic state, here the horizontal position. These names describe a design choice, not a property that every program must assign the same way. A StylePool returns owners of an immutable Style, and a Mark stores one such owner beside its own position. Two marks can refer to the same style without becoming the same mark. That separation is the central mechanism to find in code.
+
+DO
+Ask learners to describe a third mark that shares style but differs in position.
+
+SOURCE
+manuscript/ch11.json → Split stable shared data from each use
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+Several marks, one immutable style. A map interns immutable Style objects by a complete structured key. shared_ptr allows marks to retain styles after a pool is destroyed.
+
+Share styles only when both name and size match. Keep each mark position separate. Reject empty names, size outside 1–100, and missing style pointers.
+
+One active pool returns the same object for the same key. Published Style objects are immutable. Each Mark owns its own position and shares only intrinsic style state. These are the rules that define a correct extension, even if it has the right C++ types. Store style fields by value for a small number of small styles. Integer style IDs into a stable central table can use less per-mark memory but require a clear table lifetime and ID-validity contract.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json
+
+------------------------------------------------------------
+
+6. Repeated data can outweigh useful differences
+Requirements and mechanism
+
+SAY
+A drawing tool places many marks on a page. A mark has a style name, a style size, and a horizontal position. Thousands of marks may use the same style while each position differs. For a few marks, store all three fields directly in every object. That is simple, clear, and often the right answer.
+
+The limitation appears when the shared portion becomes large. Imagine that a style later contains a loaded shape outline or a rendering table. Copying that payload for every mark may consume far more memory than the positions themselves. Before changing the design, measure the repeated data and the number of uses. Our small program keeps style data intentionally short so the ownership mechanism is visible; it is not evidence that this tiny representation saves memory.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → Repeated data can outweigh useful differences
+
+------------------------------------------------------------
+
+7. Split stable shared data from each use
+Requirements and mechanism
+
+SAY
+Flyweight is a memory-sharing design that stores repeated state once and gives each use a connection to it. The shared state is called intrinsic state. Here name and size identify the style. The state that belongs to a particular use is called extrinsic state. Here x is the mark's position. A Mark holds a shared style owner and its own x value. Two Marks can therefore agree on style without becoming the same mark.
+
+StylePool looks up a style by a Key containing both name and size. If that key already exists, it returns another shared owner of the same Style object. Otherwise it creates one immutable Style, stores an owner in the map, and returns another owner. Reusing an existing object is often called interning. It is useful only when equality of the chosen key truly means the shared data is interchangeable.
+
+The key is a std::pair<std::string, int>, not two fields joined into an unstructured string. A pair keeps field boundaries unambiguous. If a later style includes color, color must become part of the key too. A pool keyed only by name would wrongly reuse dot size twelve for a request for dot size twenty. The visible mistake would be a correct position with the wrong style size.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → Split stable shared data from each use
+
+------------------------------------------------------------
+
+8. Read the shared pointer type carefully
+Requirements and mechanism
+
+SAY
+StylePtr is an alias for std::shared_ptr<const Style>. shared_ptr means several owners can keep the same object alive. const Style means the object reached through this owner is read-only. It is not the same as const shared_ptr<Style>, which would prevent reseating that particular pointer variable but would still permit changing the Style through it.
+
+The pool constructs the object with make_shared<const Style>. The actual allocated Style is const, not merely viewed through one const handle while another mutable handle is retained. Its fields are initialized once and then read. Immutability means the object does not change after construction. That matters because a mutation to one shared style could otherwise change every mark using it. The public fields remain safe to read because access is through a pointer to const; the pool gives out no mutable owner.
+
+A shared_ptr copy increments a shared ownership count; it does not copy the Style. When one pointer is destroyed, the count decreases. The object remains alive while at least one owner remains. The pool owns styles through its map, and each Mark owns its style through style_. This is shared ownership, so an ownership diagram must not imply that a mark exclusively owns its style. The arrows are labeled shared owner to make that distinction explicit.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → Read the shared pointer type carefully
+
+------------------------------------------------------------
+
+9. Trace a lookup and a draw
+Requirements and mechanism
+
+SAY
+main requests (dot,12) twice. The first lookup misses, creates one Style, and stores it. The second lookup finds the existing entry and returns found->second, which is the map's shared_ptr value. first and same therefore point to the same object. A request for (dot,20) uses a different key and receives a different object. The pointer equality checks test identity, not merely equal field values.
+
+Mark left takes an owner of the twelve-size style and stores x = 3. Mark right receives another owner of that same style and stores x = 8. draw reads the shared name and size, then appends its own position. The outputs dot/12@3 and dot/12@8 show the separation directly. Neither draw call changes the style or the other mark.
+
+In draw, const auto& name borrows the string inside Style while the Mark's owner keeps the Style alive. const auto size copies the small integer. Both are suitable choices: copying an int is cheap; copying the string is unnecessary for this local read. The returned formatted string is a new owned value. It does not expose a reference into shared state and remains valid after the Mark is destroyed. Mark explicitly defaults its copy operations, which suppresses automatic generation of move operations. Constructing from std::move(left) therefore copies the shared owner; both marks stay usable. This value-like policy avoids a moved-from Mark with a null style.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → Trace a lookup and a draw
+
+------------------------------------------------------------
+
+10. Lifetime is independent of the pool scope
+Requirements and mechanism
+
+SAY
+The program creates a short-lived StylePool inside a nested scope and saves one returned owner in survivor outside that scope. When the pool is destroyed, its map releases its owner. survivor still owns the Style, so reading survivor->name afterward is valid. This test checks a real advantage of shared ownership: the pool's lifetime need not enclose every use.
+
+The pool uses strong owners, so it also retains each style until the pool is destroyed or entries are removed. An unused style does not vanish merely because its last Mark disappears. That is a cache-retention policy, not a leak caused by missing delete. A long-running application may require a size limit, explicit clearing, or weak_ptr entries. A weak pointer observes a shared object without keeping it alive, but it requires checking whether the object still exists before reuse. That complexity should be justified by actual retention needs.
+
+The compiler checks const access and pointer types; it cannot prove that the key includes every meaningful field. At runtime, map lookup compares keys and finds a matching entry. std::map lookup takes logarithmic comparisons in the number of styles. shared_ptr adds a control block and ownership bookkeeping. Neither cost disappears because the design has a name.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → Lifetime is independent of the pool scope
+
+------------------------------------------------------------
+
+11. Calculate the tradeoff before calling it an optimization
+Requirements and mechanism
+
+SAY
+Suppose N marks each have U bytes of unique state and would otherwise carry S bytes of shared payload. The direct representation costs roughly N times (U + S), ignoring container and allocation overhead. With K distinct styles and a per-mark handle of H bytes, sharing costs roughly N times (U + H) plus K times S, plus pool and control-block overhead. When K is nearly N or S is tiny, sharing may lose. When S is large and K is much smaller than N, it can win substantially.
+
+This example does not report exact saved bytes because object layout, string storage, allocator overhead, and platform details matter. Measure the real workload. Also test semantic isolation: changing a mark's position must not change another mark, and equal style keys should share exactly when that is part of the pool contract. Flyweight is a targeted optimization, not a reason to turn every small value into a shared pointer.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → Calculate the tradeoff before calling it an optimization
+
+------------------------------------------------------------
+
+12. Read const on the object, not just the handle
+Mechanism in C++
+
+SAY
+A shared pointer is an owning handle: several handles can keep the same object alive. In shared_ptr<const Style>, const describes the Style reached through the handle, so field updates through that handle are forbidden. Putting const before shared_ptr instead fixes that particular handle variable; it can still reach a mutable Style. This distinction matters because one change to shared mutable style would appear in all marks using it. The chapter calls make_shared<const Style>, making the allocated object itself const, rather than retaining a secret mutable owner elsewhere. Each style is fully initialized and then read. Changing style means choosing another style owner, not quietly editing the shared object.
+
+DO
+Point to both const placements and ask what each prevents.
+
+SOURCE
+manuscript/ch11.json → Read the shared pointer type carefully
+
+------------------------------------------------------------
+
+13. A copy of an owner is not a copy of the style
+Mechanism in C++
+
+SAY
+Follow owners rather than guessing from variable names. StylePool's map owns one handle for each retained style. A successful get returns another handle to the same object. Copying that handle updates ownership bookkeeping; it does not copy the style payload. Each Mark then owns a handle, so destroying the pool does not necessarily destroy a style. The style remains alive until its final strong owner disappears. The current sharing graph has no back pointer from Style to the pool or to marks, so it does not create an ownership cycle. In a review, label these links as shared ownership. An arrow that suggests one mark exclusively owns the style would teach the wrong lifetime.
+
+DO
+Count the owners after a map entry, two local handles, and two Marks refer to one style.
+
+SOURCE
+manuscript/ch11.json → Read the shared pointer type carefully
+
+------------------------------------------------------------
+
+14. Identity and equality answer different questions
+Mechanism in C++
+
+SAY
+Two styles can have equal field values without being the same object. Pointer equality checks object identity in this example. Before clearing the pool, repeated requests for the same key return the same retained object. The solution lab then clears the map. Old marks remain valid because their owners keep the old object alive, but a later lookup must create a new object for that key. Its name and size equal the earlier values, while its pointer differs because the old object still exists. This is not a contradiction. The pool guarantees reuse among its currently retained entries. Decide whether callers need equal appearance or stable identity across a reset before writing a stronger promise.
+
+DO
+Compare the solution’s replacement != first test with its equal name and size tests.
+
+SOURCE
+manuscript/ch11.json → Trace a lookup and a draw
+
+------------------------------------------------------------
+
+15. Moving a Mark still copies in this chapter
+Mechanism in C++
+
+SAY
+The chapter includes a subtle lifetime choice. Mark explicitly defaults its copy constructor and copy assignment. That choice suppresses automatic generation of a move constructor. When the example constructs copied from std::move(left), the available copy constructor can accept the argument and copies its shared owner. Both marks remain usable. The name std::move is easy to overread: it permits move-aware overload selection, but it does not itself remove an object from storage or force a move operation to exist. Here the value-like copy policy avoids leaving a moved-from Mark with a null style that draw would dereference. If you later add moving, define and test the moved-from contract.
+
+DO
+Ask learners to predict whether left.draw remains valid after the chapter’s std::move expression.
+
+SOURCE
+manuscript/ch11.json → Trace a lookup and a draw
+
+------------------------------------------------------------
+
+16. A sharing budget must include the handles
+Mechanism in C++
+
+SAY
+Let N be the number of marks. Let U be bytes unique to each mark, S the shared payload size, K the number of distinct styles, and H the per-mark handle size. The direct design roughly uses N times U plus S. Sharing roughly uses N times U plus H, then adds K copies of S and the pool's own overhead. These are estimates, not exact sizeof promises. For example, with ten thousand marks, one thousand payload bytes per style, and only ten styles, the repeated payload shrinks greatly. If nearly every mark has a unique style or the payload is tiny, lookup and handle costs may outweigh the saving. Measure the actual workload.
+
+DO
+Use N=10000, S=1000, K=10 to compare payload copies before discussing overhead.
+
+SOURCE
+manuscript/ch11.json → Calculate the tradeoff before calling it an optimization
+
+------------------------------------------------------------
+
+17. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Flyweight / Intrinsic state → const Style. Store details safe to reuse across many independent objects.
+
+Extrinsic state → Mark::x_. Keep information belonging to one particular use outside the shared object.
+
+Flyweight Factory → StylePool::get. Look up shared state by its complete identity key and reuse a match.
+
+Context / Client → Mark and main. Combine shared details with local details when performing the operation.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → C11.08 concepts
+
+------------------------------------------------------------
+
+18. Shared style, separate positions
+UML and source walkthrough
+
+SAY
+Each hollow-diamond link is explicitly labeled shared owner, rather than exclusive composition. Both marks reach the same immutable Style but keep separate x members. The pool keeps another strong owner. A reference count tracks these owners; the Style is destroyed only after the last strong owner releases it. The diagram uses shared aggregation to show the non-exclusive relationship; the C++ shared_ptr contract supplies the precise lifetime rule.
+
+A map interns immutable Style objects by a complete structured key. shared_ptr allows marks to retain styles after a pool is destroyed.
+
+Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch11/main.cpp:1-87; content/design-patterns-cpp/ch11.json → diagrams.11
+
+------------------------------------------------------------
+
+19. Flyweight — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+A map interns immutable Style objects by a complete structured key. shared_ptr allows marks to retain styles after a pool is destroyed.
+
+Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch11/main.cpp:1-87; content/design-patterns-cpp/ch11.json → diagrams.11
+
+------------------------------------------------------------
+
+20. Reuse by the complete intrinsic key
+UML and source walkthrough
+
+SAY
+The pool asks whether an exactly matching style already exists. This branch occurs after input validation and before allocation. A structured complete key prevents accidental sharing of different styles.
+
+The comment states why every shared field is in the key. Construct a name-and-size pair without ambiguous concatenation. Find that exact pair in the map. Check whether a matching entry exists. Copy the stored shared owner, not the Style object. End the reuse branch; a miss continues to creation.
+
+Equal keys mean interchangeable immutable style data. Omitting size or another intrinsic field returns the wrong shared object.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch11/main.cpp:24-29
+
+------------------------------------------------------------
+
+21. Combine shared style with local position
+UML and source walkthrough
+
+SAY
+A mark formats shared style information together with its own position. This read-only operation is the visible use of the flyweight. The same Style supports many distinct Mark contexts.
+
+Declare a read-only operation that returns an owned string. The comment identifies position as per-use state. Borrow the shared name for this call. Copy the small shared size value. Begin the result with the style name and separator. Append the size converted to decimal text. Append this Mark position to the result. Close drawing; the returned string survives its locals.
+
+Position stays local and the Style remains immutable. Returning a borrowed local string or mutating shared style would break isolation.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch11/main.cpp:46-53
+
+------------------------------------------------------------
+
+22. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. A map interns immutable Style objects by a complete structured key. shared_ptr allows marks to retain styles after a pool is destroyed.
+
+Tests verify same-key identity, different-key separation, distinct positions, size boundaries, invalid size, null-style rejection, survival beyond a pool lifetime, and safe copying even from an rvalue expression. The program does not benchmark memory savings or synchronize concurrent pool access.
+
+Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch11/main.cpp
+
+------------------------------------------------------------
+
+23. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. get(dot,12): miss -> one Style. The pool has no matching key yet.
+
+Step 2. get(dot,12): hit -> same object. The pool copies an existing shared owner.
+
+Step 3. left x=3; right x=8. Positions live in separate Mark objects.
+
+Step 4. short-lived pool destroyed; survivor still valid. A remaining strong owner keeps the immutable Style alive.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → trace
+
+------------------------------------------------------------
+
+24. Debug the promise: Use only name as the pool key.
+Execute and debug
+
+SAY
+Use only name as the pool key. A request for dot/20 can incorrectly receive the existing dot/12 style. The key does not include all intrinsic state.
+
+Tests verify same-key identity, different-key separation, distinct positions, size boundaries, invalid size, null-style rejection, survival beyond a pool lifetime, and safe copying even from an rvalue expression. The program does not benchmark memory savings or synchronize concurrent pool access.
+
+Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → example.failures
+
+------------------------------------------------------------
+
+25. Debug the promise: Place x inside the shared Style and mutate it for each mark.
+Execute and debug
+
+SAY
+Place x inside the shared Style and mutate it for each mark. Moving or constructing one mark changes the apparent position of other marks. Per-use state was incorrectly shared.
+
+Tests verify same-key identity, different-key separation, distinct positions, size boundaries, invalid size, null-style rejection, survival beyond a pool lifetime, and safe copying even from an rvalue expression. The program does not benchmark memory savings or synchronize concurrent pool access.
+
+Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → example.failures
+
+------------------------------------------------------------
+
+26. Debug the promise: Return a raw pointer to a pool-owned object, then destroy the pool.
+Execute and debug
+
+SAY
+Return a raw pointer to a pool-owned object, then destroy the pool. A later Mark draw may dereference a destroyed Style. A raw borrow does not preserve shared lifetime.
+
+Tests verify same-key identity, different-key separation, distinct positions, size boundaries, invalid size, null-style rejection, survival beyond a pool lifetime, and safe copying even from an rvalue expression. The program does not benchmark memory savings or synchronize concurrent pool access.
+
+Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → example.failures
+
+------------------------------------------------------------
+
+27. Trace 1: Flyweight: Same style identity
+Trace experiments
+
+SAY
+Flyweight: Same style identity. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Within the pool, the same full key reuses one immutable style.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → dpx-c11-trace-1; companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 2: Flyweight: Different size identity
+Trace experiments
+
+SAY
+Flyweight: Different size identity. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Size is part of shared state; different sizes require different styles.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → dpx-c11-trace-2; companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 3: Flyweight: Different name identity
+Trace experiments
+
+SAY
+Flyweight: Different name identity. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Matching size alone is not enough to share.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → dpx-c11-trace-3; companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 4: Flyweight: Position stays local
+Trace experiments
+
+SAY
+Flyweight: Position stays local. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Position is extrinsic state stored in each Mark, not in Style.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → dpx-c11-trace-4; companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 5: Flyweight: Clear count
+Trace experiments
+
+SAY
+Flyweight: Clear count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The pool must have no retained entries after clearing.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → dpx-c11-trace-5; companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 6: Flyweight: Old client survives clear
+Trace experiments
+
+SAY
+Flyweight: Old client survives clear. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The Mark’s shared_ptr keeps its immutable style alive.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → dpx-c11-trace-6; companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+33. Trace 7: Flyweight: New identity after clear
+Trace experiments
+
+SAY
+Flyweight: New identity after clear. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The old style still exists, but the emptied pool creates a new object for the same value.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → dpx-c11-trace-7; companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+34. Trace 8: Flyweight: Invalid size
+Trace experiments
+
+SAY
+Flyweight: Invalid size. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The size domain remains one through one hundred.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → dpx-c11-trace-8; companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+35. Exercise 11.1: Guided modification
+Practice and extension
+
+SAY
+Change right from x=8 to x=11. Which output and shared objects should change?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Position is extrinsic state.
+
+After the discussion, compare the reasoning. Only right.draw changes to dot/12@11. The shared Style object, first == same, and left.draw remain unchanged.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch11.json → exercises.11.1
+
+------------------------------------------------------------
+
+36. Exercise 11.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+Request ("dot",12), then ("dot",20), then ("dot",12) from a fresh pool. How many entries exist, and which returned pointers compare equal?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The complete pair is the key.
+
+After the discussion, compare the reasoning. The pool contains two entries. The first and third pointers are equal; the second points to a different Style. The values of the positions are irrelevant because they are not pool inputs.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch11.json → exercises.11.2
+
+------------------------------------------------------------
+
+37. Exercise 11.3: Diagnose a bug
+Practice and extension
+
+SAY
+A revised pool concatenates name and size without a delimiter to build its key. Give a collision example and a robust repair.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Different field splits can form the same string.
+
+After the discussion, compare the reasoning. Name "a1" with size 2 and name "a" with size 12 both form "a12". Use the existing pair key so name and size remain separate fields. A delimiter alone also needs escaping if names may contain it.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch11.json → exercises.11.3
+
+------------------------------------------------------------
+
+38. Exercise 11.4: Choose a design
+Practice and extension
+
+SAY
+There are twenty marks and every style is a short integer code. Compare by-value storage with shared_ptr flyweights.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The handle and control block have costs too.
+
+After the discussion, compare the reasoning. By-value integer codes are likely simpler and smaller. Flyweight is worth considering when the repeated payload is large and reused often. Measure memory and workload before introducing allocation, lookup, and shared ownership.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch11.json → exercises.11.4
+
+------------------------------------------------------------
+
+39. Exercise 11.5: Extend without regressions
+Practice and extension
+
+SAY
+Add a test that a Style returned from a nested pool scope can still be used to construct and draw a Mark after the scope ends. State an expected example.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The returned shared_ptr is an owner.
+
+After the discussion, compare the reasoning. Keep a StylePtr outside the scope, assign get("dash",10) inside, then construct Mark(saved,4) afterward. draw must return dash/10@4. This tests actual use after pool destruction rather than only reading one field.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch11.json → exercises.11.5
+
+------------------------------------------------------------
+
+40. Exercise 11.6: Justify a decision
+Practice and extension
+
+SAY
+Explain why a new color field may require changes to both Style and Key. Give one situation where it should remain in Mark instead.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Ask whether color is shared identity or per-use context.
+
+After the discussion, compare the reasoning. If style color is intrinsic, it affects interchangeability and must be included in both Style and Key. If every mark may choose its own temporary highlight color independently, that highlight is extrinsic and belongs in Mark. The same word can represent different responsibilities in different requirements.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch11.json → exercises.11.6
+
+------------------------------------------------------------
+
+41. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add StylePool::clear(), which removes the pool's retained entries without invalidating existing Mark or StylePtr owners. Preserve every original test. Define identity after clearing explicitly: a later request may create a new Style with equal values.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: After clear, pool.count() is zero. Existing left.draw still returns dot/12@3. A new dot/12 request differs by pointer from first but has equal fields. Repeated requests after rebuilding the entry share the new pointer.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch11/main.cpp
+
+------------------------------------------------------------
+
+42. Extension solution and design review
+Practice and extension
+
+SAY
+The solution clears the map. Existing shared_ptr owners keep old styles alive. The next request creates a new equal-valued object because the old entry is absent. This is a deliberate pool-lifetime identity rule: sharing is guaranteed among active entries, not across every clearing operation for the entire process.
+
+Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch11/main.cpp
+
+------------------------------------------------------------
+
+43. Application case 1: defend your choice
+Practice and extension
+
+SAY
+Thousands of marks reuse the same immutable appearance but have different positions. What should Flyweight share?
+
+One mutable position for all marks. Moving one mark would change the others’ apparent positions.
+
+Only a copy of the raw pointer with no lifetime contract. Access without an owner can outlive the pooled object.
+
+Appearance, with position supplied per mark.. The shared state is intrinsic; position is context-specific extrinsic state.
+
+A different appearance object for every mark. That discards the intended storage sharing.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → C11.22 scenario
+
+------------------------------------------------------------
+
+44. Application case 2: defend your choice
+Practice and extension
+
+SAY
+A style pool keys entries only by name. A client requests dot/20 after dot/12 exists. What defect can occur?
+
+The map must reject all lookups. The map can operate correctly while the application key is incomplete.
+
+It returns dot/12 for the dot/20 request.. The key must include every attribute that determines the shared style.
+
+shared_ptr fixes the missing key field. Lifetime management does not establish semantic identity.
+
+The position becomes the style size automatically. No such conversion follows from map lookup.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch11.json → C11.23 scenario
+
+------------------------------------------------------------
+
+45. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Intrinsic state is shared; extrinsic state belongs to each use. A complete structured key defines safe sharing. shared_ptr<const T> makes the pointee read-only through that owner. Strong pool entries retain styles even without current users. Measure payload size and reuse before claiming memory savings.
+
+Share measured heavy immutable data. Keep the key, lifetime policy, and per-use state obvious so later fields do not accidentally change sharing semantics.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch11.json → summary
+
+------------------------------------------------------------
+
+46. Retention is a policy; it is not automatically a leak
+Recall and transfer
+
+SAY
+A memory graph can be correct and still retain more data than the application wants. Our map holds strong owners until entries are cleared or the pool dies. If all marks using one style disappear, the map can still keep that style alive for reuse. Calling that a missing-delete leak would misdiagnose the code. The question is whether the retention policy fits the workload. A bounded cache, explicit clear, or weak entries may be appropriate in a long-running editor. A weak pointer does not keep the style alive, so lookup must detect an expired object and recreate it. That adds states and tests. Do not add this complexity merely because weak ownership sounds cheaper.
+
+DO
+Ask learners to distinguish an unreachable leaked object from an intentionally retained map entry.
+
+SOURCE
+manuscript/ch11.json → Lifetime is independent of the pool scope
+
+------------------------------------------------------------
+
+47. Diagnose the symptom before replacing the mechanism
+Recall and transfer
+
+SAY
+Three failures look like a sharing problem but have different causes. A request for size twenty that draws size twelve suggests an incomplete key. Editing one style and changing many marks suggests unintended shared mutation. Memory growth after deleting drawings suggests a retention policy that needs a limit. None is fixed by blindly replacing one smart pointer type with another. Also check the local invariant that every Mark has a nonnull style owner before draw uses it. The constructor rejects a missing owner for that reason. Tests should cover equal keys, different keys, rejected input, independent positions, and survival beyond the pool's scope. Together they describe what sharing actually promises.
+
+DO
+Give learners one symptom and require both a likely source location and a regression test.
+
+SOURCE
+manuscript/ch11.json → Split stable shared data from each use
+
+------------------------------------------------------------
+
+48. Explain the optimization without hiding the cost
+Recall and transfer
+
+SAY
+A useful explanation of Flyweight begins with repeated data, not with shared_ptr. We measured that many uses carry the same large stable payload. We split that payload from per-use values, stored it once per complete key, and gave each use an owner that preserves its lifetime. Immutability prevents one use from changing every other use. The price is lookup, handles, bookkeeping, and a retention policy. If the direct representation is already small and clear, keeping it may be the better engineering decision. For a new drawing feature such as color, first ask whether color belongs to shared style or individual use. The answer controls the key, storage, and tests.
+
+DO
+Ask for a design review explanation that includes both a benefit and a measured cost.
+
+SOURCE
+manuscript/ch11.json → Calculate the tradeoff before calling it an optimization

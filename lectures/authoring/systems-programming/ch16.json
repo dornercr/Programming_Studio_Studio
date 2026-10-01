@@ -1,0 +1,223 @@
+{
+  "chapter": 16,
+  "title": "Machine Control Flow",
+  "opening": [
+    {
+      "title": "Control flow chooses which work is allowed to happen",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "concept",
+      "keyPoints": [
+        "A branch can protect an otherwise invalid operation.",
+        "Flags connect comparisons to decisions.",
+        "Fewer branches do not automatically mean better code."
+      ],
+      "narration": "An if statement is not only a way to choose the final number. It can decide whether an operation is allowed to happen at all. A division may be safe only when its divisor is nonzero, and a load may be safe only when an index is valid. Replacing that branch with a calculation that evaluates both choices can break the program even if the final selection looks equivalent. Machine control flow therefore has two jobs: choose the next instruction and preserve the source program's evaluation rules. Start with those rules before deciding whether branches, conditional moves, or tables offer a useful implementation.",
+      "actions": [
+        "Ask for a guarded division and a guarded array access example."
+      ],
+      "sourceRef": "content/systems-programming/ch16.json → SP16.010",
+      "question": {
+        "prompt": "Why can computing both candidates be invalid even when only one result is selected?",
+        "answer": "The unselected candidate can perform an operation that the original branch intentionally avoided."
+      }
+    },
+    {
+      "title": "The conditional expression evaluates only its chosen arm",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "code",
+      "keyPoints": [
+        "A zero divisor chooses the fallback.",
+        "The division helper records whether it ran.",
+        "The nonzero case performs exactly one division."
+      ],
+      "narration": "The first call uses a zero divisor, so the conditional expression chooses zero without calling quotient. The output reports result zero and calls zero. The second call uses divisor two, calls the helper once, and returns five, so the next line reports five and one. The reference parameter in quotient lets it update the caller's counter; that counter makes evaluation visible. We never execute division by zero. This is a source-language guarantee about the conditional operator, not a claim that the compiler must emit a branch rather than a safe alternative instruction sequence.",
+      "actions": [
+        "Predict both the result and counter before running."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch16.json → SP16.016",
+      "question": {
+        "prompt": "What does the calls counter prove in the zero-divisor case?",
+        "answer": "The division helper was not evaluated; the program selected the fallback directly."
+      },
+      "code": {
+        "filename": "sys_ch16_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint quotient(int divisor, int& calls) {\n    ++calls;\n    return 10 / divisor; // Caller guarantees a nonzero divisor here.\n}\nint main() {\n    int calls = 0;\n    int divisor = 0;\n    int result = divisor != 0 ? quotient(divisor, calls) : 0;\n    std::cout << \"result=\" << result << \" calls=\" << calls << '\\n';\n    divisor = 2;\n    result = divisor != 0 ? quotient(divisor, calls) : 0;\n    std::cout << \"result=\" << result << \" calls=\" << calls << '\\n';\n}\n",
+        "expectedStdout": "result=0 calls=0\nresult=5 calls=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Normalize a table selector only inside its valid range",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "code",
+      "keyPoints": [
+        "Selectors ten through twelve map to three entries.",
+        "Nine and thirteen use the default.",
+        "Check before subtracting and indexing."
+      ],
+      "narration": "This demonstration uses a value table rather than a machine jump table, but the range obligation is the same. Valid selectors are ten, eleven, and twelve. After checking that range, subtracting ten produces indices zero through two. Selector nine prints default, ten prints stop, twelve prints wait, and thirteen prints default. All accesses stay within the array. A naive expression using selector minus ten directly would mishandle values below the range and could index outside the table. The corrected design keeps the semantic mapping visible: validation determines whether an entry exists, and normalization only happens after that fact is known.",
+      "actions": [
+        "Trace one value below, at each edge, and above the accepted range."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch16.json → SP16.018",
+      "question": {
+        "prompt": "Why should selector minus ten not be used directly as an unchecked index?",
+        "answer": "Selectors below ten or above twelve do not map to valid table entries."
+      },
+      "code": {
+        "filename": "sys_ch16_guarded_dispatch.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\n#include <string_view>\nstd::string_view dispatch(int selector) {\n    constexpr std::array<std::string_view, 3> names{\"stop\", \"run\", \"wait\"};\n    if (selector < 10 || selector > 12) return \"default\";\n    return names[static_cast<unsigned>(selector - 10)];\n}\nint main() {\n    for (int selector : {9, 10, 12, 13}) {\n        std::cout << selector << ':' << dispatch(selector) << '\\n';\n    }\n}\n",
+        "expectedStdout": "9:default\n10:stop\n12:wait\n13:default\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "A checked value-table dispatch demonstrates the range rule; it is not an executable-address jump table."
+      }
+    },
+    {
+      "title": "CMP creates evidence; the branch gives it meaning",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "concept",
+      "keyPoints": [
+        "AT&T CMP computes destination minus source for flags.",
+        "The original operands are preserved.",
+        "Signed less-than and unsigned below use different predicates."
+      ],
+      "narration": "The comparison instruction does not come with a label saying signed integers or unsigned counts. It establishes flags from a subtraction, and the following condition interprets them. For signed less-than, sign and overflow work together; for unsigned below, carry-related evidence matters. Equality relies on zero. This is why a high bit by itself is not enough to decide signed order after a subtraction that crossed the signed range. In a review, write the intended source comparison beside the chosen branch. Matching instruction names by intuition is weaker than deriving the branch from the domain of the operands.",
+      "actions": [
+        "Use the same all-ones bit pattern as unsigned maximum and signed minus one."
+      ],
+      "sourceRef": "content/systems-programming/ch16.json → SP16.004",
+      "question": {
+        "prompt": "Does CMP itself decide whether the comparison is signed?",
+        "answer": "No. The consuming condition applies the intended signed or unsigned interpretation to its flags."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "TEST asks a bit question without storing a result",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "concept",
+      "keyPoints": [
+        "TEST with itself can detect zero.",
+        "TEST with a mask detects selected bits.",
+        "Any selected bit differs from all required bits."
+      ],
+      "narration": "A masked test answers whether the intersection contains any set bit. Suppose permissions contain only bit one and the required mask contains bits one and two. The intersection is nonzero, so an any-bit test succeeds, but the request does not have all required permissions. Testing whether the intersection equals the complete mask would answer that different question. This distinction is easy to lose when reading a zero branch after TEST. State the predicate in plain language before translating it. A machine instruction can faithfully implement the wrong application question, especially when flags are used for authorization or feature selection.",
+      "actions": [
+        "Compare permissions 01 with required mask 11."
+      ],
+      "sourceRef": "content/systems-programming/ch16.json → SP16.006",
+      "question": {
+        "prompt": "What does a nonzero result from value AND mask establish?",
+        "answer": "At least one selected bit is set; it does not prove every bit in the mask is set."
+      }
+    },
+    {
+      "title": "A loop needs an invariant and a progress measure",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "concept",
+      "keyPoints": [
+        "The invariant explains what the partial result means.",
+        "The update moves toward the stopping condition.",
+        "An empty range must avoid the body when required."
+      ],
+      "narration": "The source sum loop maintains a relationship between consumed elements, the current sum, and the count remaining. That relationship is its invariant: a rule that stays true before and after each iteration. The decreasing remaining count is a progress measure that explains why the loop terminates. For zero elements, the sum should be zero without reading a first element. A bottom-tested loop must handle that case separately if its body would otherwise run once. When optimized code uses pointers instead of indices, recover these relationships rather than searching for a literal copy of the source for statement.",
+      "actions": [
+        "Trace count four to zero and label the partial sum after each step."
+      ],
+      "sourceRef": "content/systems-programming/ch16.json → SP16.014",
+      "question": {
+        "prompt": "Why is a base stopping condition not enough without a valid update?",
+        "answer": "The program may never move toward that condition and can loop forever or move outside the valid range."
+      }
+    },
+    {
+      "title": "Flags can be overwritten between loop work and the back edge",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "concept",
+      "keyPoints": [
+        "A decrement can establish the zero condition.",
+        "The back-edge branch consumes that condition.",
+        "Inserted arithmetic may replace the intended flags."
+      ],
+      "narration": "The chapter's assembly loop subtracts one from the remaining count and then branches while it is nonzero. That branch depends on the flags from the subtraction. If a later edit inserts unrelated arithmetic between the subtraction and branch, the branch may instead test the new arithmetic result. For example, an added zeroing operation can set the zero flag and end the loop early even while the count remains positive. The count register can still look correct in a debugger, making the failure confusing. Preserve the producer-consumer relationship for flags just as carefully as the data stored in ordinary registers.",
+      "actions": [
+        "Ask where a debugging counter update could safely be placed."
+      ],
+      "sourceRef": "content/systems-programming/ch16.json → SP16.028",
+      "question": {
+        "prompt": "What must the back-edge branch read in the count-controlled loop?",
+        "answer": "The relevant flags established by updating or testing the remaining count."
+      }
+    },
+    {
+      "title": "Conditional moves require valid candidate computation",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "concept",
+      "keyPoints": [
+        "A register selection can avoid a branch.",
+        "A memory source may still be read even when not selected.",
+        "Do not hide invalid addresses behind a false condition."
+      ],
+      "narration": "A conditional move is useful when the candidate values already exist and both are safe to obtain. It is not a universal replacement for a branch around a risky memory access. In particular, a conditional move with a memory source can require that memory read even when the destination would remain unchanged. The source-language compiler must preserve the behavior of valid conditional expressions, but handwritten assembly needs its own reasoning. Ask whether both candidates are valid to compute and whether doing both adds expensive work. Performance depends on predictability, dependencies, and target hardware, not simply the absence of a branch mnemonic.",
+      "actions": [
+        "Compare selecting two registers with guarding a pointer dereference."
+      ],
+      "sourceRef": "content/systems-programming/ch16.json → SP16.016",
+      "question": {
+        "prompt": "When is conditional selection a straightforward replacement for branching?",
+        "answer": "When both candidate values are valid and suitably cheap to compute under the full input contract."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "A switch describes a mapping, not a mandatory jump table",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "concept",
+      "keyPoints": [
+        "Dense cases may use a jump table.",
+        "Constant results may use a data table.",
+        "Sparse cases may favor comparison trees."
+      ],
+      "narration": "The compiler's job is to preserve how each input maps to an outcome, including the default case. A switch over neighboring selectors might become a jump table, while a switch returning small constants might become a simple value lookup or arithmetic formula. Widely separated case values may be better represented by comparisons. Our table demonstration therefore teaches the validation relationship without promising a particular assembly form. When inspecting optimized output, first list the source mapping, then identify how the machine code preserves it. A missing chain of branches is not evidence that the compiler forgot cases.",
+      "actions": [
+        "Compare selectors 0–5 with selectors 1, 1000, and 1000000."
+      ],
+      "sourceRef": "content/systems-programming/ch16.json → SP16.020",
+      "question": {
+        "prompt": "Why can a table in optimized switch code contain data instead of code addresses?",
+        "answer": "If cases simply return values, indexing a table of those values can implement the same mapping."
+      }
+    },
+    {
+      "title": "Test the decision boundary and the work it protects",
+      "eyebrow": "SYSTEMS / CHAPTER 16",
+      "kind": "concept",
+      "keyPoints": [
+        "Use empty, edge, and default cases.",
+        "Check that forbidden operations are not evaluated.",
+        "Inspect generated code without demanding one exact shape."
+      ],
+      "narration": "A useful control-flow test checks more than the final number for a common input. Test zero elements, the last valid table entry, one value outside the range, and the fallback that must avoid invalid work. The division helper's counter makes that avoided work observable without executing an unsafe operation. For an assembly routine, also verify flags, signedness, and stack or memory effects along each path. During maintenance, compare generated implementations by behavior and measured cost rather than requiring the compiler to retain one familiar source shape. Different branches or loops can be equally correct if every permitted observation stays intact.",
+      "actions": [
+        "Have learners propose one path test that a common-input test misses."
+      ],
+      "sourceRef": "content/systems-programming/ch16.json → SP16.028",
+      "question": {
+        "prompt": "What extra property does the counter-based division test verify beyond result zero?",
+        "answer": "It verifies that the protected division was never executed in the fallback case."
+      }
+    }
+  ]
+}

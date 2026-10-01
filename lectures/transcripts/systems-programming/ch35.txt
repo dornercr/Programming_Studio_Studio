@@ -1,0 +1,712 @@
+Systems Programming and Machine Organization
+Chapter 35: Buffered I/O — where the bytes are waiting
+Dr. Charles Dorner
+
+1. One character operation need not mean one system call
+Problem and first experiment
+
+SAY
+Writing a character through a library does not necessarily enter the kernel immediately. A user-space buffer can collect many characters and send them together. This reduces repeated transition and setup costs, but it also means the application's successful operation may precede the underlying transfer. Those are two sides of the same mechanism. Begin with the question of who currently holds the bytes. Are they still in the application buffer, accepted by the kernel, or covered by the required persistence operation? Naming that boundary prevents a performance explanation from becoming an incorrect promise that every formatted line is already safely stored.
+
+DO
+Track one byte through the application buffer and underlying write path.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.006 · 35.2 User-space buffering
+
+------------------------------------------------------------
+
+2. Count elements when the interface counts elements
+Problem and first experiment
+
+SAY
+The program writes three elements of two bytes each to an automatically removed temporary file. fwrite returns three, not six, because its result counts complete elements. After an explicit positioning transition, fread requests six elements of size one and returns six. The zero byte at index two remains zero, so it does not terminate this block operation. The output makes the units visible: written-elements three, read-bytes six, and embedded-zero zero. Every count is checked before reporting success, and fclose is checked too. This is a correctness demonstration of standard I/O, not a measurement of how many kernel calls the library chose or proof of durable storage.
+
+DO
+Predict counts and zero-byte behavior before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch35.json → SP35.008 · 35.3 Standard I/O
+
+------------------------------------------------------------
+
+3. The library position can be ahead of the application
+Problem and first experiment
+
+SAY
+Suppose a library reads ABCD from the underlying file to satisfy an application request for A. The underlying file position is now four, while B, C, and D wait in the library buffer. A later buffered read can return B without another system call. A raw descriptor read instead begins at the underlying position and may return E. Nothing disappeared from storage; the program mixed two layers whose positions differ. This explains why FILE pointers and integer descriptors are not interchangeable abstractions. Choose one for a workflow unless there is a deliberate synchronization plan that accounts for read-ahead, pending writes, and position changes.
+
+DO
+Mark separate application-consumption and descriptor positions.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.012 · 35.5 Read buffering
+
+------------------------------------------------------------
+
+4. Model the apparent skipped bytes safely
+Problem and first experiment
+
+SAY
+This portable model intentionally uses strings so we can show both positions without performing an improperly coordinated mix of real I/O. Fetching the first four bytes advances kernel_position to four. The application consumes A from the local buffer, leaving its index at one. Reading through that buffer next yields B, while a modeled raw read at the underlying position yields E. The three printed characters therefore explain the apparent gap exactly. The model does not claim that every real library reads four bytes; that size is chosen to make the mechanism visible. A real implementation's read-ahead amount is an implementation detail.
+
+DO
+Predict all three characters before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch35.json → SP35.010 · 35.4 FILE*
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A model output buffer forwards data after four bytes or an explicit flush. Append AB and CD, then one final E.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Combine characters into batches of four, then forward any remaining suffix at the end. Do not count an empty final flush as a data transfer.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Flushing a language-library buffer is not the same guarantee as durable storage on a device. Keep visibility and persistence separate.
+
+A related failure in the generalized operation is concrete: Flush only when pending.size()==4. The final E never reaches output.
+
+The repair changes the operation at the point where the rule can be enforced: Flush a nonempty suffix when the operation finishes. Test a size not divisible by the buffer capacity.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+A partial final buffer still contains real data. The explicit final flush closes that gap, while the empty check prevents a misleading transfer count. This model counts forwarding to another memory string. Library flush, kernel acceptance, and durable storage are different boundaries in a real output path.
+
+A plausible alternative: Use buffering for throughput; choose explicit flush points when another participant must see a boundary.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.03
+
+------------------------------------------------------------
+
+8. Chapter 35 — Buffered I/O
+Systems mechanisms and source lecture
+
+SAY
+Buffering groups small operations into larger transfers. It can reduce system-call overhead and provide convenient formatting, but it adds state whose visibility and failure behavior the program must understand. The application buffer, the C library’s stream buffer, the kernel page cache, and persistent storage are separate layers.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.001, SP35.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+35.1 System-call overhead 35.2 User-space buffering 35.3 Standard I/O 35.4 FILE* ...plus 7 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.003
+
+------------------------------------------------------------
+
+10. System-call overhead
+Systems mechanisms and source lecture
+
+SAY
+A system call involves an ABI transition, validation, and kernel work. Performing one call for every character can make that overhead significant compared with the useful transfer. Grouping bytes amortizes the fixed portion of the cost. The exact cost is workload- and platform-dependent. A benchmark comparing one-byte writes with block writes should control the destination, total bytes, buffering mode, and error handling. Sending output to a terminal can measure rendering and terminal behavior as much as syscall overhead.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.004, SP35.005
+
+------------------------------------------------------------
+
+11. User-space buffering
+Systems mechanisms and source lecture
+
+SAY
+A user-space buffer accumulates output or retains input already fetched from the kernel. The library can satisfy several application operations without another system call. That improves efficiency but means an application operation may complete before the underlying descriptor has seen all corresponding output. The buffer has ownership and lifetime requirements. When supplying storage to an interface such as setvbuf , keep that storage alive for the required duration and configure buffering before performing other stream operations as required by the interface. Do not use a short-lived local array as a long-lived stream buffer.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.006, SP35.007
+
+------------------------------------------------------------
+
+12. Standard I/O
+Systems mechanisms and source lecture
+
+SAY
+The C standard-I/O library provides formatted and block-oriented operations such as fprintf , fread , and fwrite . It tracks buffering, position-related state, end-of-file state, and error state. These are library operations, not one-to-one aliases for system calls. [ R8 ] Check the return values appropriate to each interface. fread and fwrite count complete elements, not always raw bytes unless the element size is one. A short input result requires distinguishing end of file from an error using stream state.
+
+In plain English: The program asks the operating system to move bytes to or from a resource, much like using a numbered ticket to ask a clerk for the right item.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.008, SP35.009
+
+------------------------------------------------------------
+
+13. FILE*
+Systems mechanisms and source lecture
+
+SAY
+A FILE* refers to a library-managed stream object. It is not an integer descriptor and must not be passed where an int fd is expected. On POSIX systems, fileno obtains the associated descriptor for supported streams, but mixing raw descriptor operations with buffered stream operations requires careful coordination. The library may have read ahead or retained unwritten output. A raw read , write , or lseek can therefore interact with a different logical position than the programmer expects. Prefer one I/O abstraction for a given workflow unless there is a clear synchronization plan.
+
+In plain English: The program asks the operating system to move bytes to or from a resource, much like using a numbered ticket to ask a clerk for the right item.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.010, SP35.011
+
+------------------------------------------------------------
+
+14. Read buffering
+Systems mechanisms and source lecture
+
+SAY
+Read buffering obtains a block from the underlying endpoint and serves smaller application reads from that block. The descriptor offset may advance beyond the next byte the application will receive from the library buffer. This explains why duplicating a descriptor does not duplicate a FILE* ’s user-space buffer state. It also explains why switching abruptly between buffered and unbuffered reads can appear to skip data. The bytes may already be inside the library’s buffer rather than waiting at the kernel offset.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.012, SP35.013
+
+------------------------------------------------------------
+
+15. Write buffering
+Systems mechanisms and source lecture
+
+SAY
+Write buffering delays or groups output until the buffer fills, a flush occurs, or another defined event requires transfer. fflush requests that buffered output be sent through the stream’s underlying write path and reports failure if that cannot be completed. fflush does not provide the same durability guarantee as fsync on an appropriate descriptor. It moves data out of the library buffer; the kernel and device may still retain it. Likewise, fclose must be checked because buffered output can fail during final flushing. [ R33 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.014, SP35.015
+
+------------------------------------------------------------
+
+16. Buffer cache
+Systems mechanisms and source lecture
+
+SAY
+The kernel’s file cache retains file data in memory to avoid repeated device access and to batch writes. On Linux, discussion of ordinary file data commonly centers on the page cache. This cache is distinct from CPU caches and from user-space standard-I/O buffers. A warm-cache benchmark may primarily measure memory copying and kernel paths, while a cold-device benchmark includes storage access. Do not label both simply “disk speed.” State whether the relevant data was cached and avoid globally disruptive cache-manipulation commands in ordinary application labs.
+
+In plain English: A cache is like keeping the things you use most often on your desk instead of walking to a storage room every time.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.016, SP35.017
+
+------------------------------------------------------------
+
+17. Write, reposition, and read back
+Systems mechanisms and source lecture
+
+SAY
+The following program uses an automatically removed temporary file. It checks output, flushing, positioning, input length, stream error state, and closure. fseek supplies the required positioning transition before reading the update stream after writing. Companion listing: ch35/buffered.c The embedded zero byte verifies that block I/O does not depend on C-string termination. The expected output is buffered I/O checks passed . This is a correctness exercise, not a durability test: it does not call fsync , simulate power loss, or make claims about storage-device behavior.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.018, SP35.019
+
+------------------------------------------------------------
+
+18. Why buffering reduces calls
+Systems mechanisms and source lecture
+
+SAY
+Writing 1 byte at a time for 4,096 bytes can require 4,096 system calls if unbuffered. Accumulating those bytes in a 4 KiB user-space buffer can reduce the transfer to roughly one write call. The total data is unchanged, but fixed per-call overhead is amortized across more bytes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.020, SP35.021
+
+------------------------------------------------------------
+
+19. Flush boundaries
+Systems mechanisms and source lecture
+
+SAY
+A buffered output library may hold bytes in user space until the buffer fills, a flush is requested, the stream closes, or policy triggers a flush. Therefore seeing a successful formatting call does not prove the bytes are already on durable storage. Buffering, kernel caches, and storage persistence are separate stages.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.022, SP35.023
+
+------------------------------------------------------------
+
+20. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 35. Increase the payload beyond a typical small stream buffer, retaining an embedded zero byte. Compare the bytes after reading them back. Then write a separate timing experiment with the timed boundary stated explicitly and no terminal output inside the measured loop. Review 1. Why can the descriptor offset be ahead of the next buffered input byte? Review 2. What does fflush fail to establish about persistent storage?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.024, SP35.025
+
+------------------------------------------------------------
+
+21. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is buffered i/o. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.026
+
+------------------------------------------------------------
+
+22. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Memory-Mapped Files.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.027
+
+------------------------------------------------------------
+
+23. FILE* is a library-managed object, not an fd
+Reason about the implementation
+
+SAY
+FILE* is a pointer to a library-managed stream with more state than a descriptor number. It may retain unread input, unwritten output, and an error or end-of-file indicator. On POSIX, fileno can reveal its underlying descriptor, but that does not duplicate the stream's buffer or ownership. Closing the raw descriptor behind the stream can leave later stream operations trying to use a released number. Conversely, closing the stream normally releases its associated resource, so another blind close risks misuse. Document whether helpers borrow the stream or own it, and prefer one abstraction for the normal path. Pointer and integer syntax alone do not settle ownership.
+
+DO
+Ask who closes the resource after a helper borrows FILE*.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.010 · 35.4 FILE*
+
+------------------------------------------------------------
+
+24. A supplied buffer must outlive its stream use
+Reason about the implementation
+
+SAY
+If a stream is configured to use an array supplied by the application, that array becomes part of the stream's lifetime contract. A local array inside a setup helper disappears when the helper returns, but the stream may keep using its address. That creates a dangling buffer even though the FILE pointer itself remains valid. Use storage whose lifetime covers the required stream use and configure it at the correct stage before other operations. A simple library-managed buffer is often safer unless a concrete need justifies custom storage. This is the same ownership reasoning used for borrowed views: the borrower cannot outlive the bytes it accesses.
+
+DO
+Trace the array lifetime separately from the FILE object lifetime.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.006 · 35.2 User-space buffering
+
+------------------------------------------------------------
+
+25. Flush, close, and durable commit are different promises
+Reason about the implementation
+
+SAY
+A successful formatting call may only have filled a user-space buffer. fflush asks the library to send pending output through its underlying path and can report failure. fclose can encounter failure while completing the same kind of pending work, so ignoring its result can hide lost output. Neither operation alone means the storage device has met a durable-update contract. The kernel may still hold data in its own cache. A persistence requirement needs the documented synchronization and filesystem steps appropriate to the application. Keep those promises separate in names and tests: a buffered-I/O correctness check is not a power-loss recovery test.
+
+DO
+Ask learners to name the next layer after the library buffer.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.014 · 35.6 Write buffering
+
+------------------------------------------------------------
+
+26. Three caches can affect one file operation
+Reason about the implementation
+
+SAY
+A repeated file test may become faster because the kernel already has the file's pages, because the library already buffered input, or because the relevant memory is hot in CPU caches. Those mechanisms are distinct even when they all reduce waiting. Calling every result disk speed hides what was actually exercised. A warm-cache copy might mainly measure memory copies and kernel paths rather than storage media. State the destination and buffering mode, use controlled fixtures, and avoid disruptive system-wide cache manipulation in an ordinary lab. The useful conclusion is tied to the tested conditions, so preserve those conditions with the reported measurements.
+
+DO
+Identify which layer each proposed timing experiment actually exercises.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.016 · 35.7 Buffer cache
+
+------------------------------------------------------------
+
+27. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A model output buffer forwards data after four bytes or an explicit flush. Append AB and CD, then one final E.
+
+Append AB. pending AB; destination empty. The caller has supplied data but it has not yet reached the next layer.
+
+Append CD. one flush forwards ABCD. Combining small pieces reduces forwarding operations in this model.
+
+Append and flush E. destination ABCDE; two flushes. The explicit final flush prevents the last partial buffer from remaining pending.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch35/main.cpp
+
+------------------------------------------------------------
+
+28. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Append AB. pending AB; destination empty. The caller has supplied data but it has not yet reached the next layer.
+
+Append CD. one flush forwards ABCD. Combining small pieces reduces forwarding operations in this model.
+
+Append and flush E. destination ABCDE; two flushes. The explicit final flush prevents the last partial buffer from remaining pending.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch35/main.cpp
+
+------------------------------------------------------------
+
+29. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+A partial final buffer still contains real data. The explicit final flush closes that gap, while the empty check prevents a misleading transfer count. This model counts forwarding to another memory string. Library flush, kernel acceptance, and durable storage are different boundaries in a real output path.
+
+Flush a nonempty suffix when the operation finishes. Test a size not divisible by the buffer capacity.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch35/main.cpp:1-16
+
+------------------------------------------------------------
+
+30. Buffering changes when output is forwarded
+Code, diagrams, and debugging
+
+SAY
+Buffering changes when output is forwarded. The first two bytes enter the local pending buffer and have not reached destination.
+
+A model output buffer forwards data after four bytes or an explicit flush. Append AB and CD, then one final E.
+
+The caller has supplied data but it has not yet reached the next layer. Combining small pieces reduces forwarding operations in this model. The explicit final flush prevents the last partial buffer from remaining pending.
+
+The first two bytes enter the local pending buffer and have not reached destination.
+
+Two more bytes accumulate, filling the chosen four-byte threshold.
+
+flush forwards the pending bytes and clears that buffer. The threshold controls when forwarding happens.
+
+The final single byte remains pending even though no full buffer remains to trigger the threshold.
+
+An explicit final flush delivers that remaining byte. Forgetting it would print ABCD and lose E.
+
+Each pending byte is forwarded exactly once, including the final partial buffer. A threshold flush alone cannot guarantee completion.
+
+Flushing a language-library buffer is not the same guarantee as durable storage on a device. Keep visibility and persistence separate. In the extended lab: Flush only when pending.size()==4. The final E never reaches output.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch35/main.cpp:9-13
+
+------------------------------------------------------------
+
+31. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Flush only when pending.size()==4. The final E never reaches output.
+
+Flush a nonempty suffix when the operation finishes. Test a size not divisible by the buffer capacity.
+
+The reference solution makes the contract executable with assertions. A partial final buffer still contains real data. The explicit final flush closes that gap, while the empty check prevents a misleading transfer count. This model counts forwarding to another memory string. Library flush, kernel acceptance, and durable storage are different boundaries in a real output path.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.06
+
+------------------------------------------------------------
+
+32. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch35/starter.cpp. Implement the first acceptance case for flush the final partial buffer. State the function inputs and result before adding code. First case: ABCDE produces two forwarded batches and the complete text.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.07
+
+------------------------------------------------------------
+
+33. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch35/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.08
+
+------------------------------------------------------------
+
+34. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Flush only when pending.size()==4. The final E never reaches output. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.09
+
+------------------------------------------------------------
+
+35. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why can flushing after every character reduce throughput? Compare the selected design with this plausible alternative: Use buffering for throughput; choose explicit flush points when another participant must see a boundary.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.10
+
+------------------------------------------------------------
+
+36. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch35/starter.cpp. Combine characters into batches of four, then forward any remaining suffix at the end. Do not count an empty final flush as a data transfer. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch35/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.11
+
+------------------------------------------------------------
+
+37. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Flush the final partial buffer belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.12
+
+------------------------------------------------------------
+
+38. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Combine characters into batches of four, then forward any remaining suffix at the end. Do not count an empty final flush as a data transfer.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch35/starter.cpp
+
+------------------------------------------------------------
+
+39. Review the extension solution
+Practice and extension
+
+SAY
+A partial final buffer still contains real data. The explicit final flush closes that gap, while the empty check prevents a misleading transfer count. This model counts forwarding to another memory string. Library flush, kernel acceptance, and durable storage are different boundaries in a real output path. Repair principle: Flush a nonempty suffix when the operation finishes. Test a size not divisible by the buffer capacity.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Flush a nonempty suffix when the operation finishes. Test a size not divisible by the buffer capacity.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch35/solution.cpp
+
+------------------------------------------------------------
+
+40. Application case: Buffered I/O
+Practice and extension
+
+SAY
+printf output is buffered in user space.
+
+Does returning from printf prove durable storage?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.CASE
+
+------------------------------------------------------------
+
+41. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+A partial final buffer still contains real data. The explicit final flush closes that gap, while the empty check prevents a misleading transfer count. This model counts forwarding to another memory string. Library flush, kernel acceptance, and durable storage are different boundaries in a real output path.
+
+Choose a simpler approach when its narrower contract is enough. Use buffering for throughput; choose explicit flush points when another participant must see a boundary.
+
+When this system changes, retain a check that exposes the known failure: Flush only when pending.size()==4. The final E never reaches output. Flush a nonempty suffix when the operation finishes. Test a size not divisible by the buffer capacity.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch35.json → SYS35.14
+
+------------------------------------------------------------
+
+42. A buffer-size experiment needs equal useful work
+Recall and transfer
+
+SAY
+Comparing one-byte writes to block writes only explains call overhead if other conditions stay comparable. Writing to a terminal can include rendering and terminal processing, while writing to a temporary file has different costs. Both versions must transfer the same bytes and check completion. A larger buffer may improve total throughput while delaying the first visible result or cancellation response. Those are legitimate costs rather than noise to hide. Start from a correctness test that compares exact output, then measure controlled variants. A maintenance change should preserve required flush boundaries instead of trading them away for an attractive aggregate timing number.
+
+DO
+Choose a shared endpoint and identical payload for both variants.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.004 · 35.1 System-call overhead
+
+------------------------------------------------------------
+
+43. Recall where the bytes are waiting
+Recall and transfer
+
+SAY
+The most useful question in a buffered-I/O bug is where the bytes are now. They may be waiting in a library output buffer, already fetched into its input buffer, accepted into kernel-managed state, or beyond the required persistence boundary. The element-count demo showed why units matter; the read-ahead model showed why mixing layers can skip over bytes from the application's viewpoint. Keep ownership and lifetime visible for the stream and any supplied buffer. Then choose the smallest interface that meets the job. A clear buffered workflow with explicit transitions is easier to verify than scattered raw operations around an otherwise buffered program.
+
+DO
+Explain one delayed-output symptom using the buffer’s current owner.
+
+SOURCE
+content/systems-programming/ch35.json → SP35.022 · Worked example — Flush boundaries

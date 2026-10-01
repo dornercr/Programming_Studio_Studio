@@ -1,0 +1,821 @@
+Design Patterns in C++
+Chapter 18: Observer — registration, lifetime, and delivery contracts
+Dr. Charles Dorner
+
+1. The audience changes while the producer stays useful
+Problem and first design
+
+SAY
+A feed receives a reading of four. A total display needs it now, and a log or alert view may need the next reading too. Those views can open and close independently. Hard-coding every view into the feed makes the producer change whenever its audience changes. Polling can also be a poor fit when every event matters. Observer gives interested objects a way to register for updates through a shared contract. That solves the connection problem, but it does not choose ownership, duplicate handling, or failure behavior for us. In this lecture we will treat those delivery rules as part of the design, not as details hidden behind a notify method.
+
+DO
+Name an audience that changes independently of a reading producer.
+
+SOURCE
+manuscript/ch18.json → The problem: several views need the same new reading
+
+------------------------------------------------------------
+
+2. Direct updates work for a fixed audience
+Problem and first design
+
+SAY
+Our baseline has one total and one latest-reading display represented by integers. The publish function checks the input range, then updates both by reference. This is a reasonable implementation when the audience is fixed and both values remain alive during every call. After readings four and three, the total is seven and the latest value is three. The code contains no subscription list because its requirement does not need one. The limitation appears when views become independent objects with separate lifetimes and different update behavior. At that point the feed should talk through a shared interface rather than acquire another named argument for every new screen component.
+
+DO
+Predict both lines and Run.
+
+SOURCE
+Lecture demonstration for manuscript/ch18.json → The problem: several views need the same new reading
+
+------------------------------------------------------------
+
+3. Sending events is a contract, not just a loop
+Problem and first design
+
+SAY
+Before selecting a smart pointer, write three event stories. The same view registers twice: does it receive one event or two? A callback opens another view: can the registration list change during traversal? A callback throws after changing its own state: do later listeners still run? The chapter answers one, no, and no. It suppresses duplicate live identities, rejects subscription mutation during publish, and stops on the first callback exception. These are deliberate choices, not rules imposed by the Observer name. Writing them first gives tests meaningful targets. A different event library may make different choices and still implement Observer correctly, provided its observable contract is clear.
+
+DO
+Collect predictions for the three event stories, then state the chapter policy.
+
+SOURCE
+manuscript/ch18.json → Registration rules prevent surprises
+
+------------------------------------------------------------
+
+4. An exception does not undo earlier listener work
+Problem and first design
+
+SAY
+This short program models two registered actions using callable objects so we can focus on delivery order before lifetime machinery. The first action adds five to first and throws. The loop exits through the catch, so the second action never receives the event. The outputs are therefore first five and second zero. Both facts matter: the failing listener was not unchanged, and the later listener was not called. This is fail-fast delivery with partial effects. A catch block is not a rollback operation. The chapter's Total behaves similarly when its optional after hook throws, and Feed promises only to reset its temporary busy flag so another publication can begin later.
+
+DO
+Predict which callback runs and which state changes survive before Run.
+
+SOURCE
+Lecture demonstration for manuscript/ch18.json → Failure during delivery is not an all-or-nothing update
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+A feed with explicit notification rules. Feed keeps weak registrations and locks each one for the duration of its call. A scope guard clears the in-progress flag on all exits. Callback errors stop delivery and propagate without claiming rollback.
+
+Accept readings from zero through one hundred. Notify each registered live listener once in registration order. Skip expired listeners; reject null registration, nested publish, and subscription changes during publish.
+
+Only a successfully locked listener receives update. Duplicate live registrations produce one call. Registration storage does not change while being traversed. notifying_ is cleared when a publish call exits, including by exception. These are the rules that define a correct extension, even if it has the right C++ types. Borrowed raw pointers can be lean when a strict external lifetime and unsubscribe protocol is enforced. A snapshot of strong pointers simplifies stable delivery but keeps listeners alive for the whole batch and changes removal semantics.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json
+
+------------------------------------------------------------
+
+6. The problem: several views need the same new reading
+Requirements and mechanism
+
+SAY
+A data feed receives small integer readings between zero and one hundred. A total display needs each new reading; another view may later log values or raise a local alert. The simplest feed directly calls the known views. For a fixed pair that may be enough. The limitation appears when views open and close independently. Adding every view type to the feed couples data delivery to user-interface details, while repeatedly polling the feed can miss changes or waste work.
+
+We need a way for a view to ask for notifications and later disappear without leaving a callable pointer to a destroyed object. A listener is an object that receives an update. A publisher sends updates to registered listeners. The Observer pattern connects these roles through a shared interface so the publisher knows how to notify, but does not need to know each view’s class. Choosing the interface is only the start; the more difficult work is deciding lifetime and behavior during notification.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → The problem: several views need the same new reading
+
+------------------------------------------------------------
+
+7. Separate registration from ownership
+Requirements and mechanism
+
+SAY
+Listener declares virtual update(int), and Total implements it. Feed stores weak_ptr<Listener> values. A weak pointer observes an object managed by shared_ptr without keeping that object alive. main owns the live Total through shared_ptr; Feed owns only registration entries. Before calling a listener, publish uses weak.lock to obtain a temporary shared_ptr. A successful lock keeps that particular listener alive until the local live pointer is released. A failed lock means the listener has expired, so the feed skips it.
+
+The statement if (auto live = weak.lock()) both creates the temporary pointer and tests whether it is nonempty. That C++ condition keeps the temporary in scope for the controlled statement. The arrow calls update through the live base-class pointer, choosing the concrete listener function during execution. The compiler checks the shared interface and override signature earlier. Expiration is a normal condition, not an exception. The primary example deliberately destroys one subscriber before publication to show that a registration need not become a dangling raw pointer.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → Separate registration from ownership
+
+------------------------------------------------------------
+
+8. Registration rules prevent surprises
+Requirements and mechanism
+
+SAY
+subscribe rejects an empty shared pointer, because a null registration has no useful meaning. It scans existing entries and returns if the same live object is already registered. Subscribing twice therefore produces one update, not two. Expired entries remain in the primary vector but are skipped during publication. This makes the small example simple; a long-lived feed with many short-lived views should periodically remove expired entries so its registration list does not grow forever.
+
+The implementation forbids changing the registration list while it is publishing. subscribe checks notifying_ before doing anything else, even before duplicate detection. This policy protects iteration from vector changes and makes callback behavior predictable. The lab adds unsubscribe with the same rule. A different design could queue registration changes or publish through a stable snapshot of registrations, but then it must state whether a removed listener receives the current event. There is no universal answer that all observers share.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → Registration rules prevent surprises
+
+------------------------------------------------------------
+
+9. Reentrancy is a second call before the first has finished
+Requirements and mechanism
+
+SAY
+A callback can call back into its publisher. If a listener tries feed.publish(1) while handling an earlier publication, the second call is reentrant: the first publish has not returned. Unrestricted recursion can create surprising order, repeated updates, or unbounded calls. This feed rejects nested publish with logic_error. A listener may catch that error and continue, as the primary test does, or allow it to propagate. The behavior is chosen deliberately instead of being an accidental consequence of recursive calls.
+
+The notifying_ flag is set only after input validation and the reentrancy guard. A local Reset object borrows that flag and clears it in its destructor. Its destructor runs on normal return and while an exception unwinds the stack. This is resource acquisition is initialization applied to temporary state, not only memory: the local object owns the duty to reset the flag. Without it, a throwing listener could leave notifying_ true and make every later publication look nested even though the old call had already ended.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → Reentrancy is a second call before the first has finished
+
+------------------------------------------------------------
+
+10. Failure during delivery is not an all-or-nothing update
+Requirements and mechanism
+
+SAY
+Total first adds the reading to sum and then invokes an optional after callback. In the failure test, adding two changes the total from seven to nine, then after throws. Feed does not catch and continue to later listeners; it propagates the exception and stops the current delivery. Earlier listeners and the throwing listener may already have changed their own state. The Reset destructor clears the flag, so a later publication can run. The next reading of one makes the tested total ten.
+
+This policy is called fail-fast delivery: stop when a callback fails. It is not atomic delivery, in which every listener either receives the change or no listener does. The latter would need much stronger coordination and often cannot be promised for arbitrary outside code. An alternative feed might collect callback errors and continue notifying other listeners. That favors availability but changes error reporting and ordering. In either case, identify whether the feed stores a new reading before publishing and how subscribers recover missed updates. The sample passes event values and keeps no authoritative reading history.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → Failure during delivery is not an all-or-nothing update
+
+------------------------------------------------------------
+
+11. Keep callback captures inside a known lifetime
+Requirements and mechanism
+
+SAY
+Total exposes a std::function<void()> named after solely as a test hook. The empty wrapper means no extra action. The lambda written [&] borrows local objects, including the feed, from main. Those locals remain alive whenever the callback is invoked in this program. Feed itself must stay alive through every active publish call; locking a listener does not keep the publisher alive. Feed deletes copying and assignment and has no implicit move operation, so a callback cannot replace its registration storage by assigning another Feed. Capturing a shared pointer by value inside an object it owns could instead create an ownership cycle. Capturing a short-lived local by reference and invoking it later would leave a dangling reference. A callback is executable state, so its captures deserve the same ownership review as normal members.
+
+The example is single-threaded. weak_ptr provides lifetime coordination for managed objects, but the listener vector, notifying_ flag, and Total::sum are not protected for concurrent access. The total uses int for a small bounded demonstration sequence; an unbounded real stream would require an overflow policy or a wider checked total. Use the pattern to separate interest from production, then write precise rules for delivery, registration, expiration, failure, and concurrency. A diagram with one arrow to each listener is not a substitute for those contracts.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → Keep callback captures inside a known lifetime
+
+------------------------------------------------------------
+
+12. Registration observes; a temporary owner protects the call
+Mechanism in C++
+
+SAY
+A weak pointer records a relationship to an object managed by shared ownership without keeping that object alive. Feed therefore does not force a closed view to survive merely because it once subscribed. Before calling update, publish invokes lock on the weak registration. If an owner still exists, lock returns a shared pointer that keeps the listener alive through this callback. If the object has expired, it returns an empty pointer and the feed skips the entry. The if statement both creates live and tests it; live remains in scope inside the branch. This protects the listener during its call. It does not keep Feed itself alive or make arbitrary captured references safe.
+
+DO
+Trace the strong owner in main, the weak registration, and the temporary live owner.
+
+SOURCE
+manuscript/ch18.json → Separate registration from ownership
+
+------------------------------------------------------------
+
+13. Compile the interface; select the listener at runtime
+Mechanism in C++
+
+SAY
+Listener defines the one operation Feed needs. virtual allows update to select the concrete implementation during execution, even though Feed holds a pointer through the Listener interface. Total uses override so the compiler checks the signature matches the intended base operation. Those build-time checks do not prove that each listener receives exactly one update. That guarantee also needs registration logic: subscribe rejects an empty pointer and returns when the same live object is already registered. Two distinct Total objects are two listeners even if their sums happen to match. Identity means which object it is, not whether its current fields contain equal values.
+
+DO
+Distinguish identity equality from equal display state.
+
+SOURCE
+manuscript/ch18.json → Separate registration from ownership
+
+------------------------------------------------------------
+
+14. Reject list mutation before touching the list
+Mechanism in C++
+
+SAY
+The callback is arbitrary user code, so it might try to change subscriptions. The chapter chooses a simple rule: reject that operation while publishing. subscribe checks notifying_ before duplicate detection, which means subscribing the current listener again is still rejected during its callback. The extension gives unsubscribe the same rule. This keeps vector traversal stable and avoids a question about whether a newly added listener receives the current event. A snapshot-based dispatcher can allow other policies, but it has different lifetime and event-membership costs. Expired entries in the primary program are simply skipped. A long-running feed needs a cleanup plan so dead registrations do not accumulate forever.
+
+DO
+Contrast the chapter Feed policy with a clearly labeled snapshot-delivery alternative.
+
+SOURCE
+manuscript/ch18.json → Registration rules prevent surprises
+
+------------------------------------------------------------
+
+15. A destructor can own the duty to clear a flag
+Mechanism in C++
+
+SAY
+Reentrancy means entering publish again while an earlier publish is still active. A callback can do that on the same thread; no second thread is needed. The chapter rejects the nested call to keep event order simple. Once valid publication starts, a local Reset object borrows the busy flag. Its destructor clears that flag when the scope exits, including while an exception unwinds the call stack. This is resource acquisition is initialization used for a cleanup duty rather than heap memory. Clearing the flag only at the last line would fail if a callback threw before reaching it. The guard restores the ability to publish later; it does not roll back listeners' earlier effects.
+
+DO
+Trace a callback exception through the Reset destructor to the caller.
+
+SOURCE
+manuscript/ch18.json → Reentrancy is a second call before the first has finished
+
+------------------------------------------------------------
+
+16. Callback captures carry lifetime promises too
+Mechanism in C++
+
+SAY
+The test hook after is a stored callable. Its lambda capture written with an ampersand borrows the local objects used inside the body. That is safe in the chapter because those objects remain alive whenever the hook is called. Retaining the same hook after a borrowed local died would break a different lifetime rule than the listener registration rule. Capturing a shared pointer can keep an object alive, but storing that callback inside the same owned object can create a cycle. Also separate lifetime from concurrency: a successful weak lock does not lock Total::sum, the vector, or the busy flag. The sample is single-threaded and has no promise of concurrent delivery safety.
+
+DO
+Ask learners to list every object borrowed by the chapter’s test callback.
+
+SOURCE
+manuscript/ch18.json → Keep callback captures inside a known lifetime
+
+------------------------------------------------------------
+
+17. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Publisher / Subject → Feed. Own the registration list and initiate notification when an event occurs.
+
+Observer interface → Listener::update. Give the publisher one operation shared by every kind of subscriber.
+
+Concrete Observer → Total. React to an update using subscriber-specific behavior and state.
+
+Client → main. Create objects and establish the subscriptions and their lifetimes.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → C18.08 concepts
+
+------------------------------------------------------------
+
+18. Observer delivery: one publisher, registered listeners
+UML and source walkthrough
+
+SAY
+The call arrows show one listener delivery, repeated in registration order. A successful weak lock creates temporary shared ownership; it is not an inheritance relationship. Expired entries produce no call. The scope guard covers the whole publication and clears the flag if this call throws.
+
+Feed keeps weak registrations and locks each one for the duration of its call. A scope guard clears the in-progress flag on all exits. Callback errors stop delivery and propagate without claiming rollback.
+
+Review the notification contract as part of the public API. Adding unsubscribe, delayed delivery, or exception aggregation changes observable behavior even when the Listener interface stays the same.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch18/main.cpp:1-99; content/design-patterns-cpp/ch18.json → diagrams.18
+
+------------------------------------------------------------
+
+19. Observer — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Feed keeps weak registrations and locks each one for the duration of its call. A scope guard clears the in-progress flag on all exits. Callback errors stop delivery and propagate without claiming rollback.
+
+Review the notification contract as part of the public API. Adding unsubscribe, delayed delivery, or exception aggregation changes observable behavior even when the Listener interface stays the same.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch18/main.cpp:1-99; content/design-patterns-cpp/ch18.json → diagrams.18
+
+------------------------------------------------------------
+
+20. Hold each listener through its callback
+UML and source walkthrough
+
+SAY
+This guarded loop delivers values only to live listeners. It follows range checking and rejection of a nested publication. Temporary shared ownership keeps a listener alive during its own update call.
+
+The comment explains the cleanup requirement. Mark publication as in progress. Construct a scope guard that will reset the flag. Visit each weak registration without changing the vector. Try to acquire a live shared pointer and enter only if it succeeds. Call the listener through the temporary owner. Close the live-listener branch and release that temporary owner. Close the registration loop. Close publish; the local Reset now clears the flag.
+
+The registration vector stays unchanged and the flag is cleared on every exit. A callback can throw after partial delivery; this loop does not undo prior listener effects.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch18/main.cpp:36-44
+
+------------------------------------------------------------
+
+21. A listener may have effects before it throws
+UML and source walkthrough
+
+SAY
+This concrete listener adds a reading, then optionally runs a test callback. Feed invokes it through the Listener interface. The hook makes reentrancy and exception policies observable in deterministic tests.
+
+Define the listener implementation of update. The comment fixes the order of the observable effects. Add the delivered value to this listener running total. The comment warns that a later exception does not reverse this sum. Invoke the optional callback only if the function wrapper is nonempty.
+
+For the tested small sequence, the accumulated total includes each accepted delivery exactly once. An exception from after happens after sum changes; delivery is not rolled back.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch18/main.cpp:50-54
+
+------------------------------------------------------------
+
+22. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Feed keeps weak registrations and locks each one for the duration of its call. A scope guard clears the in-progress flag on all exits. Callback errors stop delivery and propagate without claiming rollback.
+
+The program checks duplicate suppression, an expired listener, ordinary totals, nested publish rejection, subscription mutation rejection, a throwing callback followed by successful publication, invalid input, and null registration. It does not test concurrent delivery or arithmetic on an unbounded stream.
+
+Review the notification contract as part of the public API. Adding unsubscribe, delayed delivery, or exception aggregation changes observable behavior even when the Listener interface stays the same. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch18/main.cpp
+
+------------------------------------------------------------
+
+23. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. First live listener registered twice; second later expires.. Duplicate registration is ignored, and weak registration does not retain the second listener.
+
+Step 2. publish(4): sum=4.. Exactly one live listener receives the reading.
+
+Step 3. publish(3): sum=7; nested calls rejected.. The callback catches both reentrancy and mutation errors.
+
+Step 4. publish(2): sum=9, then callback throws.. The effect already happened, and Reset clears the busy flag during unwinding.
+
+Step 5. publish(1): sum=10.. A later call is allowed after the failed callback exits.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → trace
+
+------------------------------------------------------------
+
+24. Debug the promise: Call a stored raw pointer after its view is destroyed.
+Execute and debug
+
+SAY
+Call a stored raw pointer after its view is destroyed. The call uses a dead object and has undefined behavior. Registration does not itself establish a lifetime guarantee.
+
+The program checks duplicate suppression, an expired listener, ordinary totals, nested publish rejection, subscription mutation rejection, a throwing callback followed by successful publication, invalid input, and null registration. It does not test concurrent delivery or arithmetic on an unbounded stream.
+
+Review the notification contract as part of the public API. Adding unsubscribe, delayed delivery, or exception aggregation changes observable behavior even when the Listener interface stays the same.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → example.failures
+
+------------------------------------------------------------
+
+25. Debug the promise: Clear notifying_ only on the final normal-return path.
+Execute and debug
+
+SAY
+Clear notifying_ only on the final normal-return path. After a throwing callback, every later publish is rejected as nested. An exception bypasses ordinary cleanup statements.
+
+The program checks duplicate suppression, an expired listener, ordinary totals, nested publish rejection, subscription mutation rejection, a throwing callback followed by successful publication, invalid input, and null registration. It does not test concurrent delivery or arithmetic on an unbounded stream.
+
+Review the notification contract as part of the public API. Adding unsubscribe, delayed delivery, or exception aggregation changes observable behavior even when the Listener interface stays the same.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → example.failures
+
+------------------------------------------------------------
+
+26. Trace 1: Observer: Duplicate subscription
+Trace experiments
+
+SAY
+Observer: Duplicate subscription. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Subscribing the same listener twice must not deliver twice.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → dpx-c18-trace-1; companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 2: Observer: Second publication
+Trace experiments
+
+SAY
+Observer: Second publication. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The busy flag must be cleared after the first successful delivery.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → dpx-c18-trace-2; companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 3: Observer: Throw then recover
+Trace experiments
+
+SAY
+Observer: Throw then recover. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The first sum change remains, but the scope guard allows the next publication.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → dpx-c18-trace-3; companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 4: Observer: Bad value rejected
+Trace experiments
+
+SAY
+Observer: Bad value rejected. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Input validation prevents a value outside zero through one hundred.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → dpx-c18-trace-4; companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 5: Observer: Remove selected listener
+Trace experiments
+
+SAY
+Observer: Remove selected listener. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A removed listener receives no subsequent values.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → dpx-c18-trace-5; companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 6: Observer: Keep another listener
+Trace experiments
+
+SAY
+Observer: Keep another listener. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Removing one identity must not remove another live identity.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → dpx-c18-trace-6; companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 7: Observer: Expired listener harmless
+Trace experiments
+
+SAY
+Observer: Expired listener harmless. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Weak registrations can expire; locking failure means skip that listener.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → dpx-c18-trace-7; companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+33. Trace 8: Observer: Reject mutation during delivery
+Trace experiments
+
+SAY
+Observer: Reject mutation during delivery. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+This chapter prohibits registration changes during publish; the snapshot-policy lab is a different contract.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → dpx-c18-trace-8; companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+34. Exercise 18.1: Guided modification
+Practice and extension
+
+SAY
+Register a second live Total before publishing four. What must both totals contain, and how does this differ from the expired listener test?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Keep a shared_ptr to the second object alive.
+
+After the discussion, compare the reasoning. Each total is four after one publication. The existing expired case loses its last shared owner before publication, so its weak entry is skipped instead of receiving an update.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch18.json → exercises.18.1
+
+------------------------------------------------------------
+
+35. Exercise 18.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+A single Total begins at zero. Its after callback throws. Call publish(5), catch the exception, clear after, then publish(2). Predict the final sum.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The sum changes before after is called.
+
+After the discussion, compare the reasoning. The final sum is seven. The first addition survives the exception; the scope guard clears notifying_, allowing the second publication.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch18.json → exercises.18.2
+
+------------------------------------------------------------
+
+36. Exercise 18.3: Diagnose a bug
+Practice and extension
+
+SAY
+Remove the Reset local and set notifying_=false only at the end. Which existing test exposes the bug and why?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Trace the throwing callback.
+
+After the discussion, compare the reasoning. The publication after callback failure throws nested publish because the busy flag remains true. Automatic destruction of the guard, not an ordinary final assignment, ensures cleanup during unwinding.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch18.json → exercises.18.3
+
+------------------------------------------------------------
+
+37. Exercise 18.4: Choose a design
+Practice and extension
+
+SAY
+Choose fail-fast or collect-and-continue delivery for independent dashboard views. Give a reason and one required test.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: A broken view need not prevent every other view from updating.
+
+After the discussion, compare the reasoning. Collect-and-continue can be appropriate if the dashboard reports errors separately and wants other views fresh. Test one throwing listener followed by a healthy one, and define how the collected failures are returned. Fail-fast remains reasonable when later views depend on prior success.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch18.json → exercises.18.4
+
+------------------------------------------------------------
+
+38. Exercise 18.5: Extend without regressions
+Practice and extension
+
+SAY
+Add unsubscribe outside notifications. What should happen on a second removal of the same listener, and on removal inside a callback?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Keep the current mutation contract.
+
+After the discussion, compare the reasoning. Repeated removal should be harmless. Removal inside a callback should throw logic_error before touching the vector. The lab tests both, then resubscribes the same live listener and verifies delivery resumes.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch18.json → exercises.18.5
+
+------------------------------------------------------------
+
+39. Exercise 18.6: Justify a decision
+Practice and extension
+
+SAY
+Explain why weak_ptr registrations do not make Feed thread-safe.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Look beyond object lifetime to shared mutable state.
+
+After the discussion, compare the reasoning. A weak lock can keep the listener alive, but it does not lock the registration vector, busy flag, or sum. Concurrent subscribe and publish still need synchronization, and callbacks need their own shared-state rules.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch18.json → exercises.18.6
+
+------------------------------------------------------------
+
+40. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add unsubscribe(shared_ptr<Listener> const&). Outside publication, remove matching and expired registrations; repeated removal is harmless. During publication, throw logic_error before any mutation. Keep all primary tests and verify resubscription.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: A listener cannot remove itself during its callback under this policy. After two outside removals, publishing five does not change its total. Resubscribe and publish two; its total increases exactly once.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch18/main.cpp
+
+------------------------------------------------------------
+
+41. Extension solution and design review
+Practice and extension
+
+SAY
+The solution uses remove_if followed by erase. The predicate locks each weak entry and keeps neither expired entries nor the selected live identity. It checks notifying_ before modifying the vector. Deferred removal is another valid policy, but would require different tests and documentation for the current event.
+
+Review the notification contract as part of the public API. Adding unsubscribe, delayed delivery, or exception aggregation changes observable behavior even when the Listener interface stays the same.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch18/main.cpp
+
+------------------------------------------------------------
+
+42. Application case 1: defend your choice
+Practice and extension
+
+SAY
+A feed notifies registered views. Views may disappear independently. What lifetime policy does the book’s example choose?
+
+Weak registrations, locked temporarily during callbacks.. Notification does not require the publisher to own subscribers permanently.
+
+Raw pointers with no removal or lifetime rule. A later callback may access a destroyed object.
+
+No callback can throw because it is an Observer. The pattern does not guarantee nonthrowing callbacks.
+
+Permanent strong ownership of every view. That is a different lifetime policy and can keep unwanted subscribers alive.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → C18.22 scenario
+
+------------------------------------------------------------
+
+43. Application case 2: defend your choice
+Practice and extension
+
+SAY
+A callback throws, and notifying_ is cleared only at the normal end of publish. What defect follows?
+
+Every later notification is guaranteed successful. The flag itself now blocks valid calls.
+
+The callback is automatically removed from all owners. An exception does not imply deregistration.
+
+Earlier observer effects automatically roll back. Observer supplies no such transaction guarantee.
+
+Later publications may all be rejected as nested.. The stale flag survives the exceptional exit; a scope guard must restore it.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch18.json → C18.23 scenario
+
+------------------------------------------------------------
+
+44. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Registration and ownership are different decisions. Lock a weak pointer before calling the observed object. Define duplicate and mutation behavior explicitly. Reentrant calls need a policy. Scope guards restore temporary flags even during exception exits. Callback failure may leave partial delivery.
+
+Review the notification contract as part of the public API. Adding unsubscribe, delayed delivery, or exception aggregation changes observable behavior even when the Listener interface stays the same.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch18.json → summary
+
+------------------------------------------------------------
+
+45. Choose delivery policy for the application
+Recall and transfer
+
+SAY
+For dependent listeners, stopping after the first failure may be the clearest policy. For independent dashboard views, continuing and collecting errors may keep more of the screen current. Both require tests that include a throwing listener followed by a healthy listener, because normal-path totals cannot distinguish them. Atomic delivery is stronger: either every effect happens or none do. Arbitrary callbacks do not provide a shared rollback mechanism, so Observer alone cannot honestly make that promise. Likewise, weak registrations are one ownership choice, not the pattern's definition. Raw borrowed pointers can work with a strict external lifetime and removal protocol, while strong registrations intentionally retain their listeners.
+
+DO
+Require a policy choice and reason before proposing changes to the loop.
+
+SOURCE
+manuscript/ch18.json → Failure during delivery is not an all-or-nothing update
+
+------------------------------------------------------------
+
+46. Test the difficult exit, then the next entry
+Recall and transfer
+
+SAY
+A good regression test does not stop after confirming that a callback exception was caught. It clears the throwing hook and publishes again. In the chapter, the total becomes nine before the callback fails, then ten after a later reading of one. If the later call reports nested publish, cleanup was skipped and the busy flag stayed true. If the total returns to seven, someone added rollback behavior that the contract did not define. If a listener receives two updates after duplicate registration, inspect identity suppression. These checks make the event system's promises visible. They also separate delivery recovery from state recovery: the feed may resume even though a prior event reached only part of its audience.
+
+DO
+Ask learners to predict nine and then ten, explaining each addition.
+
+SOURCE
+manuscript/ch18.json → Failure during delivery is not an all-or-nothing update
+
+------------------------------------------------------------
+
+47. Remember Observer as a relationship plus a contract
+Recall and transfer
+
+SAY
+Explain Observer in one small story: an object asks to hear events, the publisher remembers that interest, and future events call the listener through a shared update operation. Then add the chapter's exact contract. Live duplicates collapse to one registration, expired listeners are skipped, callbacks run in registration order, subscription changes and nested publish are rejected, and the first thrown error stops delivery without rollback. That second explanation is what lets someone maintain the implementation safely. In a real study application, progress widgets, counters, and alerts may all observe an event. Decide whether a missed update can be recovered from authoritative state or requires replay, because this example keeps no event history for subscribers.
+
+DO
+Have learners teach the delivery contract without reading the code.
+
+SOURCE
+manuscript/ch18.json → The problem: several views need the same new reading

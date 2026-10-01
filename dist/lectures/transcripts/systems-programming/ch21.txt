@@ -1,0 +1,727 @@
+Systems Programming and Machine Organization
+Chapter 21: Processes
+Dr. Charles Dorner
+
+1. One executable can support several independent lives
+Problem and first experiment
+
+SAY
+A program file is a recipe; a process is one operating-system-managed use of that recipe. Two editor windows can execute the same program while keeping different documents and descriptor tables. A thread is an execution stream within the process, with its own registers and stack. This distinction matters when diagnosing a slow service: is the task waiting for input, competing for a processor, or sharing a lock with another thread? Adding more copies of the executable does not answer that question. Name the resource and execution state before suggesting a scheduling change. Our first demonstration creates a real child process and checks a private-memory relationship.
+
+DO
+Ask learners to answer the question with a concrete state or calculation before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.004: 21.1 Process abstraction
+
+------------------------------------------------------------
+
+2. A real child changes its private value
+Problem and first experiment
+
+SAY
+This program uses actual process creation rather than a map labeled process. Fork returns zero in the child and a child identifier in the parent. The child changes its local value from seven to nine and exits successfully. The parent waits for that exact child, retrying if waiting was interrupted, then prints its own unchanged seven and the child status zero. No process identifier or timing assumption appears in the expected output. Waitpid also collects the child termination record. The example establishes private modification and status collection; it does not measure physical page copying or prove how the kernel implements that isolation.
+
+DO
+Predict every printed line, run the complete program, then explain which operation produced each value.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch21.json → SP21.012: 21.5 Process isolation
+
+------------------------------------------------------------
+
+3. Runnable is a permission, not current execution
+Problem and first experiment
+
+SAY
+Consider one processor currently running B while A waits for input. When A receives input, it becomes ready. That does not automatically give it the processor or make B stop. Running describes actual execution; ready describes eligibility; waiting describes a missing prerequisite. Confusing these states can produce a scheduler model with two running tasks on one processor. A terminated child waiting to be collected is different again: its old program is no longer running. The remaining record lets a parent retrieve status. These names are simplified, but the distinctions remain useful when reading real system diagnostics or explaining why a waiting job has little CPU usage.
+
+DO
+Ask learners to answer the question with a concrete state or calculation before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.006: 21.2 Process state
+
+------------------------------------------------------------
+
+4. Reject dispatch while another task owns the CPU
+Problem and first experiment
+
+SAY
+The modeled CPU initially belongs to B, so dispatching A must fail even after A becomes ready. The first printed false comes from trying to dispatch A while it still waits. Wakeup then returns true and changes only A to ready. A second dispatch still returns false because the CPU owner is B. Once B is explicitly removed from the modeled CPU, dispatch succeeds. The final true confirms both A’s running state and its ownership of the CPU. This adds an invariant the generic source transition helper cannot enforce by itself: at most one task runs on this modeled processor.
+
+DO
+Predict every printed line, run the complete program, then explain which operation produced each value.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch21.json → SYS21.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Model process A issuing I/O while process B is ready. A must leave the run queue until its I/O completes.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Use an enum to model Ready, Running, and Waiting. Permit dispatch, blocking, and wakeup only from their valid starting states.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Treating waiting and ready as the same state can make a scheduler repeatedly choose work that cannot progress.
+
+A related failure in the generalized operation is concrete: Wake a waiting process directly into Running without considering which process owns the CPU.
+
+The repair changes the operation at the point where the rule can be enforced: Wakeup makes work eligible by moving it to Ready. Dispatch is a separate scheduling decision.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+A state machine makes the permitted change explicit at each call. Checking the source state prevents an event from pretending a blocked process can run. This generic transition helper trusts its caller to supply the allowed edge; a production scheduler would expose named operations or validate the edge set centrally.
+
+A plausible alternative: Sequential execution is simpler when tasks never wait and there is no need to overlap their lifetimes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.03
+
+------------------------------------------------------------
+
+8. Chapter 21 — Processes
+Systems mechanisms and source lecture
+
+SAY
+A process is an operating-system-managed execution environment. It combines an address space, references to resources, credentials, and one or more threads of execution. The abstraction gives a program the appearance of its own machine while allowing the kernel to share actual processors, memory, and devices among many programs. Processes are not identical to executable files. Several processes can run the same executable, and one process can replace its program image with another through exec . A process also need not have exactly one thread. These distinctions become important when considering scheduling, resource ownership, and process creation. [ R15 , R16 , R38 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.001, SP21.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+21.1 Process abstraction 21.2 Process state 21.3 CPU context 21.4 Address space ...plus 7 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.003
+
+------------------------------------------------------------
+
+10. Process abstraction
+Systems mechanisms and source lecture
+
+SAY
+The process abstraction groups resources and identity. Its virtual address space determines which addresses have meaning; its descriptor table determines what small descriptor numbers refer to; its credentials help determine which requests are allowed. Two processes can use the integer descriptor 3 for entirely different files. A thread is an execution stream within that environment. Threads in one process usually share mappings and many resources while retaining their own register state and stacks. Therefore, “switching processes” and “switching threads” are related but not interchangeable descriptions. The scheduler chooses runnable execution entities, while the process abstraction supplies much of their shared environment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.004, SP21.005
+
+------------------------------------------------------------
+
+11. Process state
+Systems mechanisms and source lecture
+
+SAY
+A simple state model includes running, runnable, waiting, stopped, and terminated states. Runnable means eligible for CPU execution; running means currently executing. A process waiting for input is not made faster merely by adding more CPU time if the required input has not arrived. A terminated child may temporarily remain as a zombie until its parent collects the termination information. The zombie is not executing the old program. Its remaining bookkeeping supports the parent’s ability to retrieve status. Real kernels expose more detailed states than this teaching model, but the model is sufficient to separate eligibility, execution, and event waiting.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.006, SP21.007
+
+------------------------------------------------------------
+
+12. CPU context
+Systems mechanisms and source lecture
+
+SAY
+CPU context includes the register and control state needed to resume an execution stream. It encompasses more than the source-level local variables a programmer can name. The instruction pointer, stack pointer, flags, and other architecture-defined state influence what happens next. Not all context is necessarily saved and restored through one identical path. Kernel implementations optimize context handling, and architecture extensions enlarge the state that may need management. For reasoning, the essential requirement is preservation of the execution semantics promised to the program. A resumed thread must not receive another thread’s live register values as though they were its own.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.008, SP21.009
+
+------------------------------------------------------------
+
+13. Address space
+Systems mechanisms and source lecture
+
+SAY
+An address space defines the virtual mappings visible to a process. It contains executable code, data, stacks, dynamically allocated regions, shared mappings, and reserved or inaccessible gaps. Two processes can map different physical storage at the same virtual address. Conversely, two processes can map the same physical storage at different virtual addresses. This is how shared mappings can coexist with otherwise distinct address spaces. A pointer stored in shared memory is therefore not automatically meaningful in another process. Use offsets or another explicitly designed representation when the same region may appear at different base addresses.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.010, SP21.011
+
+------------------------------------------------------------
+
+14. Process isolation
+Systems mechanisms and source lecture
+
+SAY
+Isolation limits the ability of one process to read or modify another process’s private state. Page tables and permissions provide a major hardware-backed mechanism. Kernel policy controls explicit exceptions, such as shared mappings and authorized debugging interfaces. Isolation is a security and reliability boundary, but it is not an absolute statement that processes can never communicate or interfere indirectly. They may share files, services, CPU capacity, and other resources. An application must distinguish intentional communication from accidental sharing and must still validate input received across process boundaries.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.012, SP21.013
+
+------------------------------------------------------------
+
+15. Context switching
+Systems mechanisms and source lecture
+
+SAY
+A context switch changes which execution stream uses a processor. It requires saving and restoring relevant state and may involve changing the active address-space context. Switching between threads in the same process can avoid some address-space changes, but it still has scheduling and execution-state costs. The effects extend beyond the instructions that perform the switch. A different working set can displace useful cache entries or translations. Conversely, a context switch does not imply that all caches are universally flushed. Actual hardware and kernel mechanisms determine which state remains useful. Avoid reducing context-switch cost to one supposedly universal number.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.014, SP21.015
+
+------------------------------------------------------------
+
+16. Scheduling
+Systems mechanisms and source lecture
+
+SAY
+Scheduling selects runnable work according to policy and constraints. General-purpose scheduling balances responsiveness, fairness, and throughput; real-time policies make different tradeoffs and require careful system-level design. Application priorities do not create CPU capacity that does not exist. A scheduling trace must include waiting as well as computation. A server may consume little CPU because it is blocked on clients, not because it is efficient. A compute-heavy application may scale until it encounters memory bandwidth or synchronization limits. Measure runnable demand, actual execution, and blocking causes separately before changing priorities or thread counts. [ R38 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.016, SP21.017
+
+------------------------------------------------------------
+
+17. A scheduling model with waiting
+Systems mechanisms and source lecture
+
+SAY
+Assume one CPU, zero switching overhead, and a scheduler that gives a newly runnable job the next available opportunity. Job A needs 2 milliseconds of CPU, then waits 5 milliseconds for I/O, then needs 1 millisecond of CPU. Job B needs 4 milliseconds of CPU and never blocks. Both are ready at time zero, and A starts first. A consumes 3 milliseconds of CPU but finishes after 8 milliseconds of wall time. B consumes 4 milliseconds and finishes at time 6. The CPU performs 7 milliseconds of useful work during an 8-millisecond observation interval, giving modeled utilization of 7 / 8 = 87.5% . This calculation assumes that the I/O wait completes at time 7 independently of B. It excludes kernel work, interrupt overhead, and real scheduling details. The point is not to predict a production trace but to establish the vocabulary and accounting needed to interpret one.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.018, SP21.019
+
+------------------------------------------------------------
+
+18. Context-switch contents
+Systems mechanisms and source lecture
+
+SAY
+If process A is preempted so process B can run, the kernel must preserve enough CPU state to resume A later: instruction location, stack state, general registers, and other architecture-specific context. It also switches the active address-space context as required. The exact saved set is implementation dependent, but the abstraction requires each process to resume consistently.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.020, SP21.021
+
+------------------------------------------------------------
+
+19. Scheduling a CPU-bound and I/O-bound process
+Systems mechanisms and source lecture
+
+SAY
+If process A consumes full quanta while process B frequently blocks waiting for input, a scheduler can run A while B sleeps and wake B when its I/O completes. The CPU is therefore multiplexed among runnable processes, not divided equally among all processes regardless of state.
+
+In plain English: The program asks the operating system to move bytes to or from a resource, much like using a numbered ticket to ask a clerk for the right item.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.022, SP21.023
+
+------------------------------------------------------------
+
+20. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 21. Repeat the trace when B needs 8 milliseconds instead of 4 and A runs immediately when its I/O completes, preempting B. Calculate each completion time, CPU time, and total CPU utilization over the interval ending when both finish. Review 1. Can two processes contain the same virtual address but different data? Review 2. Why is a waiting process not necessarily helped by a faster CPU?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.024, SP21.025
+
+------------------------------------------------------------
+
+21. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is processes. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.026
+
+------------------------------------------------------------
+
+22. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Virtual Address Spaces.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.027
+
+------------------------------------------------------------
+
+23. A saved context is more than local variables
+Reason about the implementation
+
+SAY
+Suppose A is paused between computing a sum and storing it. The current instruction position, stack position, registers, and relevant flags help define what happens next. Saving only named source variables is insufficient because the compiler may keep values in registers or remove variables entirely. The kernel preserves the architecture-defined execution context needed to resume correctly. A context switch may also change the active address-space context when the new stream belongs to another process. That is different from a function call, whose calling convention divides preservation duties between caller and callee. Do not diagnose a context-switch error by assuming every source variable occupies one stack slot.
+
+DO
+Ask learners to answer the question with a concrete state or calculation before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.008: 21.3 CPU context
+
+------------------------------------------------------------
+
+24. CPU time and elapsed time answer different questions
+Reason about the implementation
+
+SAY
+In the chapter’s model, A runs from time zero to two, waits until seven, then runs until eight. B runs from two to six. The processor is idle from six to seven, so useful CPU work totals seven units during eight elapsed units: eighty-seven point five percent utilization. A’s own CPU time is only three units, although its completion takes eight. These are model units under stated assumptions, not measurements from our machine. Changing the I/O duration changes elapsed time without changing A’s required computation. When comparing real programs, report whether a number measures wall time, one process’s CPU time, or total CPU work across workers.
+
+DO
+Ask learners to answer the question with a concrete state or calculation before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.018: Worked example — A scheduling model with waiting
+
+------------------------------------------------------------
+
+25. Isolation permits deliberate communication
+Reason about the implementation
+
+SAY
+The number three can be a descriptor for a log in one process and a socket in another. Likewise, the same virtual address can map unrelated physical storage. Sending either number to another process does not automatically transfer the resource it names. An intentional communication channel needs a representation and a lifetime rule. For shared regions, an offset from a known base can be meaningful even when each process maps the region at a different address. Isolation also does not prevent competition for processor time or memory bandwidth. Separate what processes may directly access from which physical resources they compete to use.
+
+DO
+Ask learners to answer the question with a concrete state or calculation before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.010: 21.4 Address space
+
+------------------------------------------------------------
+
+26. Process completion includes collecting the result
+Reason about the implementation
+
+SAY
+A child can finish before its parent looks at the result. The kernel retains enough termination information for the parent to collect it; that remaining record is often called a zombie. It is not a hidden worker still executing the old program. Our fork demonstration waits for the exact child and checks that termination was normal before reading an exit code. This ordering matters because a signal termination has a different status representation. In a server that repeatedly launches children, forgetting collection can accumulate records even when every child’s work completed. Review creation and collection as one lifecycle, including error and cancellation paths.
+
+DO
+Ask learners to answer the question with a concrete state or calculation before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.006: 21.2 Process state
+
+------------------------------------------------------------
+
+27. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Model process A issuing I/O while process B is ready. A must leave the run queue until its I/O completes.
+
+A requests blocking I/O. A becomes waiting. A cannot make progress until an external completion occurs.
+
+Schedule B. B becomes running. A different runnable process can use the CPU while A waits.
+
+A receives completion. A becomes ready. Ready means eligible to run, not necessarily running at that instant.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch21/main.cpp
+
+------------------------------------------------------------
+
+28. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+A requests blocking I/O. A becomes waiting. A cannot make progress until an external completion occurs.
+
+Schedule B. B becomes running. A different runnable process can use the CPU while A waits.
+
+A receives completion. A becomes ready. Ready means eligible to run, not necessarily running at that instant.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch21/main.cpp
+
+------------------------------------------------------------
+
+29. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+A state machine makes the permitted change explicit at each call. Checking the source state prevents an event from pretending a blocked process can run. This generic transition helper trusts its caller to supply the allowed edge; a production scheduler would expose named operations or validate the edge set centrally.
+
+Wakeup makes work eligible by moving it to Ready. Dispatch is a separate scheduling decision.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch21/main.cpp:1-13
+
+------------------------------------------------------------
+
+30. The demonstrated process-state cycle
+Code, diagrams, and debugging
+
+SAY
+Solid arrows are the three state transitions exercised by systems_labs/ch21/solution.cpp. They are not ownership. This selected cycle omits other scheduler events such as preemption. The helper checks the current source state but trusts its caller to select a permitted edge; the diagram does not claim it enforces a complete scheduler policy.
+
+A state machine makes the permitted change explicit at each call. Checking the source state prevents an event from pretending a blocked process can run. This generic transition helper trusts its caller to supply the allowed edge; a production scheduler would expose named operations or validate the edge set centrally.
+
+Wakeup makes work eligible by moving it to Ready. Dispatch is a separate scheduling decision.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch21/main.cpp:1-13
+
+------------------------------------------------------------
+
+31. Waiting is different from being runnable
+Code, diagrams, and debugging
+
+SAY
+Waiting is different from being runnable. A blocks for an event and becomes waiting. A waiting process cannot use a CPU merely because one becomes free.
+
+Model process A issuing I/O while process B is ready. A must leave the run queue until its I/O completes.
+
+A cannot make progress until an external completion occurs. A different runnable process can use the CPU while A waits. Ready means eligible to run, not necessarily running at that instant.
+
+A blocks for an event and becomes waiting. A waiting process cannot use a CPU merely because one becomes free.
+
+B was ready and now becomes running. The model has moved the CPU to runnable work.
+
+The first report shows A waiting and B running. These are string states, not real scheduler operations.
+
+A becomes ready when its event arrives. It can now compete for a CPU, but it does not automatically displace B.
+
+Waiting does not mean runnable. Completion of the waited-for event makes the process ready; dispatch is a separate step.
+
+Treating waiting and ready as the same state can make a scheduler repeatedly choose work that cannot progress. In the extended lab: Wake a waiting process directly into Running without considering which process owns the CPU.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch21/main.cpp:8-11
+
+------------------------------------------------------------
+
+32. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Wake a waiting process directly into Running without considering which process owns the CPU.
+
+Wakeup makes work eligible by moving it to Ready. Dispatch is a separate scheduling decision.
+
+The reference solution makes the contract executable with assertions. A state machine makes the permitted change explicit at each call. Checking the source state prevents an event from pretending a blocked process can run. This generic transition helper trusts its caller to supply the allowed edge; a production scheduler would expose named operations or validate the edge set centrally.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.06
+
+------------------------------------------------------------
+
+33. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch21/starter.cpp. Implement the first acceptance case for enforce scheduler state transitions. State the function inputs and result before adding code. First case: Ready→Running dispatch succeeds.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.07
+
+------------------------------------------------------------
+
+34. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch21/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.08
+
+------------------------------------------------------------
+
+35. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Wake a waiting process directly into Running without considering which process owns the CPU. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.09
+
+------------------------------------------------------------
+
+36. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Does B running while A waits require two CPU cores? Compare the selected design with this plausible alternative: Sequential execution is simpler when tasks never wait and there is no need to overlap their lifetimes.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.10
+
+------------------------------------------------------------
+
+37. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch21/starter.cpp. Use an enum to model Ready, Running, and Waiting. Permit dispatch, blocking, and wakeup only from their valid starting states. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch21/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.11
+
+------------------------------------------------------------
+
+38. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Enforce scheduler state transitions belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.12
+
+------------------------------------------------------------
+
+39. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Use an enum to model Ready, Running, and Waiting. Permit dispatch, blocking, and wakeup only from their valid starting states.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch21/starter.cpp
+
+------------------------------------------------------------
+
+40. Review the extension solution
+Practice and extension
+
+SAY
+A state machine makes the permitted change explicit at each call. Checking the source state prevents an event from pretending a blocked process can run. This generic transition helper trusts its caller to supply the allowed edge; a production scheduler would expose named operations or validate the edge set centrally. Repair principle: Wakeup makes work eligible by moving it to Ready. Dispatch is a separate scheduling decision.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Wakeup makes work eligible by moving it to Ready. Dispatch is a separate scheduling decision.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch21/solution.cpp
+
+------------------------------------------------------------
+
+41. Application case: Processes
+Practice and extension
+
+SAY
+Two independent processes both use virtual address 0x1000.
+
+Must they access the same byte?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.CASE
+
+------------------------------------------------------------
+
+42. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+A state machine makes the permitted change explicit at each call. Checking the source state prevents an event from pretending a blocked process can run. This generic transition helper trusts its caller to supply the allowed edge; a production scheduler would expose named operations or validate the edge set centrally.
+
+Choose a simpler approach when its narrower contract is enough. Sequential execution is simpler when tasks never wait and there is no need to overlap their lifetimes.
+
+When this system changes, retain a check that exposes the known failure: Wake a waiting process directly into Running without considering which process owns the CPU. Wakeup makes work eligible by moving it to Ready. Dispatch is a separate scheduling decision.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.14
+
+------------------------------------------------------------
+
+43. Scheduling policy cannot repair a missing event
+Recall and transfer
+
+SAY
+If a worker waits for a client request that has not arrived, a higher scheduling priority cannot manufacture that input. If many workers are runnable, priorities instead decide who receives scarce execution time. Context switches also have indirect costs because the newly running work may use different cache lines or translations. That does not mean every switch flushes every cache. Hardware and kernel mechanisms vary, and some state remains useful. For maintenance, collect evidence about runnable demand, actual execution, and reasons for blocking before adjusting thread counts. A single average CPU percentage cannot explain which of these limits dominates.
+
+DO
+Ask learners to answer the question with a concrete state or calculation before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch21.json → SP21.016: 21.7 Scheduling
+
+------------------------------------------------------------
+
+44. Defend a process model with explicit invariants
+Recall and transfer
+
+SAY
+A useful process explanation follows four things: which program image is installed, what mappings and resources belong to the process, which thread can run, and what event changes its state. The source example introduces ready, running, and waiting with strings; the lab improves their representation with an enum. Our added dispatcher also tracks processor ownership. None is a complete kernel scheduler. Each model should say which rules it enforces and which it leaves to its caller. Extend the model by adding two CPUs only after stating whether each task may run on one CPU at a time. Otherwise an extra enum value can hide a broken ownership rule.
+
+DO
+Ask learners to answer the question with a concrete state or calculation before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch21.json → SYS21.12: Exercise 6: Justify the boundary

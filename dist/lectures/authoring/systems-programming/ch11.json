@@ -1,0 +1,225 @@
+{
+  "chapter": 11,
+  "title": "Memory Errors",
+  "opening": [
+    {
+      "title": "A crash is often the last event, not the first",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Locate the first invalid access.",
+        "Separate bounds, lifetime, initialization, and ownership.",
+        "A readable address is not proof of a live object."
+      ],
+      "narration": "A service crashes while following a pointer, but the pointer was damaged by an earlier write beyond an unrelated buffer. Debugging only the final instruction can therefore explain the symptom without finding the cause. We need a vocabulary that separates four questions. Is the index inside the object? Is that object still alive? Was the value initialized before it was read? Who is responsible for releasing it? A mapped page answers none of these questions completely. The operating system may permit access to that page while C++ still forbids access outside a particular array. Start your investigation with the first broken promise.",
+      "actions": [
+        "Ask learners to classify an index error separately from an ended object lifetime."
+      ],
+      "sourceRef": "content/systems-programming/ch11.json → SP11.001",
+      "question": {
+        "prompt": "Why can a memory error appear far from the line that caused it?",
+        "answer": "An invalid write can corrupt state that is not used until much later."
+      }
+    },
+    {
+      "title": "One owner can move without duplicating a resource",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "code",
+      "keyPoints": [
+        "unique_ptr represents exclusive ownership.",
+        "Moving transfers the release duty.",
+        "The live count returns to zero at scope exit."
+      ],
+      "narration": "This program uses a live-object count so we can observe ownership without printing addresses. Construction raises the count to one. Moving first into second transfers the unique owner, leaving first empty while the same Resource remains alive. That is why the middle output says first is false and second is true, with one live object rather than two. Leaving the scope destroys second and its Resource, so the final count is zero. This is a small example of resource acquisition is initialization, often called RAII: an object's lifetime carries its cleanup duty. It avoids inventing two independent deletion paths.",
+      "actions": [
+        "Predict the live count on each line.",
+        "Explain which scope ends the ownership."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch11.json → SP11.010",
+      "question": {
+        "prompt": "Does std::move construct a second Resource here?",
+        "answer": "No. It transfers the unique_ptr handle; the already-created Resource remains the same object."
+      },
+      "code": {
+        "filename": "sys_ch11_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <utility>\nstruct Resource {\n    static inline int live = 0;\n    Resource() { ++live; }\n    ~Resource() { --live; }\n};\nint main() {\n    std::cout << \"before=\" << Resource::live << '\\n';\n    {\n        auto first = std::make_unique<Resource>();\n        auto second = std::move(first); // Transfer the one owning handle.\n        std::cout << std::boolalpha << \"first=\" << bool(first)\n                  << \" second=\" << bool(second) << \" live=\" << Resource::live << '\\n';\n    }\n    std::cout << \"after=\" << Resource::live << '\\n';\n}\n",
+        "expectedStdout": "before=0\nfirst=false second=true live=1\nafter=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "A size check can overflow before it protects anything",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "code",
+      "keyPoints": [
+        "Unsigned addition wraps by its type width.",
+        "Check offset first, then remaining capacity.",
+        "This demonstration forms no pointer and accesses no buffer."
+      ],
+      "narration": "A guard can be wrong even when it looks like a bounds check. The demonstration sets offset near the largest size_t value and length to five. Their unsigned sum wraps to two, so the naive comparison wrongly accepts an eight-byte region. The guarded version first rejects an offset beyond the extent, and only then subtracts to find remaining room. It prints naive true and guarded false. These are numeric checks only; the program deliberately forms no out-of-range pointer. This isolates the logic flaw safely. A real copy also needs valid live source and destination ranges and an explicit overlap policy.",
+      "actions": [
+        "Predict whether the naive condition accepts.",
+        "Point to the short-circuit operator that prevents unsafe subtraction."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch11.json → SP11.006",
+      "question": {
+        "prompt": "Why does offset <= extent need to precede extent - offset?",
+        "answer": "Without that guard, unsigned subtraction could wrap and create a fictitious large remaining capacity."
+      },
+      "code": {
+        "filename": "sys_ch11_wrapped_guard.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <limits>\nint main() {\n    const std::size_t extent = 8;\n    const auto offset = std::numeric_limits<std::size_t>::max() - 2;\n    const std::size_t length = 5;\n    const bool naive = offset + length <= extent;\n    const bool guarded = offset <= extent && length <= extent - offset;\n    std::cout << std::boolalpha << \"naive=\" << naive\n              << \" guarded=\" << guarded << '\\n';\n}\n",
+        "expectedStdout": "naive=true guarded=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Safe arithmetic demonstration; no memory access is attempted."
+      }
+    },
+    {
+      "title": "Reserve the terminator before copying text",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Eight bytes hold at most seven payload characters plus zero.",
+        "A C string needs a terminator; a counted range may not.",
+        "Validate the whole operation before writing."
+      ],
+      "narration": "An array of eight chars has eight elements, numbered zero through seven. If it must hold a C string, one element is reserved for the terminating zero byte. An eight-character payload therefore does not fit even though eight sounds like the right capacity. The chapter's copy exercise checks the request before touching the destination, which gives a useful failure guarantee: rejected input leaves existing bytes unchanged. Do not confuse a counted byte range with a zero-terminated string. They have different contracts. When maintaining a parser, specify whether the size includes the terminator and use one convention consistently at every call boundary.",
+      "actions": [
+        "Ask for payload capacity in buffers of size zero, one, and eight."
+      ],
+      "sourceRef": "content/systems-programming/ch11.json → SP11.026",
+      "question": {
+        "prompt": "Why can a bounded copy still overflow a destination?",
+        "answer": "The supplied bound may describe the source length instead of the destination capacity, or it may omit terminator space."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Nulling one variable does not erase every alias",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "An alias is another route to the same object.",
+        "Resetting an owner ends the owned lifetime.",
+        "Other borrowed pointers are not automatically updated."
+      ],
+      "narration": "Suppose two pointer variables refer to one allocation. Releasing through the owner and then setting that owner variable to null does not change the other variable's stored bits. The second variable is now a dangling pointer: its object has died even if those bits still name mapped memory. We do not dereference such a pointer to learn what it happens to print, because the language makes no promise for that access. The design repair is to bound the borrowing interval or give readers an ownership mechanism that keeps the object alive. A null check alone cannot protect an interval during which another thread may release the object.",
+      "actions": [
+        "Draw one owner and two borrowed aliases, then end the owner lifetime."
+      ],
+      "sourceRef": "content/systems-programming/ch11.json → SP11.028",
+      "question": {
+        "prompt": "Does an atomic pointer load keep its target alive?",
+        "answer": "No. Atomic access protects the pointer operation, not the lifetime of the pointed-to object."
+      }
+    },
+    {
+      "title": "Pair allocation and release through one contract",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "A view is not an owner.",
+        "An interior pointer cannot be released as an allocation base.",
+        "Allocator provenance determines the matching release."
+      ],
+      "narration": "A function may return a pointer to the middle of a larger buffer. That pointer can be a useful view while the buffer remains alive, but it is not a new allocation that the caller may free. Similarly, storage obtained from one allocation family must be released through the matching family. The numeric address alone does not carry this history, which is why raw-pointer interfaces need clear ownership documentation. A C++ owner can keep a custom deleter with the resource when a library supplies a special release function. Centralizing that pairing is safer than making every caller remember a cleanup rule from a comment elsewhere.",
+      "actions": [
+        "Compare a whole-buffer owner with a borrowed pointer to its third byte."
+      ],
+      "sourceRef": "content/systems-programming/ch11.json → SP11.012",
+      "question": {
+        "prompt": "What extra fact must be known beyond the pointer address before releasing storage?",
+        "answer": "Its ownership status and the allocation or resource family that defines the matching release operation."
+      }
+    },
+    {
+      "title": "Initialized does not mean meaningful",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "A value must be established before reading.",
+        "Zero is not a valid state for every protocol.",
+        "Bounds tools and uninitialized-value tools answer different questions."
+      ],
+      "narration": "Initializing a length to zero avoids reading an indeterminate scalar, but a zero state tag may still be invalid for an application protocol. These are separate obligations: the language needs a value that may be read, and the program needs a value with an accepted meaning. Consider a packet with a valid length field but an unknown operation code. No out-of-bounds access is required for the packet to be rejected. This distinction also explains tool coverage. A memory access can stay inside allocated storage while reading bytes that were never established for the intended use. Choose tests and tools based on the violated contract, not just the presence of a crash.",
+      "actions": [
+        "Classify zero length and unknown state code as separate validation decisions."
+      ],
+      "sourceRef": "content/systems-programming/ch11.json → SP11.018",
+      "question": {
+        "prompt": "Can zero-initialization replace protocol validation?",
+        "answer": "No. It establishes initial values but does not prove that those values satisfy the protocol."
+      }
+    },
+    {
+      "title": "Leaks and unbounded retention need different evidence",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "A lost ownership path can leak an allocation.",
+        "A reachable cache can still grow without bound.",
+        "Track live objects, limits, and eviction rules."
+      ],
+      "narration": "A leak detector may report an allocation as reachable because a global vector still points to it. That does not prove the service can run indefinitely: the vector may retain every request ever seen. Conversely, a deliberate bounded cache can retain memory without being a bug. Investigate whether the program has a release path and whether its retention policy has a justified limit. The live counter in our first demonstration proves a small scope cleans up, but it says nothing about a cache that never leaves scope. For a long-running service, test repeated operations and measure live ownership, not only one successful request or the memory reclaimed at process exit.",
+      "actions": [
+        "Propose a limit and eviction test for a request-history cache."
+      ],
+      "sourceRef": "content/systems-programming/ch11.json → SP11.008",
+      "question": {
+        "prompt": "Why can a reachable object still contribute to a memory-growth defect?",
+        "answer": "The application may retain it indefinitely without an appropriate size limit or eviction policy."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Treat sanitizer results as evidence about executed paths",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Address, undefined-behavior, and race checks differ.",
+        "A clean run is not proof of every path.",
+        "Fix the first invalid operation before interpreting later symptoms."
+      ],
+      "narration": "Sanitizers add checks to an instrumented build. Address checks can detect many boundary and lifetime failures; undefined-behavior checks and race checks cover other classes. They do not all provide the same guarantees, and some configurations are separate builds. A clean test run tells us that enabled checks did not find a defect on the executed paths. It does not cover an untested error branch or prove a logical bound was correct. Keep warnings, targeted tests, and ownership review alongside these tools. Also keep instrumented timing separate from production timing, because added checks change the work the program performs.",
+      "actions": [
+        "Have learners identify one path a normal success test misses."
+      ],
+      "sourceRef": "content/systems-programming/ch11.json → SP11.022",
+      "question": {
+        "prompt": "What should a clean sanitizer report say in a review?",
+        "answer": "State the tool configuration and exercised tests, rather than claiming the program has no memory errors."
+      }
+    },
+    {
+      "title": "Build a diagnosis from four questions",
+      "eyebrow": "SYSTEMS / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "What object and permitted range?",
+        "Which owner keeps it alive?",
+        "Which operation first breaks the promise?"
+      ],
+      "narration": "Take the original copy failure and explain it without the vague phrase bad memory. Name the destination object, its capacity, the requested payload and terminator, and the guarantee that failure leaves it unchanged. Then explain the ownership of that destination for the entire call. These details distinguish a capacity defect from a dangling pointer passed with a perfectly accurate size. During maintenance, preserve both kinds of test: boundary inputs for arithmetic and scope changes for lifetime. A repair that only changes one index may hide the current symptom while leaving an unclear ownership interface ready to fail in a different path.",
+      "actions": [
+        "Ask for a one-minute diagnosis using bounds, lifetime, ownership, and first invalid operation."
+      ],
+      "sourceRef": "content/systems-programming/ch11.json → SP11.032",
+      "question": {
+        "prompt": "What does a valid span size fail to prove by itself?",
+        "answer": "That the span points to live accessible storage whose lifetime lasts through the operation."
+      }
+    }
+  ]
+}

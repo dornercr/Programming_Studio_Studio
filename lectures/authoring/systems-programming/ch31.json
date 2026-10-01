@@ -1,0 +1,224 @@
+{
+  "chapter": 31,
+  "title": "Cache Replacement — choosing what to forget",
+  "opening": [
+    {
+      "title": "A full cache must forget something",
+      "eyebrow": "SYSTEMS 31 / CACHE POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "A new block needs a resident slot",
+        "Replacement chooses a victim among eligible residents",
+        "Capacity and policy are separate inputs"
+      ],
+      "narration": "A three-slot cache holds A, B, and C when D arrives. The access is a miss, but that fact alone does not tell us which resident to remove. Replacement is the rule that makes that choice. A direct-mapped cache may have only one eligible slot, while a fully associative model lets every resident compete. In this chapter we keep the trace and capacity explicit so we can compare policies fairly. The goal is not to guess a particular processor's undocumented behavior. It is to explain how retained history influences the next choice, and what that choice costs when a block is needed again.",
+      "actions": [
+        "Ask learners to choose a victim, then ask what evidence supports their choice."
+      ],
+      "sourceRef": "content/systems-programming/ch31.json → SP31.001 · Chapter 31 — Cache Replacement",
+      "question": {
+        "prompt": "Why must a replacement comparison state associativity or eligible slots?",
+        "answer": "A policy cannot evict a block from a slot that the placement rules do not allow."
+      }
+    },
+    {
+      "title": "FIFO remembers arrival, not affection",
+      "eyebrow": "SYSTEMS 31 / CACHE POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "Hits do not change insertion order",
+        "The oldest insertion can still be heavily used",
+        "The order container is part of the policy"
+      ],
+      "narration": "First in, first out, or FIFO, remembers when each resident arrived. Suppose A entered before B and C, and ten later accesses all hit A. FIFO still removes A when the set next needs space. That may feel surprising because recent usefulness and insertion age are different measurements. A hit must leave the insertion queue alone. Moving A to the back would silently change the policy toward recency. When reviewing a simulator, therefore inspect the hit branch as carefully as the miss branch. The compiler can check vector operations, but it cannot know that this particular order is supposed to represent arrival history.",
+      "actions": [
+        "Trace repeated hits on A without moving its queue position."
+      ],
+      "sourceRef": "content/systems-programming/ch31.json → SP31.004 · 31.1 FIFO",
+      "question": {
+        "prompt": "Which FIFO state changes on a hit?",
+        "answer": "Hit statistics may change, but resident insertion order must not."
+      }
+    },
+    {
+      "title": "More FIFO capacity can still mean more misses",
+      "eyebrow": "SYSTEMS 31 / PREDICT → RUN → EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "The trace is fixed across both runs",
+        "Three slots produce nine misses",
+        "Four slots produce ten misses"
+      ],
+      "narration": "Run this portable model with the same twelve requests and two capacities. It prints nine misses for three slots and ten for four slots. A larger FIFO cache does not always contain everything the smaller FIFO cache would contain at the same point, so the extra slot can change later victims in an unhelpful way. This result is called an anomaly of FIFO replacement. It is not a timing measurement and does not mean extra memory usually harms applications. It refutes one universal claim: FIFO miss counts cannot be assumed to decrease for every trace when capacity increases. Trace resident order to explain the result.",
+      "actions": [
+        "Predict whether the miss count must improve before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch31.json → SP31.004 · 31.1 FIFO",
+      "question": {
+        "prompt": "Does this result prove that three slots are generally better than four?",
+        "answer": "No. It is one counterexample to a universal monotonic-miss claim about FIFO."
+      },
+      "code": {
+        "filename": "sys_ch31_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <iostream>\n#include <vector>\nint misses(std::size_t capacity) {\n    const std::vector<int> trace{1,2,3,4,1,2,5,1,2,3,4,5};\n    std::vector<int> resident;\n    int count = 0;\n    for (int block : trace) {\n        if (std::find(resident.begin(), resident.end(), block)\n            != resident.end()) continue; // FIFO hits do not reorder.\n        ++count;\n        if (resident.size() == capacity) resident.erase(resident.begin());\n        resident.push_back(block);\n    }\n    return count;\n}\nint main() {\n    std::cout << \"FIFO slots=3 misses=\" << misses(3) << '\\n';\n    std::cout << \"FIFO slots=4 misses=\" << misses(4) << '\\n';\n}\n",
+        "expectedStdout": "FIFO slots=3 misses=9\nFIFO slots=4 misses=10\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Deterministic replacement-policy model; no processor timing is measured."
+      }
+    },
+    {
+      "title": "Recent use is evidence, not knowledge of the future",
+      "eyebrow": "SYSTEMS 31 / CACHE POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "LRU refreshes a hit’s position",
+        "It evicts the least recently touched resident",
+        "A cyclic scan can defeat the prediction"
+      ],
+      "narration": "Least recently used, or LRU, treats recent access as a clue that a block may be used again. If A and B are resident and A is touched, B becomes the least recent resident. That differs from FIFO even if both policies use a container ordered from oldest to newest. The word oldest means different things in the two implementations. LRU tracks last touch, not first arrival. This extra information has a maintenance cost because hits update policy state too. Hardware may approximate it. Before declaring LRU better, ask whether the workload actually repeats a hot subset or instead cycles through more distinct blocks than fit.",
+      "actions": [
+        "Compare the meaning of the same container position under FIFO and LRU."
+      ],
+      "sourceRef": "content/systems-programming/ch31.json → SP31.006 · 31.2 LRU",
+      "question": {
+        "prompt": "What does the front of an LRU order represent?",
+        "answer": "The resident whose latest access occurred longest ago, not necessarily the earliest arrival."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "A scan just beyond capacity can miss every time",
+      "eyebrow": "SYSTEMS 31 / PREDICT → RUN → EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Three slots face a four-block cycle",
+        "Every returning block has already been evicted",
+        "The model prints zero hits across eight accesses"
+      ],
+      "narration": "The program runs LRU on A, B, C, D, then repeats those four blocks. The capacity is three. When D first arrives, A is least recent and leaves. The next request is A, so it misses and evicts B, which is requested next. This pattern continues, producing zero hits and eight misses. The code is a safe deterministic simulation, not a claim about actual CPU counters. Its lesson is that a policy can follow its rules perfectly and still fit the workload poorly. Improving locality may require changing the active batch or access order rather than repairing a replacement algorithm that is already correct.",
+      "actions": [
+        "Pause after D and identify the very next request."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch31.json → SP31.006 · 31.2 LRU",
+      "question": {
+        "prompt": "Why does the second A miss even though A was previously loaded?",
+        "answer": "D evicted A because three slots could not retain the four-block cycle."
+      },
+      "code": {
+        "filename": "sys_ch31_cyclic_lru.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <iostream>\n#include <string>\n#include <vector>\nint main() {\n    std::vector<char> order; // Least recent at the front.\n    int hits = 0, misses = 0;\n    for (char block : std::string(\"ABCDABCD\")) {\n        auto found = std::find(order.begin(), order.end(), block);\n        if (found != order.end()) {\n            ++hits;\n            order.erase(found);\n        } else {\n            ++misses;\n            if (order.size() == 3) order.erase(order.begin());\n        }\n        order.push_back(block);\n    }\n    std::cout << \"hits=\" << hits << \" misses=\" << misses << '\\n';\n}\n",
+        "expectedStdout": "hits=0 misses=8\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Deterministic replacement-policy model; no processor timing is measured."
+      }
+    },
+    {
+      "title": "Optimal replacement has information an online cache lacks",
+      "eyebrow": "SYSTEMS 31 / CACHE POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "Inspect the complete future trace",
+        "Evict the resident used farthest in the future",
+        "Use the result as a bound for the stated model"
+      ],
+      "narration": "If we knew every future request, we could evict the resident whose next use is farthest away, or never occurs again. This optimal policy gives a useful comparison point for miss count in the chosen cache model. For residents A and B, with future requests A, C, A, B, keeping A is sensible because B is needed later. A running general-purpose cache usually does not have that complete future list. Comparing it with an offline optimum therefore measures the price of missing information as well as policy choice. Optimal also needs an objective: minimizing misses is not automatically the same as minimizing writeback traffic or elapsed time.",
+      "actions": [
+        "Give future requests and ask which resident the offline policy would retain."
+      ],
+      "sourceRef": "content/systems-programming/ch31.json → SP31.008 · 31.3 Optimal replacement",
+      "question": {
+        "prompt": "Can a miss-optimal policy automatically be called time-optimal?",
+        "answer": "No. Different misses, dirty evictions, overlap, and implementation costs can have different time costs."
+      }
+    },
+    {
+      "title": "Dirty means newer, not damaged",
+      "eyebrow": "SYSTEMS 31 / CACHE POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "A dirty resident differs from its backing copy",
+        "Eviction must preserve its unique changes",
+        "A clean line can be discarded but may soon be useful"
+      ],
+      "narration": "A cache line is dirty when it contains changes not yet reflected in the relevant backing level. It is not corrupted. If dirty A contains the only current value, eviction needs a writeback path before that value is lost. A clean B matches its backing copy and can be discarded without preserving unique changes. But cleanliness does not predict reuse: B may be requested immediately afterward. This is why choosing the cheapest immediate eviction can increase later misses. Keep two questions separate in a review: how expensive is removing this line, and how likely is retaining it to save future work? Both depend on the stated cache protocol.",
+      "actions": [
+        "Mark one resident dirty without changing the access trace."
+      ],
+      "sourceRef": "content/systems-programming/ch31.json → SP31.012 · 31.5 Dirty blocks",
+      "question": {
+        "prompt": "Why is always evicting a clean block not automatically best?",
+        "answer": "A clean block may be reused soon, while a dirty block may never be used again; future benefit and immediate cost differ."
+      }
+    },
+    {
+      "title": "Policy state needs its own invariants",
+      "eyebrow": "SYSTEMS 31 / CACHE POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "Resident identities remain unique",
+        "Order changes match the chosen policy",
+        "Capacity is never exceeded after an operation"
+      ],
+      "narration": "A simulator can print plausible totals while its internal state is wrong. Check that each resident appears only once, that the number of residents stays within capacity, and that a hit changes order only when the policy requires it. For LRU, moving a hit requires removing its old position before appending it. Forgetting the erase creates duplicates and makes the cache seem larger or smaller than intended. In C++, erase also invalidates relevant vector positions, so do not continue using the erased iterator. Store the block value independently before mutation. The same discipline matters in a software cache whose bookkeeping determines which owned object is destroyed.",
+      "actions": [
+        "Ask for an assertion that catches duplicate residents."
+      ],
+      "sourceRef": "content/systems-programming/ch31.json → SYS31.03 · Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "What breaks if an LRU hit appends without erasing its old occurrence?",
+        "answer": "One block occupies multiple logical slots, corrupting capacity and victim selection."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Separate a correct policy from a good workload fit",
+      "eyebrow": "SYSTEMS 31 / CACHE POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "Check decisions with a small trace first",
+        "Measure workloads after semantic checks pass",
+        "Report miss counts separately from timing"
+      ],
+      "narration": "When a cache disappoints, begin with a tiny trace whose expected victims you can explain. That distinguishes an implementation bug from a workload that offers little reuse. Then compare representative traces with consistent capacity, initial state, and placement rules. If one policy has fewer misses, do not immediately translate that percentage into program speedup. Dirty evictions, overlapping transfers, and policy overhead still matter. A useful report names the model, counts misses and writebacks, and separately reports any real measured timing. This gives maintainers enough evidence to decide whether to change replacement, resize a cache, or reorganize the work that feeds it.",
+      "actions": [
+        "Require both a decision trace and workload-level counts."
+      ],
+      "sourceRef": "content/systems-programming/ch31.json → SP31.010 · 31.4 Eviction",
+      "question": {
+        "prompt": "What evidence supports a policy implementation being correct but poorly suited?",
+        "answer": "Its individual victim decisions match its contract, yet a representative trace still produces frequent misses."
+      }
+    },
+    {
+      "title": "Recall the remembered fact behind each policy",
+      "eyebrow": "SYSTEMS 31 / CACHE POLICY",
+      "kind": "concept",
+      "keyPoints": [
+        "FIFO remembers arrival",
+        "LRU remembers the most recent access",
+        "Optimal replacement consults future use"
+      ],
+      "narration": "To recall these policies, ask what fact each is allowed to remember. FIFO stores arrival order and ignores hits for replacement. LRU stores the order of latest access and refreshes hits. The offline optimal policy sees future use that an ordinary online cache cannot know. Then add the dirty-state question: removing a modified copy may require preserving data before reuse of its slot. Transfer the lesson to a bounded image cache. A recently viewed image may be worth retaining, but a long scan can flood the cache. The design needs a workload reason, not merely a familiar policy name.",
+      "actions": [
+        "Have learners invent a four-access distinguishing trace."
+      ],
+      "sourceRef": "content/systems-programming/ch31.json → SP31.024 · Chapter Synthesis",
+      "question": {
+        "prompt": "What is the fastest way to distinguish FIFO from LRU in a trace?",
+        "answer": "Insert several blocks, hit the oldest arrival, then force eviction and compare the chosen victim."
+      }
+    }
+  ]
+}

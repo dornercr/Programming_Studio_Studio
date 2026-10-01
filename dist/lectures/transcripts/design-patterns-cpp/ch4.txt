@@ -1,0 +1,821 @@
+Design Patterns in C++
+Chapter 4: Prototype: copy the actual object and define what stays independent
+Dr. Charles Dorner
+
+1. Duplicate a cue, then edit only the duplicate
+Problem and first design
+
+SAY
+Imagine a presentation tool with a text cue and a list cue. The user duplicates the group, then changes the first name in the copied list. They expect the original list to remain unchanged. This requirement includes more than obtaining another pointer. We need another object with the same starting value and the same kind of behavior, plus independent editable data. If the caller already knows the exact type, normal C++ value copying may be all we need. The difficult case is a mixed collection whose caller sees only the shared Cue interface. Prototype will let each actual object decide how to duplicate itself through that interface.
+
+DO
+Ask learners what Duplicate should mean in a presentation editor.
+Separate same starting value from same object identity.
+
+SOURCE
+manuscript/ch04.json → Duplicate cues without knowing their kinds
+
+------------------------------------------------------------
+
+2. Same value and same identity are different claims
+Problem and first design
+
+SAY
+Two cue objects can both display Start without being the same object. Conversely, two handles can have different variable names while both reach one object. Identity asks whether we are dealing with one entity or two. Value asks what that entity currently contains or does. Our duplicate command needs distinct identities with equal initial public values. It also needs independence for the editable names. These are separate properties, so they need separate checks. If a future cue shares an immutable image, sharing that image may be acceptable even while names remain independent. We must say where the copy boundary lies before declaring that a clone is deep enough.
+
+DO
+Give examples of two equal values and two aliases to one value.
+Ask what resources a cue could safely share.
+
+SOURCE
+manuscript/ch04.json → Copy depth is a design decision
+
+------------------------------------------------------------
+
+3. Known value types already know how to copy
+Problem and first design
+
+SAY
+This example needs no inheritance or clone operation. CueList holds a vector of strings, and the compiler-provided copy copies that vector. The strings are value objects, so later edits are independently observable. The first output remains Check, the second is Inspect, and clearing the original list still leaves Inspect in the copy. front returns the first element; our initialization and copy guarantee the copied list is nonempty when front is used. The lesson is to begin with ordinary copying when the concrete type is known. Prototype becomes useful only when a caller must ask an unknown concrete type behind a common interface to make the right copy.
+
+DO
+Predict all three output lines before Run.
+Identify the invariant that makes front safe for the copied list.
+
+SOURCE
+Lecture demonstration for manuscript/ch04.json → Duplicate cues without knowing their kinds
+
+------------------------------------------------------------
+
+4. Copying a shared handle does not duplicate the list
+Problem and first design
+
+SAY
+Here the first copy is a copy of a shared_ptr handle. Both handles keep one list alive. Editing through handle_copy therefore changes what original sees, and the first line reports Inspect. Nothing is dangling and there is no undefined behavior. The mistake is a mismatch with the user's requirement for independent edits. The second construction copies the list value into a new object. Changing that new list to Continue leaves the old one at Inspect. Replacing a noncopyable unique_ptr with shared_ptr merely to make compilation succeed can create exactly this defect. Select an ownership policy because it matches the required meaning of duplication, not because it silences an error.
+
+DO
+Predict which variable observes Inspect after the first edit.
+Run, then explain why the second copy changes the observed behavior.
+
+SOURCE
+Lecture demonstration for manuscript/ch04.json → Copy depth is a design decision
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+Duplicate mixed presentation cues with independent edits. Each concrete cue implements clone with its own copy constructor. Value-owned strings and vectors give independent editable state, while unique_ptr states ownership of each new polymorphic object.
+
+Duplicate cues through the Cue interface without selecting concrete constructors in the loop. Preserve concrete behavior and initial public values. Keep originals unchanged after valid and rejected edits of clones.
+
+clone returns a new owner of the same concrete kind and equivalent initial value. A successful rename preserves nonempty names. Cloned editable contents do not alias originals. These are the rules that define a correct extension, even if it has the right C++ types. Ordinary copying is simpler for a container of one known value type. A variant of a closed set of cue types can also support value copying without a virtual clone. Prototype fits an extensible hierarchy whose concrete types are unknown to the duplication code.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json
+
+------------------------------------------------------------
+
+6. Duplicate cues without knowing their kinds
+Requirements and mechanism
+
+SAY
+A presentation tool keeps a list of cues. A text cue has one name, such as Start. A list cue contains several names, such as Check and Begin. The user duplicates a group of cues and edits the first name in the copied list. The original group must remain unchanged. A cue name may not be empty, and a list must contain at least one name.
+
+For a known TextCue, an ordinary copy is the simplest reasonable solution. C++ already knows how to copy a string member. No design pattern is needed for that case. The difficulty begins when a container stores owning handles to Cue and the duplication code cannot name each concrete type. The excerpt can copy a known object but does not solve copying an unknown derived object through its base interface.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → Duplicate cues without knowing their kinds
+
+------------------------------------------------------------
+
+7. The limitation is lost concrete type information
+Requirements and mechanism
+
+SAY
+A unique_ptr cannot be copied because copying the sole owner would give two owners responsibility for deleting one object. Copying Cue itself would not solve the problem either. Cue is abstract here, so it cannot be constructed. In a nonabstract hierarchy, copying only the base part can discard derived data and behavior, a problem called object slicing. Neither copying the handle nor copying only the base subobject means “make an independent object of the same actual kind.”
+
+The Prototype pattern asks the existing object to create that copy. Cue declares a virtual clone operation returning a new owning Cue handle. TextCue and ListCue each know their own concrete type, so each can call its own copy constructor. The caller asks for a clone without deciding which constructor to invoke. Prototype is therefore about construction from an existing object’s state, not simply about any function named copy.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → The limitation is lost concrete type information
+
+------------------------------------------------------------
+
+8. What clone preserves
+Requirements and mechanism
+
+SAY
+ListCue::clone calls make_unique<ListCue>(*this). this points at the current ListCue; *this refers to the whole current ListCue object. Inside a const member, that expression is a const reference suitable for copying. The explicitly defaulted copy constructor copies the vector member. Both concrete cue types declare their copy constructors this way, suppressing implicit object moves. Constructing from an rvalue therefore copies instead of emptying the source; moves of unique_ptr handles still transfer ownership without moving the cue object itself. Copying a vector of strings copies each string value, so the clone owns independent character data in the normal observable sense. Editing one list’s first name does not edit the other list’s name.
+
+The clone’s type is still ListCue even though its returned owner is unique_ptr<Cue>. Later virtual calls to text and rename reach ListCue behavior. The new object has a different address but starts with the same public value. Equal value and shared identity are different ideas: two clocks can display the same time without being the same clock. The program checks both equal initial text and distinct object addresses.
+
+During compilation, the compiler generates the appropriate memberwise copy constructor and checks the clone override signature. During execution, the actual cue chooses which clone override runs. Allocation creates new storage, construction copies the concrete object into it, and ownership returns to the caller. If copying fails, make_unique cleans up the allocated storage; the original remains owned by its existing handle.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → What clone preserves
+
+------------------------------------------------------------
+
+9. Copy depth is a design decision
+Requirements and mechanism
+
+SAY
+A shallow copy copies a handle or address while keeping the same underlying resource. A deep copy makes an independent copy of owned contents, to the depth promised by the application. The words need a boundary. A vector of strings gives independent string values. A vector of shared_ptr<Image> would copy handles and share images unless the clone explicitly copied them. That may be correct if images are immutable and expensive, but it would not be correct for an independently editable image promise.
+
+A unique_ptr member normally makes the containing type noncopyable until a copy operation is explicitly defined. The lab adds BoxCue with a unique_ptr<string>. Its copy constructor allocates a new string initialized from the original string. Simply returning make_unique<BoxCue>(*this) without that copy constructor would fail to compile. Replacing unique_ptr with shared_ptr just to silence the error would change ownership meaning and make edits visible through both handles.
+
+Some resources should not be cloned at all. A live socket, open transaction, mutex, or hardware session has an identity that copying bytes cannot duplicate. A clone may copy configuration while opening a fresh session, share a documented immutable resource, or reject duplication. Cyclic object graphs need additional rules: a map from old objects to new objects can preserve internal relationships without infinite recursion. Do not promise a universal deep copy without defining where the copy stops.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → Copy depth is a design decision
+
+------------------------------------------------------------
+
+10. Keep the generic loop simple and the copy rules local
+Requirements and mechanism
+
+SAY
+The loop over originals uses const auto& because each vector element is a unique_ptr and must not be copied. The reference borrows the owning handle; const prevents reseating that handle through this reference. It does not by itself make the pointed-to object const. clone is separately declared const to promise that cloning does not mutate the cue’s ordinary members. The arrow calls the operation on the object reached through the handle.
+
+Each new owner goes into copies. push_back accepts the returned temporary owning handle by move. After the loop, originals and copies are separate owning collections. Destruction of either collection destroys only its own objects. The program renames the first entry of the copied ListCue and checks that the original text is still list:Check;Begin; while the copied text becomes list:Inspect;Begin;.
+
+Prototype is useful for user duplication, reusable configured objects, and heterogeneous snapshots when copying has a clear domain meaning. A registry may keep named prototypes and return clones, but the registry is optional. If the concrete type is already known and ordinary value copying works, use it. If objects should have unique noncopyable identities, omit clone instead of adding a misleading operation. Maintaining a clone requires adding new fields to its copy policy as the type evolves, especially when members change from values to owning or shared handles.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → Keep the generic loop simple and the copy rules local
+
+------------------------------------------------------------
+
+11. Ask the object that knows its own concrete type
+Mechanism in C++
+
+SAY
+The generic client knows only Cue, so it cannot safely choose between TextCue and ListCue constructors. Each concrete cue already knows its own type. A virtual clone operation moves that decision to the object that has the information. When the client calls clone through a Cue handle, execution selects the actual cue's override. ListCue then creates a new ListCue copied from itself and returns ownership through the Cue interface. That is Prototype: construction from the state of an existing object without the client naming its concrete type. The caller can keep one simple duplication loop as new cue kinds arrive, while each cue maintains its own copy policy.
+
+DO
+Trace a clone call on the list element through the base interface.
+
+SOURCE
+manuscript/ch04.json → The limitation is lost concrete type information
+
+------------------------------------------------------------
+
+12. An owning handle is not the object value
+Mechanism in C++
+
+SAY
+A unique_ptr is a handle with sole cleanup responsibility. Copying it would create two supposed sole owners, so the language forbids that operation. Moving it is allowed, but a move transfers the same object to another owner; it does not duplicate the object. Another tempting idea is to copy the Cue value itself. This chapter's Cue is abstract, so that cannot be constructed at all. In a nonabstract hierarchy, copying just the base part can discard derived fields and behavior, a problem called slicing. clone solves a different operation from both handle transfer and base copying: it constructs another complete object of the same actual kind with its own owner.
+
+DO
+Compare the verbs borrow, transfer, and duplicate.
+Ask which one a user’s Duplicate command requires.
+
+SOURCE
+manuscript/ch04.json → The limitation is lost concrete type information
+
+------------------------------------------------------------
+
+13. Read make_unique<ListCue>(*this) one part at a time
+Mechanism in C++
+
+SAY
+Inside ListCue::clone, this points to the current ListCue. The leading star in *this gives a reference to that object. Because clone is const, it supplies a const source for copying. make_unique<ListCue> allocates storage and constructs a ListCue using that source, which selects the copy constructor. The chapter explicitly defaults the copy constructor, so the vector member is copied using its normal value behavior. The returned handle converts to unique_ptr<Cue>, but the allocated object remains a ListCue. Later text and rename calls therefore still use list behavior. If allocation or construction fails, the construction helper does not leave an ownerless successfully allocated object behind.
+
+DO
+Read the construction expression aloud from inside outward.
+Distinguish the type of the handle from the type of the object it owns.
+
+SOURCE
+manuscript/ch04.json → What clone preserves
+
+------------------------------------------------------------
+
+14. The loop borrows each owner and stores each new owner
+Mechanism in C++
+
+SAY
+In for (const auto& cue : originals), the colon means take each element from originals in turn. auto infers the element's type. The ampersand borrows the element rather than copying its unique_ptr, and const stops us from reseating that owner through this reference. An important subtlety remains: a const unique_ptr does not by itself make the pointed-to object const. The clone operation is separately const to express that it should not change the cue's ordinary state. Each clone returns a temporary owning handle, and push_back transfers that handle into copies. At the end, each collection owns its own objects and can be destroyed independently.
+
+DO
+Explain every piece of the range-based loop declaration.
+Ask which const applies to the owner and which applies to clone.
+
+SOURCE
+manuscript/ch04.json → Keep the generic loop simple and the copy rules local
+
+------------------------------------------------------------
+
+15. A new resource member requires a new copy decision
+Mechanism in C++
+
+SAY
+The extension adds BoxCue, whose name lives in a uniquely owned string. Memberwise copying cannot copy that unique_ptr. BoxCue therefore supplies a copy constructor that allocates a new string containing the old string's value. After that, clone can use make_unique<BoxCue>(*this) normally. This is a local repair based on the member's ownership meaning. A socket, mutex, or open transaction needs more thought: copying bytes does not create a second valid session or lock. A clone might copy configuration and establish a fresh resource, share a documented immutable asset, or be unavailable. Whenever a new field arrives, review what copying that field should mean and how a test will show it.
+
+DO
+Describe the BoxCue copy constructor’s two separate allocations in source and clone.
+Ask for one resource that cannot sensibly be copied as raw bytes.
+
+SOURCE
+manuscript/ch04.json → Copy depth is a design decision
+
+------------------------------------------------------------
+
+16. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Prototype interface → Cue::clone. Offers copying through the common interface without a concrete-type switch in the caller.
+
+Concrete prototypes → TextCue; ListCue. Construct copies of their own concrete type and preserve their state rules.
+
+Prototype registry → Not needed; originals holds the selected objects. The attachment maps keys to reusable source objects. Our caller already has the objects to duplicate.
+
+Client → main cloning each Cue in originals. Requests copies without rebuilding their private data or branching on concrete classes.
+
+Clone owner → copies holds unique_ptr<Cue> values. Keeps each new object alive and destroys it exactly once.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → C04.07 concepts
+
+------------------------------------------------------------
+
+17. Cloning produces a second owning collection
+UML and source walkthrough
+
+SAY
+Ownership arrows identify which collection destroys each object. The dashed clone dependency describes creation and copying; it does not mean that the clone borrows the original. Both ListCue objects own separate vectors of string values. The text cue follows the same ownership shape and is omitted only to keep this view focused.
+
+Each concrete cue implements clone with its own copy constructor. Value-owned strings and vectors give independent editable state, while unique_ptr states ownership of each new polymorphic object.
+
+Keep clone policy beside the concrete type. Review every newly added pointer-like member for whether it should copy deeply, share immutable state, or forbid cloning.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch04/main.cpp:1-88; content/design-patterns-cpp/ch4.json → diagrams.4
+
+------------------------------------------------------------
+
+18. Prototype — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Each concrete cue implements clone with its own copy constructor. Value-owned strings and vectors give independent editable state, while unique_ptr states ownership of each new polymorphic object.
+
+Keep clone policy beside the concrete type. Review every newly added pointer-like member for whether it should copy deeply, share immutable state, or forbid cloning.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch04/main.cpp:1-88; content/design-patterns-cpp/ch4.json → diagrams.4
+
+------------------------------------------------------------
+
+19. Copy the concrete object behind a base interface
+UML and source walkthrough
+
+SAY
+The clone copies value-owned members; rename edits only one object’s first string. The ListCue implementation of copying and editing. The concrete class knows how its state should duplicate.
+
+The comment states what the concrete copy constructor duplicates. Begin returning a new owning handle. Construct a new ListCue by copying this complete object. Close the clone method. Declare an override accepting a new name by value. Reject an empty name before changing existing state. Begin constructing an invalid-argument exception. Supply name as the message and throw without editing the vector. Move the valid new name into this list’s first element.
+
+Every list stays nonempty, every name stays nonempty, and copies remain independent. Replacing the value vector with shared mutable storage would require a new copy policy.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch04/main.cpp:45-53
+
+------------------------------------------------------------
+
+20. The caller copies without a type switch
+UML and source walkthrough
+
+SAY
+This loop duplicates heterogeneous cues through one operation. main, after creating the original owning collection. Type-specific copying stays inside each concrete cue.
+
+The comment identifies the absence of concrete-type decisions. Borrow each owning handle by const reference instead of copying it. Call its virtual clone and move the new owner into copies. Begin comparing the clone’s visible text. Require equality with the original object’s visible text. Close the duplication loop. Edit only the second cloned object through the common interface.
+
+Every new owning handle refers to an independent object with equivalent initial value. Copying a unique_ptr directly will not compile; wrapping its raw pointer creates double ownership.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch04/main.cpp:67-73
+
+------------------------------------------------------------
+
+21. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Each concrete cue implements clone with its own copy constructor. Value-owned strings and vectors give independent editable state, while unique_ptr states ownership of each new polymorphic object.
+
+main checks matching initial values for both cue kinds, a distinct text-cue address, independent list edits, rejected empty rename with preserved state, and rejected empty list construction. The lab additionally destroys an original before reading its cloned owned string. These checks do not define cloning of external resources or cyclic graphs.
+
+Keep clone policy beside the concrete type. Review every newly added pointer-like member for whether it should copy deeply, share immutable state, or forbid cloning. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch04/main.cpp
+
+------------------------------------------------------------
+
+22. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. originals owns TextCue(Start) and ListCue(Check,Begin). Application setup supplies concrete objects once.
+
+Step 2. clone loop creates one new object per original. Virtual dispatch chooses the matching concrete copy constructor.
+
+Step 3. copies[1] names={Inspect,Begin}. rename changes the copied vector’s first string.
+
+Step 4. originals[1] names={Check,Begin}. The original vector does not share editable value storage with the copy.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → trace
+
+------------------------------------------------------------
+
+23. Debug the promise: Construct a new owning handle from the original raw pointer.
+Execute and debug
+
+SAY
+Construct a new owning handle from the original raw pointer. Both owners refer to one object; destruction attempts to delete it twice. An owning-handle copy is not an object clone.
+
+main checks matching initial values for both cue kinds, a distinct text-cue address, independent list edits, rejected empty rename with preserved state, and rejected empty list construction. The lab additionally destroys an original before reading its cloned owned string. These checks do not define cloning of external resources or cyclic graphs.
+
+Keep clone policy beside the concrete type. Review every newly added pointer-like member for whether it should copy deeply, share immutable state, or forbid cloning.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → example.failures
+
+------------------------------------------------------------
+
+24. Debug the promise: Use shared_ptr<string> for editable clone state without copying the string.
+Execute and debug
+
+SAY
+Use shared_ptr<string> for editable clone state without copying the string. Renaming the clone also changes the original’s visible name. Copying the shared handle preserves shared identity rather than independent value.
+
+main checks matching initial values for both cue kinds, a distinct text-cue address, independent list edits, rejected empty rename with preserved state, and rejected empty list construction. The lab additionally destroys an original before reading its cloned owned string. These checks do not define cloning of external resources or cyclic graphs.
+
+Keep clone policy beside the concrete type. Review every newly added pointer-like member for whether it should copy deeply, share immutable state, or forbid cloning.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → example.failures
+
+------------------------------------------------------------
+
+25. Trace 1: Prototype: Text clone
+Trace experiments
+
+SAY
+Prototype: Text clone. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The virtual clone preserves both the TextCue kind and its state.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → dpx-c04-trace-1; companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+26. Trace 2: Prototype: Text independence
+Trace experiments
+
+SAY
+Prototype: Text independence. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Changing the clone cannot change the original value.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → dpx-c04-trace-2; companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 3: Prototype: List clone edit
+Trace experiments
+
+SAY
+Prototype: List clone edit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Only the first list entry is renamed; the second is copied intact.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → dpx-c04-trace-3; companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 4: Prototype: Original list remains
+Trace experiments
+
+SAY
+Prototype: Original list remains. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The copied vector and strings are independent values.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → dpx-c04-trace-4; companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 5: Prototype: Box clone state
+Trace experiments
+
+SAY
+Prototype: Box clone state. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A fresh string allocation must contain Open, not a default label.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → dpx-c04-trace-5; companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 6: Prototype: Box lifetime
+Trace experiments
+
+SAY
+Prototype: Box lifetime. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Destroying the original does not destroy the clone’s separate string.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → dpx-c04-trace-6; companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 7: Prototype: Invalid box edit
+Trace experiments
+
+SAY
+Prototype: Invalid box edit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Validation precedes assignment so rejection preserves the previous state.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → dpx-c04-trace-7; companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 8: Prototype: Empty list
+Trace experiments
+
+SAY
+Prototype: Empty list. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+There must be a first list entry for rename to replace.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → dpx-c04-trace-8; companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+33. Exercise 04.1: Guided modification
+Practice and extension
+
+SAY
+Rename the copied ListCue to Ready instead of Inspect. State both list text outputs.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The second name is unchanged and each name ends with a semicolon.
+
+After the discussion, compare the reasoning. The original remains "list:Check;Begin;". The copy becomes "list:Ready;Begin;". Update the clone-specific expected text while preserving the original-independence check.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch04.json → exercises.04.1
+
+------------------------------------------------------------
+
+34. Exercise 04.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+Let a be a unique_ptr<Cue> owning TextCue("A"). Execute auto b=a->clone(); b->rename("B"); auto c=b->clone(); c->rename("C");. What do a->text(), b->text(), and c->text() return?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Each clone copies the state that exists when cloning occurs.
+
+After the discussion, compare the reasoning. They return "text:A", "text:B", and "text:C". c initially copied B, then changed independently. Cloning a clone does not restore the first ancestor’s state.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch04.json → exercises.04.2
+
+------------------------------------------------------------
+
+35. Exercise 04.3: Diagnose a bug
+Practice and extension
+
+SAY
+A clone returns unique_ptr<Cue>(this), using a cast to remove const when needed. Explain the ownership failure even if the first printed text looks correct.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Count owners of the same address.
+
+After the discussion, compare the reasoning. The result points to the original object rather than a new one. Both original and returned handles try to destroy it, producing double deletion and undefined behavior. Allocate a new concrete object using its copy constructor; never treat the source pointer as newly owned.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch04.json → exercises.04.3
+
+------------------------------------------------------------
+
+36. Exercise 04.4: Choose a design
+Practice and extension
+
+SAY
+A program stores only plain value records in vector<Record>. Another stores extensible derived cues behind unique_ptr<Cue>. Choose ordinary copying or Prototype and explain why.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Is the complete concrete value type known at the copy site?
+
+After the discussion, compare the reasoning. Copy the value vector normally in the first program. Use virtual clone for the open cue hierarchy when the copy site does not know concrete types. A variant is reasonable for a closed finite set of alternatives, but adding a new variant alternative requires updating the closed type definition.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch04.json → exercises.04.4
+
+------------------------------------------------------------
+
+37. Exercise 04.5: Extend without regressions
+Practice and extension
+
+SAY
+Implement BoxCue with an owning unique_ptr<string>, nonempty names, box: text prefix, and independent clone. Verify the clone remains valid after destroying its original.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: An owning pointer needs an explicit policy for copying the pointed-to string.
+
+After the discussion, compare the reasoning. The solution defines a copy constructor that makes a new string from *other.name_. clone copies the BoxCue with that constructor. Renaming the copy to Close leaves the original at Open; after original reset, the copy still returns "box:Close".
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch04.json → exercises.04.5
+
+------------------------------------------------------------
+
+38. Exercise 04.6: Justify a decision
+Practice and extension
+
+SAY
+A new cue refers to a 50 MB read-only image. Should every clone copy those bytes? Give a defensible sharing contract and the condition that would invalidate it.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Independence concerns permitted mutation, not necessarily identical storage layout.
+
+After the discussion, compare the reasoning. Sharing an immutable image through shared_ptr<const Image> is reasonable when clones cannot mutate it and ownership keeps it alive. If users can edit image contents independently, sharing mutable storage violates the promise; use a deep copy or a carefully implemented copy-on-write policy. State which operations are allowed and who owns the lifetime.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch04.json → exercises.04.6
+
+------------------------------------------------------------
+
+39. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add BoxCue with unique ownership of a dynamically stored string. Support clone, rename, and text, reject empty names, and preserve independent values after edits and original destruction. Keep existing cue checks.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: A clone of BoxCue(Open) initially returns box:Open. Renaming the clone to Close leaves the original at box:Open. After original.reset(), the clone still returns box:Close. A rejected empty rename leaves box:Close unchanged.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch04/main.cpp
+
+------------------------------------------------------------
+
+40. Extension solution and design review
+Practice and extension
+
+SAY
+The custom copy constructor copies the pointed-to string into a new allocation. The unique_ptr member then cleans up normally, so no custom destructor is needed. Copy assignment is not required by this lab’s interface and is not supplied; a real type should document or implement its desired assignment policy rather than assume clone implies every copy operation exists.
+
+Keep clone policy beside the concrete type. Review every newly added pointer-like member for whether it should copy deeply, share immutable state, or forbid cloning.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch04/main.cpp
+
+------------------------------------------------------------
+
+41. Application case 1: defend your choice
+Practice and extension
+
+SAY
+A collection contains different cue types. The client needs an independent copy of each without selecting concrete constructors. What fits?
+
+Singleton. The request requires distinct objects, not one controlled instance.
+
+Prototype with a virtual clone operation. Each concrete object can create a copy of its own type.
+
+Facade alone. A coordination entry point does not define polymorphic copying.
+
+Chain of Responsibility. No ordered set of request handlers is needed.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → C04.21 scenario
+
+------------------------------------------------------------
+
+42. Application case 2: defend your choice
+Practice and extension
+
+SAY
+A programmer constructs a second unique_ptr from the original owner’s raw pointer and calls it a clone. What is wrong?
+
+Two owners attempt to delete the same object.. Cloning must create a distinct object, not duplicate an owning address.
+
+Only the concrete type name changes.. The handles still refer to the same object.
+
+The original handle becomes empty automatically.. Ownership transfers through a move or explicit release contract, not this raw-pointer copy.
+
+The new handle automatically deep-copies the object.. Constructing a handle from an address performs no object copy.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch4.json → C04.22 scenario
+
+------------------------------------------------------------
+
+43. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Prototype copies from an existing object through a common cloning operation. Copying a base value can slice; copying an owner is not cloning. Define copy depth according to owned and shared resources. Value members often provide correct memberwise copying without custom code. Test independence through edits and destruction, not just initial equality.
+
+Keep clone policy beside the concrete type. Review every newly added pointer-like member for whether it should copy deeply, share immutable state, or forbid cloning.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch04.json → summary
+
+------------------------------------------------------------
+
+44. Test independence through edits and destruction
+Recall and transfer
+
+SAY
+A clone test should exercise the promise in stages. First compare public values immediately after cloning. Then edit the clone and confirm the original is unchanged. Check a rejected edit too, because an invalid empty name must not damage the clone's existing value. Finally destroy the original and use the clone again. That last step exposes a clone that merely borrowed storage from the old object. The BoxCue extension demonstrates this with Open and Close: the copied cue remains box:Close after the original owner is reset. No single check replaces the others. Distinct addresses alone do not prove that nested mutable resources were also copied independently.
+
+DO
+Ask students to order the four tests from initial value to lifetime independence.
+Name the hidden defect each test can expose.
+
+SOURCE
+manuscript/ch04.json → Keep the generic loop simple and the copy rules local
+
+------------------------------------------------------------
+
+45. Use Prototype when duplication has a real meaning
+Recall and transfer
+
+SAY
+Prototype fits a mixed collection of editable values when Duplicate is a meaningful user operation. It may also fit a library of preconfigured objects that clients copy and customize. A registry of named prototypes is optional; the core mechanism is still virtual copying from an existing object. If the concrete type is already known and its value members copy correctly, direct copying is simpler. If an object represents a unique live transaction, pretending it can be cloned may be misleading. You can also choose a closed value representation such as a variant when the type set is known and that makes copying clearer. Begin with the domain's duplication meaning, then choose the mechanism that preserves it.
+
+DO
+Compare an editable cue with a live transaction and a known string value.
+
+SOURCE
+manuscript/ch04.json → Keep the generic loop simple and the copy rules local
+
+------------------------------------------------------------
+
+46. Recall what is copied, what is shared, and why
+Recall and transfer
+
+SAY
+Explain the chapter without using the word deep as a shortcut. A ListCue clone contains a new vector of copied string values, so changing a name in one list leaves the other unchanged. A BoxCue clone contains a new allocated string, so destroying the original does not remove the clone's data. These concrete statements are stronger than saying everything is copied. Now imagine adding a large immutable icon and a mutable caption to a cue. Sharing the icon could be reasonable, while the caption must remain independent. State that boundary and write tests for it. That is how Prototype remains maintainable as a simple value grows into a richer object.
+
+DO
+Ask learners to explain a copy policy without saying shallow or deep.
+Have them identify one future member change that would require revisiting clone.
+
+SOURCE
+manuscript/ch04.json → Copy depth is a design decision

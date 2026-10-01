@@ -1,0 +1,289 @@
+{
+  "chapter": 3,
+  "title": "Builder: cross a checked boundary from draft to product",
+  "opening": [
+    {
+      "title": "An unfinished plan should not reach the presenter",
+      "eyebrow": "03 / THE DESIGN PRESSURE",
+      "kind": "concept",
+      "keyPoints": [
+        "A title and 1–3 activities are required",
+        "Each activity lasts 1–60 minutes",
+        "A finished plan totals at most 90 minutes"
+      ],
+      "narration": "A session planner collects choices one at a time. A user types a title, adds an activity, and perhaps adds two more. The presenter should receive a ready plan, not a half-filled form. Our rules cover several kinds of information: the title cannot be empty, the number of activities must be between one and three, each duration must be between one and sixty, and the total cannot exceed ninety. A draft can temporarily fail some of those whole-plan rules while the user edits it. The design problem is therefore not simply storing fields. It is making the moment of readiness visible so other code can trust a finished plan.",
+      "actions": [
+        "Classify each rule as a field rule, count rule, or whole-plan rule.",
+        "Ask when the presenter should be allowed to see the object."
+      ],
+      "sourceRef": "manuscript/ch03.json → The plan has rules that span several inputs",
+      "question": {
+        "prompt": "Why can a valid individual activity still belong to an invalid plan?",
+        "answer": "Two 60-minute activities each satisfy the individual duration rule, but their 120-minute total violates the finished-plan limit."
+      }
+    },
+    {
+      "title": "A draft and a product make different promises",
+      "eyebrow": "03 / MODEL THE STATES",
+      "kind": "concept",
+      "keyPoints": [
+        "A draft may be incomplete",
+        "A published plan must satisfy every rule",
+        "Readiness belongs at a clear API boundary"
+      ],
+      "narration": "An invariant is a rule that must remain true at a stated boundary. The builder's draft does not promise to be ready. It promises only that accepted individual steps have met their local rules. The finished Plan has a stronger promise: it is complete and within the total limit. If both states use one publicly mutable structure, every consumer must remember which state it received and whether validation was already done. The Builder pattern separates these duties. One object gathers choices; another represents a valid result. This is useful when inputs arrive in stages. If all required values arrive together in one small call, a checked constructor may be simpler.",
+      "actions": [
+        "State the weaker draft promise and stronger product promise separately.",
+        "Ask why two different types can make a caller’s reasoning easier."
+      ],
+      "sourceRef": "manuscript/ch03.json → Separate the draft from the finished product",
+      "question": {
+        "prompt": "Must the builder reject a draft as soon as its total exceeds 90?",
+        "answer": "Not under this chapter’s policy. Individual steps may create an overlong draft, but build must reject it before a Plan is published."
+      }
+    },
+    {
+      "title": "A public draft works when one caller stays careful",
+      "eyebrow": "03 / PREDICT → RUN → EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "A struct groups related values",
+        "Validation is an ordinary function",
+        "A later edit can invalidate an earlier result"
+      ],
+      "narration": "This small design can be perfectly reasonable inside one local workflow. Draft groups a string and a list of integer durations. The valid function reads through a const reference and checks every rule. std::accumulate adds the durations, beginning from zero. The caller checks before printing, so the first output is a fifty-minute Review plan. Then the caller clears the title. The same object is now invalid even though it was valid a moment ago. The compiler permits that edit because its fields are public. A validation result is evidence about a particular state, not a permanent badge. As more callers appear, remembering every required check becomes harder.",
+      "actions": [
+        "Predict both output lines, then run.",
+        "Identify the public operation that invalidates the earlier check."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch03.json → The plan has rules that span several inputs",
+      "question": {
+        "prompt": "After title.clear, does the earlier successful valid call still prove the current draft is ready?",
+        "answer": "No. The object has changed. Validation proved the previous state only."
+      },
+      "code": {
+        "filename": "dp_ch03_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <numeric>\n#include <string>\n#include <vector>\nstruct Draft {\n    std::string title;\n    std::vector<int> minutes;\n};\nbool valid(const Draft& draft) {\n    if (draft.title.empty() || draft.minutes.empty() ||\n        draft.minutes.size() > 3) return false;\n    for (int duration : draft.minutes)\n        if (duration < 1 || duration > 60) return false;\n    return std::accumulate(draft.minutes.begin(),\n                           draft.minutes.end(), 0) <= 90;\n}\nint main() {\n    Draft draft{\"Review\", {20, 30}};\n    // This caller remembers the validation boundary.\n    if (valid(draft)) {\n        std::cout << draft.title << \": \"\n                  << std::accumulate(draft.minutes.begin(),\n                                     draft.minutes.end(), 0)\n                  << \" minutes\\n\";\n    }\n    draft.title.clear();\n    std::cout << \"after edit: valid=\" << std::boolalpha\n              << valid(draft) << '\\n';\n}\n",
+        "expectedStdout": "Review: 50 minutes\nafter edit: valid=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Locally valid steps do not prove a valid whole",
+      "eyebrow": "03 / THE CONCRETE LIMITATION",
+      "kind": "code",
+      "keyPoints": [
+        "Both 60-minute additions are accepted",
+        "The total is 120 minutes",
+        "A final check must precede publication"
+      ],
+      "narration": "Each call in this demonstration obeys the rule for one activity and the count limit. Neither call asks whether the complete plan fits ninety minutes. The output therefore shows two accepted steps, a total of one hundred twenty, and false for the final limit. There is no contradiction: we made different promises at different boundaries. A common bug is to assume that successful setters prove the whole product is ready. Our finished design will allow the builder to hold this draft, then refuse to return a Plan from build. A user interface could let the user revise the draft afterward. The builder remains useful even when publication fails.",
+      "actions": [
+        "Predict the three lines before Run.",
+        "Ask where a publication function would need its final validation."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch03.json → Separate the draft from the finished product",
+      "question": {
+        "prompt": "Should a presenter accept this draft merely because both add_activity calls returned normally?",
+        "answer": "No. The whole-plan time rule still fails. A publication operation must check the combined state."
+      },
+      "code": {
+        "filename": "dp_ch03_step_vs_whole.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <numeric>\n#include <stdexcept>\n#include <vector>\nvoid add_activity(std::vector<int>& minutes, int duration) {\n    if (duration < 1 || duration > 60 || minutes.size() == 3)\n        throw std::invalid_argument(\"activity\");\n    minutes.push_back(duration);\n}\nint main() {\n    std::vector<int> minutes;\n    add_activity(minutes, 60);\n    add_activity(minutes, 60);\n    const int total = std::accumulate(minutes.begin(), minutes.end(), 0);\n    std::cout << \"accepted steps=\" << minutes.size() << '\\n';\n    std::cout << \"draft total=\" << total << '\\n';\n    // Passing step checks does not authorize publication.\n    std::cout << \"within final limit=\" << std::boolalpha\n              << (total <= 90) << '\\n';\n}\n",
+        "expectedStdout": "accepted steps=2\ndraft total=120\nwithin final limit=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "build is the gate that turns choices into a promise",
+      "eyebrow": "03 / BUILDER MECHANISM",
+      "kind": "concept",
+      "keyPoints": [
+        "named and add collect accepted choices",
+        "build checks completeness and total",
+        "Only then can the product be constructed"
+      ],
+      "narration": "PlanBuilder stores the draft fields privately. named rejects an empty title, and add rejects a bad duration or a fourth activity. build performs the checks that need the assembled draft: a title, at least one activity, and a total at most ninety. It then calls the private Plan constructor. The result is a separate value that the caller may hand to a presenter. This division gives errors a useful location. A zero-minute activity fails at add because no later choice can make that activity valid. A total of one hundred twenty fails at build because it is a property of the assembled plan. The API shows exactly where the stronger promise begins.",
+      "actions": [
+        "Trace a valid draft and an overlong draft to the build boundary."
+      ],
+      "sourceRef": "manuscript/ch03.json → Separate the draft from the finished product",
+      "question": {
+        "prompt": "Why check the total in build rather than only trusting add?",
+        "answer": "add checks local activity rules. build owns the complete-product contract and must validate the combined draft before returning a Plan."
+      },
+      "theory": {
+        "what": "A staged collector publishes only a checked product.",
+        "where": "PlanBuilder::build validates before invoking Plan’s private constructor.",
+        "why": "Incomplete setup should not masquerade as a ready plan.",
+        "invariant": "Every published Plan has a nonempty title, 1–3 valid activities, and total at most 90.",
+        "risk": "Any new public construction path that skips validation can break the guarantee."
+      }
+    },
+    {
+      "title": "Friendship grants access; it does not perform validation",
+      "eyebrow": "03 / C++ ACCESS RULES",
+      "kind": "concept",
+      "keyPoints": [
+        "Plan hides its constructor and data",
+        "friend class PlanBuilder grants narrow access",
+        "The builder remains responsible for its checks"
+      ],
+      "narration": "Private access keeps ordinary callers from filling Plan fields or invoking its checked construction path incorrectly. The friend declaration gives PlanBuilder permission to use the private constructor. That permission is checked during compilation. It does not make the compiler understand the ninety-minute rule, and it does not automatically run validation. A careless new method inside the friend could still call the constructor with bad data. Friendship is therefore a deliberate trust boundary. It is not inheritance: the builder is not a kind of Plan. It is not ownership either. When maintaining this code, review each place that can create a Plan and confirm that it establishes the same invariant.",
+      "actions": [
+        "Point out the private constructor and its friend declaration.",
+        "Ask which future changes would widen the trusted construction boundary."
+      ],
+      "sourceRef": "manuscript/ch03.json → Why friendship is narrow here",
+      "question": {
+        "prompt": "Does friend class PlanBuilder make a builder a subtype of Plan?",
+        "answer": "No. It grants access to private members; it does not create an inheritance relationship or validate values."
+      }
+    },
+    {
+      "title": "A snapshot owns its data instead of borrowing the draft",
+      "eyebrow": "03 / VALUE AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "build is const and copies the draft fields",
+        "The product owns its title and duration vector",
+        "Later builder edits leave earlier plans unchanged"
+      ],
+      "narration": "The term snapshot means a value representing the draft at one point in time. build is const, and it passes the draft's string and vector into constructor parameters by value. Those parameters become copies. The constructor moves the temporary parameter values into Plan members, but it does not move the builder's own stored fields out. This distinction explains the chapter's sixty-minute and ninety-minute plans: adding a third activity changes the builder and the second product, while the first remains sixty. Returning by value gives the caller its own Plan. Correctness should not depend on counting copies, since C++ can construct the returned object directly in the destination.",
+      "actions": [
+        "Draw three separate owners: builder, first Plan, second Plan.",
+        "Trace where copying happens before the constructor’s moves."
+      ],
+      "sourceRef": "manuscript/ch03.json → Why friendship is narrow here",
+      "question": {
+        "prompt": "If the constructor uses std::move, why does the original builder still have its choices?",
+        "answer": "The moved values are constructor parameters that were copied from the const builder’s fields. Moving those local copies does not consume the builder."
+      }
+    },
+    {
+      "title": "Chaining returns the same builder, not a fresh draft",
+      "eyebrow": "03 / SYNTAX IN CONTEXT",
+      "kind": "concept",
+      "keyPoints": [
+        "PlanBuilder& is a reference result",
+        "this points to the current object",
+        "return *this enables the next call on that same object"
+      ],
+      "narration": "In named and add, the result type is PlanBuilder followed by an ampersand. That is a reference to a builder, not a copied builder value. The implicit this pointer identifies the current object; writing *this refers to that object itself. Returning it lets named(...).add(...).add(...) act on one draft in sequence. This fluent syntax is convenient, but it is not the essential Builder idea. The ready-product boundary matters more. Each operation checks a rejected argument before mutating the draft, so add(0) leaves the old state usable. A version returning a copy by mistake could make later chained edits land on temporary drafts and produce surprising results.",
+      "actions": [
+        "Rewrite one chain as three separate statements.",
+        "Ask learners to explain why the two forms have the same effect here."
+      ],
+      "sourceRef": "manuscript/ch03.json → Chaining steps does not create magic",
+      "question": {
+        "prompt": "What does the ampersand in PlanBuilder& change about chained operations?",
+        "answer": "It returns a reference to the current builder, so the next call changes the same draft rather than an unrelated copy."
+      }
+    },
+    {
+      "title": "A director is a recipe; reset is a separate policy",
+      "eyebrow": "03 / REUSE AND RECIPES",
+      "kind": "concept",
+      "keyPoints": [
+        "introduction repeats a useful sequence",
+        "A director can be an ordinary function",
+        "The chapter builder retains choices after build"
+      ],
+      "narration": "The introduction function names a plan and adds twenty and thirty minutes. It packages a repeated recipe so callers do not need to repeat those steps. In Builder vocabulary, that recipe is a director. A separate director class would add little here, so the chapter uses a function. Another independent choice is what happens after build. Our builder keeps its draft, allowing another snapshot after additional edits. The extension adds reset, which clears only the builder's draft. Existing products keep their own copied data. A builder that consumes its draft can also be reasonable, but clients need a different contract. Never assume that all builders reset or consume just because they share a pattern name.",
+      "actions": [
+        "Describe the director without introducing a new class.",
+        "Predict first.total after builder.reset in the extension."
+      ],
+      "sourceRef": "manuscript/ch03.json → A director is just a reusable recipe",
+      "question": {
+        "prompt": "Should resetting the builder erase the earlier sixty-minute Plan?",
+        "answer": "No. Under this snapshot design, the Plan owns separate data. Reset changes the draft only."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Separate a useful boundary from attractive syntax",
+      "eyebrow": "03 / DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "A checked constructor suits a few values known together",
+        "Builder suits staged choices and readiness rules",
+        "Fluent setters alone do not protect a product"
+      ],
+      "narration": "Suppose a type has only a title and one duration, both available at the same call site. A checked constructor may express that requirement clearly with less machinery. Now suppose settings arrive from several screens, have optional values, and must be checked together before use. A builder offers a useful home for the incomplete draft. What does not help is a chain of setters on a publicly mutable finished object if callers can still observe it half-built. The question is not whether calls read like a sentence. Ask which invalid states can cross which boundary, and who is responsible for stopping them. That question connects the pattern to maintainable APIs.",
+      "actions": [
+        "Compare a two-argument checked constructor with a staged form workflow."
+      ],
+      "sourceRef": "manuscript/ch03.json → A director is just a reusable recipe",
+      "question": {
+        "prompt": "What makes a chain of public product setters weaker than this Builder design?",
+        "answer": "It may leave the same public product observable in incomplete or invalid states; it does not establish a separate checked publication boundary."
+      },
+      "comparisons": [
+        {
+          "label": "Checked constructor",
+          "text": "Prefer it when the few required values are available together."
+        },
+        {
+          "label": "Builder",
+          "text": "Use it when choices accumulate and a separate readiness boundary matters."
+        },
+        {
+          "label": "Fluent setters",
+          "text": "Chaining is syntax; it does not itself guarantee a valid product."
+        }
+      ]
+    },
+    {
+      "title": "Test failure without destroying useful state",
+      "eyebrow": "03 / DIAGNOSIS",
+      "kind": "concept",
+      "keyPoints": [
+        "Rejected step: old draft stays usable",
+        "Rejected build: no invalid Plan escapes",
+        "Reset: old products remain independent"
+      ],
+      "narration": "The best tests inspect what is left after an error, not only whether an error happened. Starting with a valid ninety-minute draft, add(0) should throw and leave the draft able to build the same ninety-minute Plan. A fourth activity should fail for the count rule even if it is only one minute. An overlong draft should fail at build without publishing an invalid product. After reset, build should report an incomplete draft, yet the previously returned Plans should still read correctly. These checks expose accidental mutation before validation, hidden sharing, and an unclear reset policy. They are maintenance tests because future fields and editing operations must preserve the same boundaries.",
+      "actions": [
+        "Ask students to state both the error and the post-error state for each test.",
+        "Distinguish a fourth-activity failure from a total-limit failure."
+      ],
+      "sourceRef": "manuscript/ch03.json → Chaining steps does not create magic",
+      "question": {
+        "prompt": "Why check builder.build().total after add(0) throws?",
+        "answer": "The exception alone does not prove the old draft was preserved. Checking the total verifies that the rejected operation did not corrupt useful state."
+      }
+    },
+    {
+      "title": "Explain the draft-to-product boundary in plain words",
+      "eyebrow": "03 / RETRIEVAL AND TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "Collect partial choices in one place",
+        "Check local rules on input and whole rules on publication",
+        "Publish an independent value"
+      ],
+      "narration": "Summarize this chapter as a promise about states. The builder can be unfinished because its job is to collect choices. The Plan must be ready because its job is to be used. build is the checked crossing between them, and the resulting value owns independent data. Now transfer the idea to a report configuration with optional columns and a required destination. Which choices can be rejected immediately? Which need the whole draft? Would the finished report configuration share mutable lists with the builder? These questions help reconstruct the design without memorizing a diagram. The final test is whether another programmer can see the readiness rule from the API and extend it without opening a path around validation.",
+      "actions": [
+        "Ask for a one-minute explanation using the words draft, boundary, and owned value.",
+        "Have students propose a new field and name the checks it requires."
+      ],
+      "sourceRef": "manuscript/ch03.json → A director is just a reusable recipe",
+      "question": {
+        "prompt": "If a new required field is added, where must its completeness rule be enforced?",
+        "answer": "At every path that publishes a Plan, especially build. The builder may also reject locally invalid supplied values, but publication must prove the complete invariant."
+      }
+    }
+  ]
+}

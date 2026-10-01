@@ -1,0 +1,1606 @@
+{
+  "schemaVersion": 1,
+  "courseId": "design-patterns-cpp",
+  "courseTitle": "Design Patterns in C++",
+  "chapter": 13,
+  "title": "Chain of Responsibility",
+  "author": "Dr. Charles Dorner",
+  "sourceTopics": [
+    {
+      "id": "C13.01",
+      "title": "Pattern overview"
+    },
+    {
+      "id": "C13.02",
+      "title": "The problem: one job, one responsible desk"
+    },
+    {
+      "id": "C13.03",
+      "title": "Make each choice a small, honest question"
+    },
+    {
+      "id": "C13.04",
+      "title": "Follow control and data through the chain"
+    },
+    {
+      "id": "C13.05",
+      "title": "First-handler routing is not an all-stage pipeline"
+    },
+    {
+      "id": "C13.06",
+      "title": "Boundaries, costs, and a practical review"
+    },
+    {
+      "id": "C13.07",
+      "title": "Roles in the implementation"
+    },
+    {
+      "id": "C13.08",
+      "title": "Worked example: contracts and alternatives"
+    },
+    {
+      "id": "C13.09",
+      "title": "Execution trace"
+    },
+    {
+      "id": "C13.10",
+      "title": "Failure cases and repairs"
+    },
+    {
+      "id": "C13.11",
+      "title": "Code focus: One handler can decline"
+    },
+    {
+      "id": "C13.12",
+      "title": "Code focus: The stop rule lives in one loop"
+    },
+    {
+      "id": "C13.13",
+      "title": "Exercise 13.1: Guided modification"
+    },
+    {
+      "id": "C13.14",
+      "title": "Exercise 13.2: Trace unfamiliar code"
+    },
+    {
+      "id": "C13.15",
+      "title": "Exercise 13.3: Diagnose a bug"
+    },
+    {
+      "id": "C13.16",
+      "title": "Exercise 13.4: Choose a design"
+    },
+    {
+      "id": "C13.17",
+      "title": "Exercise 13.5: Extend without regressions"
+    },
+    {
+      "id": "C13.18",
+      "title": "Exercise 13.6: Justify a decision"
+    },
+    {
+      "id": "C13.19",
+      "title": "Implementation lab"
+    },
+    {
+      "id": "C13.20",
+      "title": "Chapter summary"
+    },
+    {
+      "id": "C13.21",
+      "title": "Application case 1"
+    },
+    {
+      "id": "C13.22",
+      "title": "Application case 2"
+    }
+  ],
+  "slides": [
+    {
+      "title": "One print job must reach at most one desk",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "cover",
+      "keyPoints": [
+        "Labels prefer the label desk",
+        "The general desk can be a fallback",
+        "Reject invalid pages before selecting any desk"
+      ],
+      "narration": "A print workshop has a special desk for labels and a general desk that can also handle labels. A job names a format and a page count. We need one destination, not two. Every configuration must reject a page count outside one through one thousand, and unknown formats must produce an explicit unhandled result. This example chooses a destination; it does not print pages or confirm a printer completed work. The new design pressure is that different shifts may choose different ordered sets of desks. We want to change that order without copying page validation and fallback logic into several unrelated routing functions.",
+      "actions": [
+        "Ask why a label can be accepted by two desks while still receiving only one destination."
+      ],
+      "sourceRef": "manuscript/ch13.json → The problem: one job, one responsible desk",
+      "question": {
+        "prompt": "Does a returned destination prove that printing succeeded?",
+        "answer": "No. It reports routing responsibility; actual printing and delivery failure are separate concerns."
+      },
+      "section": "Problem and first design",
+      "topicIds": [
+        "C13.01"
+      ],
+      "id": "dp-ch13-01"
+    },
+    {
+      "title": "Fixed choices deserve a fixed direct function",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "code",
+      "keyPoints": [
+        "Validate mandatory bounds first",
+        "Use clear conditions for stable choices",
+        "A changing rule set creates pressure to separate assembly"
+      ],
+      "narration": "This complete baseline directly maps formats to destinations. It uses string_view to borrow text during the call without owning or extending that text's lifetime. Our calls pass string literals, which remain valid. The first condition checks a shared requirement before either desk is considered. With two fixed choices, this is clear and sufficient; no class hierarchy is missing. The limitation arrives when shifts need different priorities, a temporary fallback, or a new express desk. Rewriting the whole function for each shift duplicates the guard and the unhandled case. We then want the routing algorithm to stay fixed while a separately assembled ordered set supplies the decisions.",
+      "actions": [
+        "Run the four inputs, then propose how a shift without a label desk would change this function."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch13.json → The problem: one job, one responsible desk",
+      "question": {
+        "prompt": "When is the direct if-based implementation preferable to a configurable chain?",
+        "answer": "When the destinations and their priority are fixed and simple, so separate handlers add complexity without useful variation."
+      },
+      "code": {
+        "filename": "dp_ch13_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string_view>\nstd::string_view choose(std::string_view format, int pages) {\n    // Mandatory validation is independent of the selected desk.\n    if (pages < 1 || pages > 1000) return \"rejected\";\n    if (format == \"label\") return \"label desk\";\n    if (format == \"report\") return \"general desk\";\n    return \"unhandled\";\n}\nint main() {\n    std::cout << choose(\"label\", 2) << '\\n';\n    std::cout << choose(\"report\", 6) << '\\n';\n    std::cout << choose(\"archive\", 1) << '\\n';\n    std::cout << choose(\"label\", 0) << '\\n';\n}\n",
+        "expectedStdout": "label desk\ngeneral desk\nunhandled\nrejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-02.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_baseline.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch13-02"
+    },
+    {
+      "title": "The final assignment is not the first answer",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "code",
+      "keyPoints": [
+        "Both desks can accept a label",
+        "Return stops the search immediately",
+        "Assignment followed by continuation changes the policy"
+      ],
+      "narration": "To isolate the stop rule, this short program starts with two already-computed desk replies. Both are present because both desks can handle a label. The first function returns the first present reply. The second deliberately keeps assigning and returns only after the loop. It therefore replaces the special label destination with the general one. Both functions are well-typed, and the code runs without undefined behavior. The error is the changed routing contract. In the chapter, continuing could also call later handlers unnecessarily. If handlers performed real external work, that could be worse than a wrong name. Keep selection separate from printing so the routing decision remains easy to test.",
+      "actions": [
+        "Predict first and last before running, then identify the control-flow difference."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch13.json → First-handler routing is not an all-stage pipeline",
+      "question": {
+        "prompt": "Why is replacing return *reply with result = *reply not an equivalent cleanup?",
+        "answer": "The assignment continues the loop, allowing a later accepted reply to replace the first one."
+      },
+      "code": {
+        "filename": "dp_ch13_stop_rule.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <optional>\n#include <string>\n#include <vector>\nusing Reply = std::optional<std::string>;\nstd::string first_answer(const std::vector<Reply>& replies) {\n    for (const auto& reply : replies) {\n        if (reply) return *reply;\n    }\n    return \"unhandled\";\n}\nstd::string last_answer(const std::vector<Reply>& replies) {\n    std::string result = \"unhandled\";\n    for (const auto& reply : replies) {\n        if (reply) result = *reply; // Intentional policy change.\n    }\n    return result;\n}\nint main() {\n    // Precomputed replies isolate the stopping rule from handler code.\n    const std::vector<Reply> replies{\"label desk\", \"general desk\"};\n    std::cout << \"first=\" << first_answer(replies) << '\\n';\n    std::cout << \"last=\" << last_answer(replies) << '\\n';\n}\n",
+        "expectedStdout": "first=label desk\nlast=general desk\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-03.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_stop_rule.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch13-03"
+    },
+    {
+      "title": "A handler answers or deliberately declines",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Every Rule borrows the same read-only Job",
+        "A present Reply accepts responsibility",
+        "No Reply passes the request onward"
+      ],
+      "narration": "A handler is a piece of code that decides whether it is responsible for one request. Chain of Responsibility arranges such handlers in an order and defines when to pass or stop. Our version stops at the first answer. Reply is an optional string: either one destination exists or no destination exists. No answer is a normal decline, so label_rule need not throw when it sees a report. Route then gives the next rule a chance. The shared rule shape allows assembly without forcing each handler to know its neighbor. A vector owns the order; the handlers stay focused on their own acceptance decision.",
+      "actions": [
+        "Ask learners to explain decline without using the word error."
+      ],
+      "sourceRef": "manuscript/ch13.json → Make each choice a small, honest question",
+      "question": {
+        "prompt": "What happens when every handler declines a valid archive job?",
+        "answer": "The loop finishes and route returns the explicit unhandled result."
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch13-04"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json",
+      "title": "The contract we must preserve",
+      "keyPoints": [
+        "Reject page counts outside 1 through 1000 before routing.",
+        "Choose the first willing handler; expose unsupported formats.",
+        "Allow the same handlers to be arranged in another order."
+      ],
+      "narration": "Print-workshop request routing. Store small function handlers in a vector and use an optional destination. The vector makes order visible; the optional result separates a decline from an accepted request. One route function owns the stopping rule.\n\nReject page counts outside 1 through 1000 before routing. Choose the first willing handler; expose unsupported formats. Allow the same handlers to be arranged in another order.\n\nA valid job receives at most one destination. Every handler sees the same unchanged job. Rejected counts never enter a handler. These are the rules that define a correct extension, even if it has the right C++ types. A direct if/else chain is clearer when the choices and their order never vary. Virtual Handler classes suit handlers with substantial private state, but would add unnecessary lifetime machinery to these two stateless rules.",
+      "comparisons": [
+        {
+          "label": "Chosen design",
+          "text": "Store small function handlers in a vector and use an optional destination. The vector makes order visible; the optional result separates a decline from an accepted request. One route function owns the stopping rule."
+        },
+        {
+          "label": "A reasonable alternative",
+          "text": "A direct if/else chain is clearer when the choices and their order never vary. Virtual Handler classes suit handlers with substantial private state, but would add unnecessary lifetime machinery to these two stateless rules."
+        }
+      ],
+      "question": {
+        "prompt": "Which promise would a new Chain of Responsibility implementation be allowed to break?",
+        "answer": "None of the stated requirements. The implementation may change, but these rules remain: A valid job receives at most one destination. Every handler sees the same unchanged job. Rejected counts never enter a handler."
+      },
+      "topicIds": [
+        "C13.08"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch13-05"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → The problem: one job, one responsible desk",
+      "title": "The problem: one job, one responsible desk",
+      "keyPoints": [
+        "A small print workshop receives a Job containing a format name and a page count.",
+        "For two fixed destinations, an if statement is a sound start."
+      ],
+      "narration": "A small print workshop receives a Job containing a format name and a page count. Labels should go to a label desk; ordinary reports go to a general desk. The general desk can also print labels when the special desk is absent. Each job must reach at most one desk. The workshop rejects a page count below one or above one thousand before considering any desk. Unsupported formats must produce a visible unhandled result. No real printing happens in this teaching program: it chooses a destination so that routing can be checked without consuming supplies.\n\nFor two fixed destinations, an if statement is a sound start. Read the format, choose a destination, and return. There is no need to build a class family merely because several destinations exist. The limit appears when different workshop shifts need different ordered sets of rules. Copying the whole function for each shift also copies validation and fallback behavior. One shift may then accept zero-page jobs while another rejects them. We need to assemble the choices while keeping the routing contract in one place.",
+      "excerpt": {
+        "text": "if (job.format == \"label\") {\n    return \"label desk\";\n}\nreturn \"general desk\";",
+        "filename": "Excerpt - simplest starting point",
+        "explain": []
+      },
+      "question": {
+        "prompt": "A label request matches both a label desk and a general desk. Which should receive it?",
+        "answer": "The first willing rule in the configured order receives it. A specific rule must come before a broad rule if it should take priority. Reordering the rules can change the answer."
+      },
+      "reading": [
+        "A small print workshop receives a Job containing a format name and a page count. Labels should go to a label desk; ordinary reports go to a general desk. The general desk can also print labels when the special desk is absent. Each job must reach at most one desk. The workshop rejects a page count below one or above one thousand before considering any desk. Unsupported formats must produce a visible unhandled result. No real printing happens in this teaching program: it chooses a destination so that routing can be checked without consuming supplies.",
+        "For two fixed destinations, an if statement is a sound start. Read the format, choose a destination, and return. There is no need to build a class family merely because several destinations exist. The limit appears when different workshop shifts need different ordered sets of rules. Copying the whole function for each shift also copies validation and fallback behavior. One shift may then accept zero-page jobs while another rejects them. We need to assemble the choices while keeping the routing contract in one place."
+      ],
+      "topicIds": [
+        "C13.02"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch13-06"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → Make each choice a small, honest question",
+      "title": "Make each choice a small, honest question",
+      "keyPoints": [
+        "A handler is a piece of code that accepts a request, decides whether it can handle it, and reports that decision.",
+        "Reply is std::optional<std::string>: it contains either one destination string or no string."
+      ],
+      "narration": "A handler is a piece of code that accepts a request, decides whether it can handle it, and reports that decision. A chain of responsibility is an ordered set of these handlers. The delivered program represents each handler as a function. Rule is a short name, introduced by using, for std::function<Reply(const Job&)>. This standard wrapper can hold different callable objects with the same call shape. Here the shape means: borrow a read-only Job and return a Reply. The program does not need a next pointer inside every handler because a vector already stores their order.\n\nReply is std::optional<std::string>: it contains either one destination string or no string. std::nullopt explicitly means there is no answer here. That is different from an answer whose string happens to be empty. The if (reply) condition asks whether a value exists. The expression *reply then accesses that value; the asterisk is safe because the presence check came first. A missing answer is ordinary control flow, not an exception. The caller receives a separate text result, unhandled, only after every handler declines.",
+      "question": {
+        "prompt": "Explain the design choice in “Make each choice a small, honest question” using this chapter's objects.",
+        "answer": "Reply is std::optional<std::string>: it contains either one destination string or no string. std::nullopt explicitly means there is no answer here. That is different from an answer whose string happens to be empty. The if (reply) condition asks whether a value exists. The expression *reply then accesses that value; the asterisk is safe because the presence check came first. A missing answer is ordinary control flow, not an exception. The caller receives a separate text result, unhandled, only after every handler declines."
+      },
+      "reading": [
+        "A handler is a piece of code that accepts a request, decides whether it can handle it, and reports that decision. A chain of responsibility is an ordered set of these handlers. The delivered program represents each handler as a function. Rule is a short name, introduced by using, for std::function<Reply(const Job&)>. This standard wrapper can hold different callable objects with the same call shape. Here the shape means: borrow a read-only Job and return a Reply. The program does not need a next pointer inside every handler because a vector already stores their order.",
+        "Reply is std::optional<std::string>: it contains either one destination string or no string. std::nullopt explicitly means there is no answer here. That is different from an answer whose string happens to be empty. The if (reply) condition asks whether a value exists. The expression *reply then accesses that value; the asterisk is safe because the presence check came first. A missing answer is ordinary control flow, not an exception. The caller receives a separate text result, unhandled, only after every handler declines."
+      ],
+      "topicIds": [
+        "C13.03"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch13-07"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → Follow control and data through the chain",
+      "title": "Follow control and data through the chain",
+      "keyPoints": [
+        "route first checks the page count.",
+        "For a label job, label_rule returns a value, so route returns immediately."
+      ],
+      "narration": "route first checks the page count. The test uses ||, meaning that either bad bound is enough to reject the job. Valid jobs enter a range-based for loop. In for (const auto& rule : rules), the colon means take each item from rules in order. auto obtains the function-wrapper type from the vector; the reference avoids copying that wrapper; const prevents this loop from changing it. The same read-only Job is borrowed by each call. No handler owns the job, stores its address, or extends its lifetime.\n\nFor a label job, label_rule returns a value, so route returns immediately. general_rule is never called for that request. For a report, the first handler returns no value and the second supplies the destination. For archive, both decline. The compiler checks that each stored callable has the required input and result shape. Which handler supplies the answer is decided during execution from the job and the order of rules. Moving the rules into a different vector can change behavior without recompiling route, although changing the source initializer still requires rebuilding the executable.",
+      "question": {
+        "prompt": "Explain the design choice in “Follow control and data through the chain” using this chapter's objects.",
+        "answer": "For a label job, label_rule returns a value, so route returns immediately. general_rule is never called for that request. For a report, the first handler returns no value and the second supplies the destination. For archive, both decline. The compiler checks that each stored callable has the required input and result shape. Which handler supplies the answer is decided during execution from the job and the order of rules. Moving the rules into a different vector can change behavior without recompiling route, although changing the source initializer still requires rebuilding the executable."
+      },
+      "reading": [
+        "route first checks the page count. The test uses ||, meaning that either bad bound is enough to reject the job. Valid jobs enter a range-based for loop. In for (const auto& rule : rules), the colon means take each item from rules in order. auto obtains the function-wrapper type from the vector; the reference avoids copying that wrapper; const prevents this loop from changing it. The same read-only Job is borrowed by each call. No handler owns the job, stores its address, or extends its lifetime.",
+        "For a label job, label_rule returns a value, so route returns immediately. general_rule is never called for that request. For a report, the first handler returns no value and the second supplies the destination. For archive, both decline. The compiler checks that each stored callable has the required input and result shape. Which handler supplies the answer is decided during execution from the job and the order of rules. Moving the rules into a different vector can change behavior without recompiling route, although changing the source initializer still requires rebuilding the executable."
+      ],
+      "topicIds": [
+        "C13.04"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch13-08"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → First-handler routing is not an all-stage pipeline",
+      "title": "First-handler routing is not an all-stage pipeline",
+      "keyPoints": [
+        "A pipeline is a sequence in which several stages may each perform part of the work.",
+        "Decide the rule before choosing an interface."
+      ],
+      "narration": "A pipeline is a sequence in which several stages may each perform part of the work. A document pipeline might validate pages, add a tracking code, write a record, and print. Success at one stage normally means continue. Our chain has a different rule: an answer means stop. If a maintainer converts return *reply into an assignment and continues looping, the general desk can replace the label desk because both accept labels. With real printing, that same mistake could produce two copies. The word chain alone does not tell a reader which stopping rule applies.\n\nDecide the rule before choosing an interface. In a validation pipeline, an enum such as Continue or Reject makes sense; in this router, optional destination makes sense. Mixing both meanings in one bool makes it hard to tell whether true means finished or allowed to continue. Shared requirements such as a valid page count belong before routing. A handler that is optional in one configuration must not be the only place that enforces a mandatory check. The empty-rule test proves that having no handlers remains a defined situation.",
+      "question": {
+        "prompt": "Explain the design choice in “First-handler routing is not an all-stage pipeline” using this chapter's objects.",
+        "answer": "Decide the rule before choosing an interface. In a validation pipeline, an enum such as Continue or Reject makes sense; in this router, optional destination makes sense. Mixing both meanings in one bool makes it hard to tell whether true means finished or allowed to continue. Shared requirements such as a valid page count belong before routing. A handler that is optional in one configuration must not be the only place that enforces a mandatory check. The empty-rule test proves that having no handlers remains a defined situation."
+      },
+      "reading": [
+        "A pipeline is a sequence in which several stages may each perform part of the work. A document pipeline might validate pages, add a tracking code, write a record, and print. Success at one stage normally means continue. Our chain has a different rule: an answer means stop. If a maintainer converts return *reply into an assignment and continues looping, the general desk can replace the label desk because both accept labels. With real printing, that same mistake could produce two copies. The word chain alone does not tell a reader which stopping rule applies.",
+        "Decide the rule before choosing an interface. In a validation pipeline, an enum such as Continue or Reject makes sense; in this router, optional destination makes sense. Mixing both meanings in one bool makes it hard to tell whether true means finished or allowed to continue. Shared requirements such as a valid page count belong before routing. A handler that is optional in one configuration must not be the only place that enforces a mandatory check. The empty-rule test proves that having no handlers remains a defined situation."
+      ],
+      "topicIds": [
+        "C13.05"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch13-09"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → Boundaries, costs, and a practical review",
+      "title": "Boundaries, costs, and a practical review",
+      "keyPoints": [
+        "The handlers are pure selection functions: their result depends on the job, and they do not print, store files, or change outside data.",
+        "Before adding a rule in real software, inspect overlap, position, failure meaning, and ownership."
+      ],
+      "narration": "The handlers are pure selection functions: their result depends on the job, and they do not print, store files, or change outside data. This makes order tests cheap and repeatable. With n handlers, an unsupported request makes n calls; an early match needs fewer. std::function offers runtime flexibility but may allocate when storing a large callable. For this tiny fixed router, direct calls or a table of plain function pointers can cost less. Neither performance claim should replace a measurement if routing is on a busy path.\n\nBefore adding a rule in real software, inspect overlap, position, failure meaning, and ownership. A fallback placed first can hide every special case. A rule that captures a local reference and survives that local variable can later access a dead object. The current vector stores free functions, so it has no such captured lifetime. A linked chain would also need a no-cycle rule; this vector traversal has no link cycle to create. The model deliberately omits retries and external actions. Choosing a destination successfully does not prove that the destination later completed the job.",
+      "question": {
+        "prompt": "What should happen if a Rule itself throws?",
+        "answer": "The supplied route does not catch it, so the exception propagates and later handlers do not run. Continuing after failure would require an explicit error policy."
+      },
+      "reading": [
+        "The handlers are pure selection functions: their result depends on the job, and they do not print, store files, or change outside data. This makes order tests cheap and repeatable. With n handlers, an unsupported request makes n calls; an early match needs fewer. std::function offers runtime flexibility but may allocate when storing a large callable. For this tiny fixed router, direct calls or a table of plain function pointers can cost less. Neither performance claim should replace a measurement if routing is on a busy path.",
+        "Before adding a rule in real software, inspect overlap, position, failure meaning, and ownership. A fallback placed first can hide every special case. A rule that captures a local reference and survives that local variable can later access a dead object. The current vector stores free functions, so it has no such captured lifetime. A linked chain would also need a no-cycle rule; this vector traversal has no link cycle to create. The model deliberately omits retries and external actions. Choosing a destination successfully does not prove that the destination later completed the job."
+      ],
+      "topicIds": [
+        "C13.06"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch13-10"
+    },
+    {
+      "title": "Read the callable type from the inside out",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Reply is optional<string>",
+        "Rule is function<Reply(const Job&)>",
+        "using introduces a readable type alias"
+      ],
+      "narration": "Start with the call we want: a rule receives a Job and returns a Reply. The parameter const Job& borrows the existing job without changing it through that reference. Std::function can hold different callable objects that support this shape, and using gives that longer type the short name Rule. The compiler checks whether each stored callable fits. At execution, the wrapper invokes whichever callable it holds. In this chapter those are ordinary free functions, not objects with captured state. That keeps their lifetimes simple. A function-pointer table could be smaller for this exact fixed set; std::function leaves room for stateful callables if a later requirement justifies them.",
+      "actions": [
+        "Read Rule aloud as “a callable from a borrowed read-only Job to a Reply.”"
+      ],
+      "sourceRef": "manuscript/ch13.json → Make each choice a small, honest question",
+      "question": {
+        "prompt": "Does using Rule create a new inherited base class?",
+        "answer": "No. It is a type alias for the callable wrapper; the chapter does not require handler inheritance."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch13-11"
+    },
+    {
+      "title": "Presence is not the same as nonempty text",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "nullopt means no destination was supplied",
+        "An optional holding \"\" is still present",
+        "Check presence before dereferencing"
+      ],
+      "narration": "Optional separates absence from the contents of a value. An empty optional means this handler declines. An optional containing an empty string still contains a value and therefore stops this router, even though that destination would be unhelpful to a person. This distinction prevents a sentinel string from doing two jobs at once. If the application requires nonempty destination names, add that as a separate invariant and validate it. The code tests if (reply) before evaluating *reply. Reversing the condition would dereference an empty optional for a decline, violating the operation's precondition. There is no defined output to predict in that incorrect program, so do not teach a guaranteed crash.",
+      "actions": [
+        "Ask whether Reply{\"\"} and std::nullopt follow the same branch."
+      ],
+      "sourceRef": "manuscript/ch13.json → Make each choice a small, honest question",
+      "question": {
+        "prompt": "Why is return *reply safe in the correct route loop?",
+        "answer": "The immediately preceding presence test establishes that the optional contains a string."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch13-12"
+    },
+    {
+      "title": "Order is executable policy",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Specific rules normally precede broad fallbacks",
+        "A decline advances; an answer returns",
+        "Reordering affects overlapping acceptance sets"
+      ],
+      "narration": "For a label job, both handlers are willing, so their order matters. With label_rule first, route returns label desk and never calls general_rule. Reverse the vector and the general desk wins immediately. For a report, the label rule declines, so the general desk still answers in either order. This is why order tests need overlapping cases, not only one request per unique format. The range-based loop visits vector entries in sequence. In const auto& rule, auto obtains the wrapper's type, the reference avoids a wrapper copy, and const prevents reassignment through that name. The colon means take each item from rules, not inheritance or a conditional expression.",
+      "actions": [
+        "Predict label, report, and archive under both rule orders before revealing the chapter tests."
+      ],
+      "sourceRef": "manuscript/ch13.json → Follow control and data through the chain",
+      "question": {
+        "prompt": "Which existing request is the strongest test of priority between the two chapter handlers?",
+        "answer": "A label request, because both handlers accept it and the first one must win."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch13-13"
+    },
+    {
+      "title": "Mandatory validation must survive an empty chain",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Page bounds apply before all optional rules",
+        "Removing a handler must not remove safety",
+        "Unhandled and rejected report different facts"
+      ],
+      "narration": "A routing rule is optional in a configuration; a mandatory input rule is not. If page validation lived only inside label_rule, a shift that removes that handler could accidentally accept zero-page reports. Route instead checks the shared bounds before touching the vector. This also gives a precise result for an empty chain: invalid input is rejected, while valid input is unhandled because no destination was available. Those outcomes should not be merged. Rejected means the request breaks an input rule; unhandled means it passed those rules but found no responsible desk. That distinction helps a caller decide whether to fix the request or change the available routing configuration.",
+      "actions": [
+        "Ask for the results of zero pages with no rules and one valid page with no rules."
+      ],
+      "sourceRef": "manuscript/ch13.json → First-handler routing is not an all-stage pipeline",
+      "question": {
+        "prompt": "Why should the express handler not become the sole owner of the positive-page requirement?",
+        "answer": "The handler may be omitted or reordered; a mandatory requirement must hold independently of optional routing choices."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch13-14"
+    },
+    {
+      "title": "A router and a pipeline have different success meanings",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Here, success means stop",
+        "In a pipeline, success may mean continue",
+        "Choose a result type that makes the rule clear"
+      ],
+      "narration": "The word chain does not establish a stopping rule by itself. Our first-handler router stops when one destination appears. A document pipeline might validate, add a tracking number, record an event, and then print; success at each intermediate stage means continue. If a single Boolean is used in both designs, true could mean either finished or allowed to proceed. That ambiguity invites an apparently harmless refactor to change behavior. Choose a result type that expresses the actual decision. Optional destination fits this router. An enum such as Continue or Reject fits some validation pipelines. Also separate external effects from selection: retrying a destination decision is much simpler than retrying a chain that may already have printed twice.",
+      "actions": [
+        "Have learners translate one routing step and one validation step into explicit result words."
+      ],
+      "sourceRef": "manuscript/ch13.json → First-handler routing is not an all-stage pipeline",
+      "question": {
+        "prompt": "Can a successful page validation return a destination and stop this chain?",
+        "answer": "No. Validation establishes eligibility to route; it has not selected a desk."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch13-15"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → C13.07 concepts",
+      "title": "Map the roles to the actual types",
+      "keyPoints": [
+        "Handler contract → Rule and Reply",
+        "Shared forwarding mechanism → route and its rules loop",
+        "Concrete handlers → label_rule and general_rule",
+        "Client and chain assembly → main and rules"
+      ],
+      "narration": "Handler contract → Rule and Reply. Give every handler the same input and a clear way to accept or decline. Rule is a callable contract, not an inherited base class.\n\nShared forwarding mechanism → route and its rules loop. Continue after a decline and detect the end. The original stores successor links; the new program stores order in one vector.\n\nConcrete handlers → label_rule and general_rule. Apply one local acceptance rule without knowing which other rule will eventually answer.\n\nClient and chain assembly → main and rules. Choose order and submit requests. Construction chooses policy; handlers implement the individual decisions.",
+      "comparisons": [
+        {
+          "label": "Handler contract → Rule and Reply",
+          "text": "Give every handler the same input and a clear way to accept or decline. Rule is a callable contract, not an inherited base class."
+        },
+        {
+          "label": "Shared forwarding mechanism → route and its rules loop",
+          "text": "Continue after a decline and detect the end. The original stores successor links; the new program stores order in one vector."
+        },
+        {
+          "label": "Concrete handlers → label_rule and general_rule",
+          "text": "Apply one local acceptance rule without knowing which other rule will eventually answer."
+        },
+        {
+          "label": "Client and chain assembly → main and rules",
+          "text": "Choose order and submit requests. Construction chooses policy; handlers implement the individual decisions."
+        }
+      ],
+      "question": {
+        "prompt": "In Chain of Responsibility, which part plays Handler contract and what does it do?",
+        "answer": "Rule and Reply. Give every handler the same input and a clear way to accept or decline. Rule is a callable contract, not an inherited base class."
+      },
+      "topicIds": [
+        "C13.07"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch13-16"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch13/main.cpp:1-62; content/design-patterns-cpp/ch13.json → diagrams.13",
+      "title": "One route, at most one destination",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "A valid job receives at most one destination.",
+        "Every handler sees the same unchanged job."
+      ],
+      "narration": "Flow arrows mean the next possible execution step, not ownership. Each successful handler returns to route immediately; there is no success arrow from the label desk to the general desk. The code blocks below show the early return that gives the overview this meaning.\n\nStore small function handlers in a vector and use an optional destination. The vector makes order visible; the optional result separates a decline from an accepted request. One route function owns the stopping rule.\n\nA new destination becomes one independently testable rule. Configuration reviews must still examine overlaps and order because individual handler tests cannot establish the whole routing policy.",
+      "diagram": {
+        "chapter": 13,
+        "view": "overview",
+        "index": -1
+      },
+      "theory": {
+        "what": "One route, at most one destination",
+        "where": "companion/examples/ch13/main.cpp",
+        "why": "Store small function handlers in a vector and use an optional destination. The vector makes order visible; the optional result separates a decline from an accepted request. One route function owns the stopping rule.",
+        "invariant": "A valid job receives at most one destination. Every handler sees the same unchanged job. Rejected counts never enter a handler.",
+        "risk": "Continue through the vector after finding a destination. A label job can finish as general desk instead of label desk. Place the general handler before the label handler. Every supported label job selects general desk."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Flow arrows mean the next possible execution step, not ownership. Each successful handler returns to route immediately; there is no success arrow from the label desk to the general desk. The code blocks below show the early return that gives the overview this meaning."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch13-17"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch13/main.cpp:1-62; content/design-patterns-cpp/ch13.json → diagrams.13",
+      "title": "Chain of Responsibility — chronological driver trace",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "A valid job receives at most one destination.",
+        "Every handler sees the same unchanged job."
+      ],
+      "narration": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.\n\nStore small function handlers in a vector and use an optional destination. The vector makes order visible; the optional result separates a decline from an accepted request. One route function owns the stopping rule.\n\nA new destination becomes one independently testable rule. Configuration reviews must still examine overlaps and order because individual handler tests cannot establish the whole routing policy.",
+      "diagram": {
+        "chapter": 13,
+        "view": "extra",
+        "index": 0
+      },
+      "theory": {
+        "what": "Chain of Responsibility — chronological driver trace",
+        "where": "companion/examples/ch13/main.cpp",
+        "why": "Store small function handlers in a vector and use an optional destination. The vector makes order visible; the optional result separates a decline from an accepted request. One route function owns the stopping rule.",
+        "invariant": "A valid job receives at most one destination. Every handler sees the same unchanged job. Rejected counts never enter a handler.",
+        "risk": "Continue through the vector after finding a destination. A label job can finish as general desk instead of label desk. Place the general handler before the label handler. Every supported label job selects general desk."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch13-18"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch13/main.cpp:15-20",
+      "title": "One handler can decline",
+      "keyPoints": [
+        "This function asks whether the label desk is responsible.",
+        "A separate question can be reused without copying route.",
+        "Declining must not create any printing side effect."
+      ],
+      "narration": "This function asks whether the label desk is responsible. route invokes it through the first Rule in the vector. A separate question can be reused without copying route.\n\nDefine a handler that borrows a read-only job and returns an optional reply. The comment explains that no reply is a deliberate decline. Check whether the format is anything other than label. Return the standard empty-optional marker when it is not a label. Close the decline branch. Return a present string when the desk accepts the job.\n\nDeclining must not create any printing side effect. Returning a destination for every format prevents later rules from running.",
+      "diagram": {
+        "chapter": 13,
+        "view": "focus",
+        "index": 0
+      },
+      "theory": {
+        "title": "One handler can decline",
+        "start": "Reply label_rule",
+        "end": "return \"label desk\";",
+        "what": "This function asks whether the label desk is responsible.",
+        "where": "route invokes it through the first Rule in the vector.",
+        "why": "A separate question can be reused without copying route.",
+        "invariant": "Declining must not create any printing side effect.",
+        "risk": "Returning a destination for every format prevents later rules from running.",
+        "explain": [
+          "Define a handler that borrows a read-only job and returns an optional reply.",
+          "The comment explains that no reply is a deliberate decline.",
+          "Check whether the format is anything other than label.",
+          "Return the standard empty-optional marker when it is not a label.",
+          "Close the decline branch.",
+          "Return a present string when the desk accepts the job."
+        ],
+        "resolved_start": 15,
+        "resolved_end": 20,
+        "lineStart": 15,
+        "lineEnd": 20,
+        "code": "Reply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";",
+        "file": "examples/ch13/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Returning a destination for every format prevents later rules from running."
+      },
+      "topicIds": [
+        "C13.11"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch13-19"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch13/main.cpp:34-41",
+      "title": "The stop rule lives in one loop",
+      "keyPoints": [
+        "This loop searches for the first present reply.",
+        "The caller does not need to know the selected desk or the number of rules.",
+        "Return at once on a present answer."
+      ],
+      "narration": "This loop searches for the first present reply. It runs only after the page-count guard has accepted the job. The caller does not need to know the selected desk or the number of rules.\n\nThe comment states the first-handler policy. Borrow each callable in vector order without changing it. Call that rule with the same job and store its optional reply. Check that a string is present before accessing it. Return the string and end route immediately. Close the present-reply branch. Close the loop after a decline, allowing the next rule. Return an explicit unhandled result if no rule accepted.\n\nReturn at once on a present answer. Replacing return with continued processing changes the contract into a different kind of chain.",
+      "diagram": {
+        "chapter": 13,
+        "view": "focus",
+        "index": 1
+      },
+      "theory": {
+        "title": "The stop rule lives in one loop",
+        "start": "// The first willing desk wins.",
+        "end": "return \"unhandled\";",
+        "what": "This loop searches for the first present reply.",
+        "where": "It runs only after the page-count guard has accepted the job.",
+        "why": "The caller does not need to know the selected desk or the number of rules.",
+        "invariant": "Return at once on a present answer.",
+        "risk": "Replacing return with continued processing changes the contract into a different kind of chain.",
+        "explain": [
+          "The comment states the first-handler policy.",
+          "Borrow each callable in vector order without changing it.",
+          "Call that rule with the same job and store its optional reply.",
+          "Check that a string is present before accessing it.",
+          "Return the string and end route immediately.",
+          "Close the present-reply branch.",
+          "Close the loop after a decline, allowing the next rule.",
+          "Return an explicit unhandled result if no rule accepted."
+        ],
+        "resolved_start": 34,
+        "resolved_end": 41,
+        "lineStart": 34,
+        "lineEnd": 41,
+        "code": "    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";",
+        "file": "examples/ch13/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Replacing return with continued processing changes the contract into a different kind of chain."
+      },
+      "topicIds": [
+        "C13.12"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch13-20"
+    },
+    {
+      "eyebrow": "ORIGINAL CHECKED C++",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch13/main.cpp",
+      "title": "Run the complete chapter program",
+      "keyPoints": [
+        "Print-workshop request routing",
+        "The program checks label/report/unknown cases, both invalid count sides, the largest valid count, an empty chain, and reversed order. It verifies selection behavior, not print hardware or concurrent changes to rules."
+      ],
+      "narration": "We now join the small pieces into the complete working program. Store small function handlers in a vector and use an optional destination. The vector makes order visible; the optional result separates a decline from an accepted request. One route function owns the stopping rule.\n\nThe program checks label/report/unknown cases, both invalid count sides, the largest valid count, an empty chain, and reversed order. It verifies selection behavior, not print hardware or concurrent changes to rules.\n\nA new destination becomes one independently testable rule. Configuration reviews must still examine overlaps and order because individual handler tests cannot establish the whole routing policy. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/examples/ch13/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nint main() {\n    const std::vector<Rule> rules{label_rule, general_rule};\n    check(route({\"label\", 2}, rules) == \"label desk\");\n    check(route({\"report\", 1000}, rules) == \"general desk\");\n    check(route({\"archive\", 1}, rules) == \"unhandled\");\n    check(route({\"label\", 0}, rules) == \"rejected\");\n    check(route({\"label\", 1001}, rules) == \"rejected\");\n    check(route({\"label\", 1}, {}) == \"unhandled\");\n    const std::vector<Rule> reverse{general_rule, label_rule};\n    check(route({\"label\", 1}, reverse) == \"general desk\");\n    for (const Job& job : std::vector<Job>{\n             {\"label\", 2}, {\"report\", 8}, {\"archive\", 1}, {\"label\", 0}}) {\n        std::cout << route(job, rules) << '\\n';\n    }\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "label desk\ngeneral desk\nunhandled\nrejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-21.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "question": {
+        "prompt": "Does matching the demonstration output prove every promised behavior?",
+        "answer": "No. The program checks label/report/unknown cases, both invalid count sides, the largest valid count, an empty chain, and reversed order. It verifies selection behavior, not print hardware or concurrent changes to rules. A printed result shows that run; the checks and stated limits explain what was actually verified."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch13-21"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → trace",
+      "title": "Follow one request through the objects",
+      "keyPoints": [
+        "Job {label, 2}; bounds pass.",
+        "label_rule returns label desk.",
+        "Job {report, 8}; first rule declines.",
+        "Job {archive, 1}; both decline.",
+        "Job {label, 0}; rejected."
+      ],
+      "narration": "Step 1. Job {label, 2}; bounds pass.. Two pages lies inside the common valid range.\n\nStep 2. label_rule returns label desk.. The optional contains a string; route returns it.\n\nStep 3. Job {report, 8}; first rule declines.. general_rule now gets a chance and answers general desk.\n\nStep 4. Job {archive, 1}; both decline.. The loop ends with unhandled.\n\nStep 5. Job {label, 0}; rejected.. The count check ends route before any rule is called.",
+      "walkthrough": [
+        {
+          "label": "Step 1",
+          "text": "Job {label, 2}; bounds pass.",
+          "reason": "Two pages lies inside the common valid range."
+        },
+        {
+          "label": "Step 2",
+          "text": "label_rule returns label desk.",
+          "reason": "The optional contains a string; route returns it."
+        },
+        {
+          "label": "Step 3",
+          "text": "Job {report, 8}; first rule declines.",
+          "reason": "general_rule now gets a chance and answers general desk."
+        },
+        {
+          "label": "Step 4",
+          "text": "Job {archive, 1}; both decline.",
+          "reason": "The loop ends with unhandled."
+        },
+        {
+          "label": "Step 5",
+          "text": "Job {label, 0}; rejected.",
+          "reason": "The count check ends route before any rule is called."
+        }
+      ],
+      "question": {
+        "prompt": "Which operation makes the next step possible?",
+        "answer": "Job {label, 2}; bounds pass. — Two pages lies inside the common valid range.\nlabel_rule returns label desk. — The optional contains a string; route returns it.\nJob {report, 8}; first rule declines. — general_rule now gets a chance and answers general desk.\nJob {archive, 1}; both decline. — The loop ends with unhandled.\nJob {label, 0}; rejected. — The count check ends route before any rule is called."
+      },
+      "topicIds": [
+        "C13.09"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch13-22"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → example.failures",
+      "title": "Debug the promise: Continue through the vector after finding a destination.",
+      "keyPoints": [
+        "Continue through the vector after finding a destination.",
+        "A label job can finish as general desk instead of label desk."
+      ],
+      "narration": "Continue through the vector after finding a destination. A label job can finish as general desk instead of label desk. The two handlers overlap, so the last answer replaces the first.\n\nThe program checks label/report/unknown cases, both invalid count sides, the largest valid count, an empty chain, and reversed order. It verifies selection behavior, not print hardware or concurrent changes to rules.\n\nA new destination becomes one independently testable rule. Configuration reviews must still examine overlaps and order because individual handler tests cannot establish the whole routing policy.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "A label job can finish as general desk instead of label desk."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The two handlers overlap, so the last answer replaces the first."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The two handlers overlap, so the last answer replaces the first. A label job can finish as general desk instead of label desk."
+      },
+      "topicIds": [
+        "C13.10"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch13-23"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → example.failures",
+      "title": "Debug the promise: Place the general handler before the label handler.",
+      "keyPoints": [
+        "Place the general handler before the label handler.",
+        "Every supported label job selects general desk."
+      ],
+      "narration": "Place the general handler before the label handler. Every supported label job selects general desk. The first willing handler wins even if a later one is more specific.\n\nThe program checks label/report/unknown cases, both invalid count sides, the largest valid count, an empty chain, and reversed order. It verifies selection behavior, not print hardware or concurrent changes to rules.\n\nA new destination becomes one independently testable rule. Configuration reviews must still examine overlaps and order because individual handler tests cannot establish the whole routing policy.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "Every supported label job selects general desk."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The first willing handler wins even if a later one is more specific."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The first willing handler wins even if a later one is more specific. Every supported label job selects general desk."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch13-24"
+    },
+    {
+      "title": "Trace 1: Chain of Responsibility: Specific handler first",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Chain of Responsibility: Specific handler first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Chain of Responsibility: Specific handler first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe first handler that returns a value wins.\n\nThe bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → dpx-c13-trace-1; companion/solutions/ch13/main.cpp",
+      "question": {
+        "prompt": "Chain of Responsibility: Specific handler first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"label desk\". The first handler that returns a value wins."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return route({\n    \"label\",3\n  },{\n    label_rule,general_rule\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch13_trace_1.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return route({\n    \"label\",3\n  },{\n    label_rule,general_rule\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "label desk\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-25.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_trace_1.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-13-a",
+      "section": "Trace experiments",
+      "id": "dp-ch13-25"
+    },
+    {
+      "title": "Trace 2: Chain of Responsibility: Broad handler first",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Chain of Responsibility: Broad handler first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Chain of Responsibility: Broad handler first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nReordering overlapping rules changes the chosen destination.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → dpx-c13-trace-2; companion/solutions/ch13/main.cpp",
+      "question": {
+        "prompt": "Chain of Responsibility: Broad handler first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"general desk\". Reordering overlapping rules changes the chosen destination."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return route({\n    \"label\",3\n  },{\n    general_rule,label_rule\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch13_trace_2.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return route({\n    \"label\",3\n  },{\n    general_rule,label_rule\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "general desk\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-26.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_trace_2.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-13-a",
+      "section": "Trace experiments",
+      "id": "dp-ch13-26"
+    },
+    {
+      "title": "Trace 3: Chain of Responsibility: Invalid zero pages",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Chain of Responsibility: Invalid zero pages. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Chain of Responsibility: Invalid zero pages. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nValidation happens before routing, so no desk gets an invalid request.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → dpx-c13-trace-3; companion/solutions/ch13/main.cpp",
+      "question": {
+        "prompt": "Chain of Responsibility: Invalid zero pages. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"rejected\". Validation happens before routing, so no desk gets an invalid request."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return route({\n    \"label\",0\n  },{\n    label_rule\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch13_trace_3.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return route({\n    \"label\",0\n  },{\n    label_rule\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-27.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_trace_3.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-13-a",
+      "section": "Trace experiments",
+      "id": "dp-ch13-27"
+    },
+    {
+      "title": "Trace 4: Chain of Responsibility: Empty chain",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Chain of Responsibility: Empty chain. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Chain of Responsibility: Empty chain. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nNo handlers means a valid request has no destination.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → dpx-c13-trace-4; companion/solutions/ch13/main.cpp",
+      "question": {
+        "prompt": "Chain of Responsibility: Empty chain. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"unhandled\". No handlers means a valid request has no destination."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return route({\n    \"report\",1\n  },{\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch13_trace_4.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return route({\n    \"report\",1\n  },{\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "unhandled\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-28.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_trace_4.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-13-a",
+      "section": "Trace experiments",
+      "id": "dp-ch13-28"
+    },
+    {
+      "title": "Trace 5: Chain of Responsibility: Express endpoint",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Chain of Responsibility: Express endpoint. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Chain of Responsibility: Express endpoint. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nFive is within the express limit.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → dpx-c13-trace-5; companion/solutions/ch13/main.cpp",
+      "question": {
+        "prompt": "Chain of Responsibility: Express endpoint. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"express desk\". Five is within the express limit."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return route({\n    \"report\",5\n  },{\n    express_rule,general_rule\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch13_trace_5.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return route({\n    \"report\",5\n  },{\n    express_rule,general_rule\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "express desk\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-29.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_trace_5.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-13-a",
+      "section": "Trace experiments",
+      "id": "dp-ch13-29"
+    },
+    {
+      "title": "Trace 6: Chain of Responsibility: Over express limit",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Chain of Responsibility: Over express limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Chain of Responsibility: Over express limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nExpress declines and the next rule accepts.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → dpx-c13-trace-6; companion/solutions/ch13/main.cpp",
+      "question": {
+        "prompt": "Chain of Responsibility: Over express limit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"general desk\". Express declines and the next rule accepts."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return route({\n    \"report\",6\n  },{\n    express_rule,general_rule\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch13_trace_6.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return route({\n    \"report\",6\n  },{\n    express_rule,general_rule\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "general desk\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-30.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_trace_6.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-13-a",
+      "section": "Trace experiments",
+      "id": "dp-ch13-30"
+    },
+    {
+      "title": "Trace 7: Chain of Responsibility: Express cannot steal labels",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Chain of Responsibility: Express cannot steal labels. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Chain of Responsibility: Express cannot steal labels. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe express rule must check format as well as size.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → dpx-c13-trace-7; companion/solutions/ch13/main.cpp",
+      "question": {
+        "prompt": "Chain of Responsibility: Express cannot steal labels. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"label desk\". The express rule must check format as well as size."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return route({\n    \"label\",2\n  },{\n    express_rule,label_rule\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch13_trace_7.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return route({\n    \"label\",2\n  },{\n    express_rule,label_rule\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "label desk\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-31.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_trace_7.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-13-a",
+      "section": "Trace experiments",
+      "id": "dp-ch13-31"
+    },
+    {
+      "title": "Trace 8: Chain of Responsibility: Unknown format",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Chain of Responsibility: Unknown format. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Chain of Responsibility: Unknown format. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nNeither handler accepts the archive format.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → dpx-c13-trace-8; companion/solutions/ch13/main.cpp",
+      "question": {
+        "prompt": "Chain of Responsibility: Unknown format. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"unhandled\". Neither handler accepts the archive format."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  return route({\n    \"archive\",2\n  },{\n    express_rule,general_rule\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch13_trace_8.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  return route({\n    \"archive\",2\n  },{\n    express_rule,general_rule\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "unhandled\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-32.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch13_trace_8.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-13-a",
+      "section": "Trace experiments",
+      "id": "dp-ch13-32"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → exercises.13.1",
+      "title": "Exercise 13.1: Guided modification",
+      "keyPoints": [
+        "Change the maximum valid page count from 1000 to 500. List the old tests that must change and two new boundary cases."
+      ],
+      "narration": "Change the maximum valid page count from 1000 to 500. List the old tests that must change and two new boundary cases.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Find both the guard and the check using the old upper bound.\n\nAfter the discussion, compare the reasoning. Change the guard to pages > 500. The old report with 1000 pages must now be rejected. Check 500 as accepted and 501 as rejected; retain zero-page and unknown-format tests.",
+      "hint": "Find both the guard and the check using the old upper bound.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Change the guard to pages > 500. The old report with 1000 pages must now be rejected. Check 500 as accepted and 501 as rejected; retain zero-page and unknown-format tests."
+      },
+      "topicIds": [
+        "C13.13"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-33"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → exercises.13.2",
+      "title": "Exercise 13.2: Trace unfamiliar code",
+      "keyPoints": [
+        "In the primary main, replace the rules initializer with {general_rule, label_rule}. Predict the four printed lines, ignoring checks that deliberately assert the old order."
+      ],
+      "narration": "In the primary main, replace the rules initializer with {general_rule, label_rule}. Predict the four printed lines, ignoring checks that deliberately assert the old order.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Both rules accept label jobs.\n\nAfter the discussion, compare the reasoning. The lines become general desk, general desk, unhandled, rejected. The first primary check would fail before printing unless updated; this separates predicting the routed values from predicting execution of an unchanged test harness.",
+      "hint": "Both rules accept label jobs.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The lines become general desk, general desk, unhandled, rejected. The first primary check would fail before printing unless updated; this separates predicting the routed values from predicting execution of an unchanged test harness."
+      },
+      "topicIds": [
+        "C13.14"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-34"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → exercises.13.3",
+      "title": "Exercise 13.3: Diagnose a bug",
+      "keyPoints": [
+        "A developer changes if (reply) to if (!reply) but leaves return *reply. Explain what happens for a report."
+      ],
+      "narration": "A developer changes if (reply) to if (!reply) but leaves return *reply. Explain what happens for a report.\n\nPause here and make a concrete prediction or sketch a change. The hint is: A report produces an empty optional at the first rule.\n\nAfter the discussion, compare the reasoning. The branch now dereferences an empty optional, violating its precondition. There is no defined correct output to predict. Restore the presence test; do not describe a crash as guaranteed.",
+      "hint": "A report produces an empty optional at the first rule.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The branch now dereferences an empty optional, violating its precondition. There is no defined correct output to predict. Restore the presence test; do not describe a crash as guaranteed."
+      },
+      "topicIds": [
+        "C13.15"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-35"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → exercises.13.4",
+      "title": "Exercise 13.4: Choose a design",
+      "keyPoints": [
+        "Choose between this chain and a switch for three permanently fixed format codes with no overlap."
+      ],
+      "narration": "Choose between this chain and a switch for three permanently fixed format codes with no overlap.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Ask what must vary independently.\n\nAfter the discussion, compare the reasoning. A switch is reasonable because a fixed direct mapping needs no configurable search. Choose the chain if fallback order or independently added rules is a real requirement, and test overlap explicitly.",
+      "hint": "Ask what must vary independently.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "A switch is reasonable because a fixed direct mapping needs no configurable search. Choose the chain if fallback order or independently added rules is a real requirement, and test overlap explicitly."
+      },
+      "topicIds": [
+        "C13.16"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-36"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → exercises.13.5",
+      "title": "Exercise 13.5: Extend without regressions",
+      "keyPoints": [
+        "Add an express rule for reports of at most five pages. Keep labels special and reject zero pages. State three regression cases."
+      ],
+      "narration": "Add an express rule for reports of at most five pages. Keep labels special and reject zero pages. State three regression cases.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Insert the rule before general_rule; keep the shared guard.\n\nAfter the discussion, compare the reasoning. A five-page report selects express, a six-page report selects general, and a label still selects label. Zero pages must be rejected before the express rule can accept it. The companion lab implements this change.",
+      "hint": "Insert the rule before general_rule; keep the shared guard.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "A five-page report selects express, a six-page report selects general, and a label still selects label. Zero pages must be rejected before the express rule can accept it. The companion lab implements this change."
+      },
+      "topicIds": [
+        "C13.17"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-37"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → exercises.13.6",
+      "title": "Exercise 13.6: Justify a decision",
+      "keyPoints": [
+        "Explain in three sentences why an accepted destination must not also mean the printer completed the job."
+      ],
+      "narration": "Explain in three sentences why an accepted destination must not also mean the printer completed the job.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Separate routing from an outside effect.\n\nAfter the discussion, compare the reasoning. Routing identifies responsibility. A printer may later be offline or run out of paper. Keep a separate delivery result and retry policy so routing success does not hide an external failure.",
+      "hint": "Separate routing from an outside effect.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Routing identifies responsibility. A printer may later be offline or run out of paper. Keep a separate delivery result and retry policy so routing success does not hide an external failure."
+      },
+      "topicIds": [
+        "C13.18"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-38"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/exercises/ch13/main.cpp",
+      "title": "Extend the program without losing its tests",
+      "keyPoints": [
+        "Extend the starter with express_rule: reports of one through five pages choose express desk. Install it before the original rules. Preserve every original check and printed line, then print express: express desk."
+      ],
+      "narration": "Extend the starter with express_rule: reports of one through five pages choose express desk. Install it before the original rules. Preserve every original check and printed line, then print express: express desk.\n\nKeep the original checks as a baseline. The new behavior must also satisfy these checks: A report with five pages selects express desk; six selects general desk. Labels still select label desk; zero-page reports are rejected. Unsupported formats remain unhandled.\n\nThe starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/exercises/ch13/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nint main() {\n    const std::vector<Rule> rules{label_rule, general_rule};\n    check(route({\"label\", 2}, rules) == \"label desk\");\n    check(route({\"report\", 1000}, rules) == \"general desk\");\n    check(route({\"archive\", 1}, rules) == \"unhandled\");\n    check(route({\"label\", 0}, rules) == \"rejected\");\n    check(route({\"label\", 1001}, rules) == \"rejected\");\n    check(route({\"label\", 1}, {}) == \"unhandled\");\n    const std::vector<Rule> reverse{general_rule, label_rule};\n    check(route({\"label\", 1}, reverse) == \"general desk\");\n    for (const Job& job : std::vector<Job>{\n             {\"label\", 2}, {\"report\", 8}, {\"archive\", 1}, {\"label\", 0}}) {\n        std::cout << route(job, rules) << '\\n';\n    }\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "label desk\ngeneral desk\nunhandled\nrejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-39.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "checks": [
+        {
+          "prompt": "A report with five pages selects express desk; six selects general desk.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Labels still select label desk; zero-page reports are rejected.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Unsupported formats remain unhandled.",
+          "answer": "This is a required acceptance check for the extension."
+        }
+      ],
+      "question": {
+        "prompt": "What must the extension add?",
+        "answer": "Extend the starter with express_rule: reports of one through five pages choose express desk. Install it before the original rules. Preserve every original check and printed line, then print express: express desk."
+      },
+      "topicIds": [
+        "C13.19"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-39"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/solutions/ch13/main.cpp",
+      "title": "Extension solution and design review",
+      "keyPoints": [
+        "A report with five pages selects express desk; six selects general desk.",
+        "Labels still select label desk; zero-page reports are rejected.",
+        "Unsupported formats remain unhandled."
+      ],
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/solutions/ch13/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <functional>\n#include <iostream>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\nstruct Job {\n    std::string format;\n    int pages;\n};\nusing Reply = std::optional<std::string>;\nusing Rule = std::function<Reply(const Job&)>;\n\nReply label_rule(const Job& job) {\n    // No value means keep looking.\n    if (job.format != \"label\") {\n        return std::nullopt;\n    }\n    return \"label desk\";\n}\nReply general_rule(const Job& job) {\n    if (job.format == \"label\" || job.format == \"report\") {\n        return \"general desk\";\n    }\n    return std::nullopt;\n}\n\nstd::string route(const Job& job,\n                  const std::vector<Rule>& rules) {\n    if (job.pages < 1 || job.pages > 1000) {\n        return \"rejected\";\n    }\n    // The first willing desk wins.\n    for (const auto& rule : rules) {\n        auto reply = rule(job);\n        if (reply) {\n            return *reply;\n        }\n    }\n    return \"unhandled\";\n}\nvoid check(bool okay) {\n    if (!okay) {\n        throw std::runtime_error(\"routing check failed\");\n    }\n}\nReply express_rule(const Job& job) {\n    if (job.format == \"report\" && job.pages <= 5) {\n        return \"express desk\";\n    }\n    return std::nullopt;\n}\nint main() {\n    const std::vector<Rule> rules{label_rule, general_rule};\n    check(route({\"label\", 2}, rules) == \"label desk\");\n    check(route({\"report\", 1000}, rules) == \"general desk\");\n    check(route({\"archive\", 1}, rules) == \"unhandled\");\n    check(route({\"label\", 0}, rules) == \"rejected\");\n    check(route({\"label\", 1001}, rules) == \"rejected\");\n    check(route({\"label\", 1}, {}) == \"unhandled\");\n    const std::vector<Rule> reverse{general_rule, label_rule};\n    check(route({\"label\", 1}, reverse) == \"general desk\");\n    for (const Job& job : std::vector<Job>{\n             {\"label\", 2}, {\"report\", 8}, {\"archive\", 1}, {\"label\", 0}}) {\n        std::cout << route(job, rules) << '\\n';\n    }\n\n    const std::vector<Rule> extended{express_rule, label_rule, general_rule};\n    check(route({\"report\", 5}, extended) == \"express desk\");\n    check(route({\"report\", 6}, extended) == \"general desk\");\n    check(route({\"label\", 2}, extended) == \"label desk\");\n    check(route({\"report\", 0}, extended) == \"rejected\");\n    check(route({\"archive\", 1}, extended) == \"unhandled\");\n    std::cout << \"express: \" << route({\"report\", 5}, extended) << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "label desk\ngeneral desk\nunhandled\nrejected\nexpress: express desk\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch13/dp-ch13-40.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "narration": "The reference solution adds one callable and a new vector, leaving the original vector and tests intact. The central guard rejects zero before express_rule runs. Making the express rule validate pages again is harmless but duplicates policy that can drift.\n\nA new destination becomes one independently testable rule. Configuration reviews must still examine overlaps and order because individual handler tests cannot establish the whole routing policy.",
+      "question": {
+        "prompt": "Why is this solution a reasonable extension, and could another design work?",
+        "answer": "The reference solution adds one callable and a new vector, leaving the original vector and tests intact. The central guard rejects zero before express_rule runs. Making the express rule validate pages again is harmless but duplicates policy that can drift."
+      },
+      "section": "Practice and extension",
+      "id": "dp-ch13-40"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → C13.21 scenario",
+      "title": "Application case 1: defend your choice",
+      "keyPoints": [
+        "A print router offers a job to handlers in order and stops at the first destination. Which design fits?"
+      ],
+      "scenario": {
+        "prompt": "A print router offers a job to handlers in order and stops at the first destination. Which design fits?",
+        "options": [
+          "Prototype",
+          "Observer",
+          "Abstract Factory",
+          "Chain of Responsibility"
+        ],
+        "correctIndex": 3,
+        "explanation": "Each handler can accept or decline under a clear continuation policy.",
+        "rationales": [
+          "No existing object needs to be cloned.",
+          "Subscribers typically receive notification; this problem selects one destination.",
+          "There is no matching family of created products.",
+          "Each handler can accept or decline under a clear continuation policy."
+        ],
+        "id": "C13.21-s1"
+      },
+      "narration": "A print router offers a job to handlers in order and stops at the first destination. Which design fits?\n\nPrototype. No existing object needs to be cloned.\n\nObserver. Subscribers typically receive notification; this problem selects one destination.\n\nAbstract Factory. There is no matching family of created products.\n\nChain of Responsibility. Each handler can accept or decline under a clear continuation policy.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Chain of Responsibility. Each handler can accept or decline under a clear continuation policy."
+      },
+      "topicIds": [
+        "C13.21"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-41"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch13.json → C13.22 scenario",
+      "title": "Application case 2: defend your choice",
+      "keyPoints": [
+        "The catch-all destination handler is placed before the label-specific handler. What is the consequence?"
+      ],
+      "scenario": {
+        "prompt": "The catch-all destination handler is placed before the label-specific handler. What is the consequence?",
+        "options": [
+          "The label handler automatically moves to the front",
+          "Label jobs select the general destination.",
+          "Both destinations always receive the job",
+          "The code necessarily fails compilation"
+        ],
+        "correctIndex": 1,
+        "explanation": "The first accepting handler stops this chain, so the later specialized handler never sees them.",
+        "rationales": [
+          "Vector order does not rearrange itself by specificity.",
+          "The first accepting handler stops this chain, so the later specialized handler never sees them.",
+          "This router stops on the first destination.",
+          "A legal handler order can still violate routing policy."
+        ],
+        "id": "C13.22-s1"
+      },
+      "narration": "The catch-all destination handler is placed before the label-specific handler. What is the consequence?\n\nThe label handler automatically moves to the front. Vector order does not rearrange itself by specificity.\n\nLabel jobs select the general destination.. The first accepting handler stops this chain, so the later specialized handler never sees them.\n\nBoth destinations always receive the job. This router stops on the first destination.\n\nThe code necessarily fails compilation. A legal handler order can still violate routing policy.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Label jobs select the general destination.. The first accepting handler stops this chain, so the later specialized handler never sees them."
+      },
+      "topicIds": [
+        "C13.22"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch13-42"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 13",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch13.json → summary",
+      "title": "Keep these rules when the program grows",
+      "keyPoints": [
+        "Order is part of the routing policy.",
+        "A missing optional value expresses an ordinary decline.",
+        "One accepted handler ends this chain.",
+        "Pipelines need their own continue/stop contract.",
+        "Keep mandatory checks outside optional handlers."
+      ],
+      "narration": "Order is part of the routing policy. A missing optional value expresses an ordinary decline. One accepted handler ends this chain. Pipelines need their own continue/stop contract. Keep mandatory checks outside optional handlers.\n\nA new destination becomes one independently testable rule. Configuration reviews must still examine overlaps and order because individual handler tests cannot establish the whole routing policy.",
+      "question": {
+        "prompt": "Explain Chain of Responsibility without reciting its class names.",
+        "answer": "Store small function handlers in a vector and use an optional destination. The vector makes order visible; the optional result separates a decline from an accepted request. One route function owns the stopping rule. A direct if/else chain is clearer when the choices and their order never vary. Virtual Handler classes suit handlers with substantial private state, but would add unnecessary lifetime machinery to these two stateless rules."
+      },
+      "topicIds": [
+        "C13.20"
+      ],
+      "section": "Recall and transfer",
+      "id": "dp-ch13-43"
+    },
+    {
+      "title": "An express rule extends the policy without copying the guard",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Reports of at most five pages use express",
+        "Keep label and general behavior intact",
+        "Test overlap, boundaries, and no-handler cases"
+      ],
+      "narration": "The lab adds an express desk for reports of up to five pages. The new rule joins a new vector before the broader existing rules, while the original vector and its checks remain intact. A five-page report now takes express; a six-page report reaches general. A label still follows label_rule, and a zero-page report is rejected before express_rule can accept it. Notice that the local express rule checks at most five, while route establishes the lower bound first. This is safe through route but matters if somebody later calls the rule directly and assumes it validates the whole request. State the boundary where the common guarantee is established.",
+      "actions": [
+        "Ask learners to list tests for page counts zero, five, and six plus a label and an archive."
+      ],
+      "sourceRef": "manuscript/ch13.json → Boundaries, costs, and a practical review",
+      "question": {
+        "prompt": "Why does installing express_rule first not steal label jobs in this implementation?",
+        "answer": "Its acceptance condition requires report format, so labels still fall through to label_rule."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch13-44"
+    },
+    {
+      "title": "Runtime flexibility has lifetime and cost obligations",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "An unsupported job invokes all n handlers",
+        "Large stored callables may allocate",
+        "Captured references can outlive their targets"
+      ],
+      "narration": "A chain trades a fixed decision tree for a configurable search. A valid unsupported job requires one call to every handler, so cost grows with the number of rules. A broad match placed early may be fast but can hide a more specific policy. Std::function may allocate when it stores a large callable, whereas this chapter's free functions are simple to retain. If you add a lambda that captures a local variable by reference, check whether the rule vector can outlive that variable. A surviving callable does not keep a borrowed capture alive. The vector avoids linked-chain cycles, but it does not solve every ownership problem a future handler might introduce.",
+      "actions": [
+        "Propose a rule that captures a temporary configuration by reference and ask when it becomes unsafe."
+      ],
+      "sourceRef": "manuscript/ch13.json → Boundaries, costs, and a practical review",
+      "question": {
+        "prompt": "Would using a vector automatically make captured references safe?",
+        "answer": "No. The vector owns the callable wrapper, but a reference captured inside it still borrows an independently lived object."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch13-45"
+    },
+    {
+      "title": "Remember the three decisions, not a class diagram alone",
+      "eyebrow": "CHAIN OF RESPONSIBILITY / CHAPTER 13",
+      "kind": "concept",
+      "keyPoints": [
+        "Eligibility: may this job enter routing?",
+        "Responsibility: will this handler answer?",
+        "Termination: does an answer stop the search?"
+      ],
+      "narration": "Explain this pattern through three decisions. First, the shared guard decides whether the job is eligible for routing. Second, each handler decides whether it is responsible. Third, the router decides whether to stop or continue based on the handler's result. In this chapter a present answer stops immediately; absence advances to the next rule; exhaustion produces unhandled. Those decisions remain clear even though the implementation has no linked nodes or inherited handler base. When reviewing a new rule, inspect its overlap with existing rules and its position, then test its boundary cases. The memorable mechanism is ordered responsibility with an explicit stop rule, not a required arrangement of class names.",
+      "actions": [
+        "Ask learners to explain a label, an archive, and an invalid job using the three decisions."
+      ],
+      "sourceRef": "manuscript/ch13.json → Follow control and data through the chain",
+      "question": {
+        "prompt": "What two code locations prove that this is first-handler routing?",
+        "answer": "A handler returns nullopt to decline or a present Reply to accept, and route immediately returns the first present reply."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch13-46"
+    }
+  ]
+}

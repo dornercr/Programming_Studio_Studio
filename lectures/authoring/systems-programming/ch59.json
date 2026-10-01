@@ -1,0 +1,232 @@
+{
+  "chapter": 59,
+  "title": "System Robustness",
+  "opening": [
+    {
+      "title": "A failure needs a postcondition, not only an error message",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "concept",
+      "keyPoints": [
+        "Nothing changed, partial progress, and committed-but-unconfirmed differ",
+        "Retry rules depend on the state left behind",
+        "Resource cleanup must work on every exit"
+      ],
+      "narration": "A function returning failure does not always mean that nothing happened. A write may have transferred a prefix. A renamed file may already be visible even if a later durability step fails. A remote operation may complete before its acknowledgment is lost. Robustness starts by defining the state left after each failure, then choosing a retry or recovery rule that fits it. This chapter connects return values, parsing, assertions, cleanup, and persistence. The goal is not to keep running at any cost, but to leave a known safe state and enough evidence to diagnose the failed boundary.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SP59.006: 59.2 Error handling",
+      "question": {
+        "prompt": "Why can blindly retrying an operation after an error duplicate effects?",
+        "answer": "The operation may have partly or fully committed before the error or acknowledgment failure. Retry must follow the documented postcondition."
+      }
+    },
+    {
+      "title": "Parsing a valid numeric prefix is not validating the whole field",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "code",
+      "keyPoints": [
+        "from_chars reports a value and where parsing stopped",
+        "The supplied input is 80x",
+        "The numeric prefix succeeds but the complete field is invalid"
+      ],
+      "narration": "The string eighty followed by x begins with a valid integer, so from_chars stores eighty and stops before x. Its error code is clear because parsing the numeric prefix succeeded. The program then compares the returned pointer with the end of the input and prints complete equals zero. A configuration field requiring only an integer must reject this result, even though the value looks reasonable. This is a small original boundary demonstration related to the source version parser. Real validation also checks the accepted numeric range and grammar, such as whether leading signs or spaces are allowed, before committing any live setting.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SYS59.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why is checking only the from_chars error code insufficient for a whole-field integer?",
+        "answer": "A valid prefix can leave unconsumed characters. The returned pointer must also reach the expected end, and the value must meet the range contract."
+      },
+      "code": {
+        "filename": "sys_ch59_whole_field.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <charconv>\n#include <iostream>\n#include <string>\n#include <system_error>\nint main() {\n    const std::string input = \"80x\";\n    int value = 0;\n    const auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);\n    const bool complete = parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size();\n    std::cout << \"prefix=\" << value << \" consumed=\" << parsed.ptr - input.data() << '\\n';\n    std::cout << \"complete=\" << complete << '\\n';\n}\n",
+        "expectedStdout": "prefix=80 consumed=2\ncomplete=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Scope owners clean up a partially completed operation",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "code",
+      "keyPoints": [
+        "A local pipe acquires two real descriptors",
+        "A later failure unwinds both owners",
+        "Cleanup is observed without printing nondeterministic descriptor numbers"
+      ],
+      "narration": "This Linux/POSIX program creates a local pipe and immediately places each descriptor in a noncopyable owner. It then deliberately throws before doing any I/O. Stack unwinding destroys both owners, each closes its own descriptor, and the outside counter records two successful closes. The output reports two closed descriptors and one caught failure; it does not depend on their assigned integer values. The counter outlives both owners, so their references remain valid. This illustrates leak prevention on a partial setup path. It does not claim that closing a descriptor confirms durable output or completes an application transaction.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SP59.024: Worked example \u2014 Cleanup on partial failure",
+      "question": {
+        "prompt": "Why must the close counter outlive both descriptor owners in this demonstration?",
+        "answer": "The destructors borrow that counter by reference. Updating it after its lifetime ended would be invalid even though descriptor ownership itself was correct."
+      },
+      "code": {
+        "filename": "sys_ch59_scope_cleanup.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <unistd.h>\nclass Owner {\n    int fd_;\n    int& closed_;\npublic:\n    Owner(int fd, int& closed) : fd_(fd), closed_(closed) {}\n    Owner(const Owner&) = delete;\n    Owner& operator=(const Owner&) = delete;\n    ~Owner() { if (::close(fd_) == 0) ++closed_; }\n};\nint main() {\n    int ends[2];\n    if (::pipe(ends) != 0) return 1;\n    int closed = 0;\n    bool caught = false;\n    try {\n        Owner read_end(ends[0], closed), write_end(ends[1], closed);\n        throw std::runtime_error(\"later setup failed\");\n    } catch (const std::runtime_error&) { caught = true; }\n    std::cout << \"closed=\" << closed << \" caught=\" << caught << '\\n';\n    return closed == 2 && caught ? 0 : 1;\n}\n",
+        "expectedStdout": "closed=2 caught=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Use the failure indicator that belongs to the interface",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "concept",
+      "keyPoints": [
+        "open returns \u22121 on failure",
+        "Some pthread functions return the error number directly",
+        "MAP_FAILED is not a null-pointer convention"
+      ],
+      "narration": "Different system interfaces have different failure conventions. A descriptor-returning call can use minus one. A mapping operation uses MAP_FAILED rather than a generic null test. Many POSIX thread interfaces return an error number directly instead of asking the caller to read errno. A wrapper that forces all of these into one guessed convention can report stale errors or treat failure as success. Read the documented result before inspecting any secondary status. Then preserve enough safe context to identify the operation and resource involved. Consistent application-level error types are useful only after the wrapper has respected the underlying interface.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SP59.008: 59.3 Return values",
+      "question": {
+        "prompt": "Why can reading errno after a failing pthread call report the wrong cause?",
+        "answer": "Many pthread interfaces return the error number directly and do not use errno for that result. The errno value may be unrelated."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "errno is evidence only after the documented failure result",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "concept",
+      "keyPoints": [
+        "Successful calls need not clear old errors",
+        "Save the code before cleanup or logging",
+        "Report operation and safe context as well as the number"
+      ],
+      "narration": "Imagine that an earlier operation left an error value and a later open succeeds. Inspecting errno alone can falsely label the successful open a failure because success need not clear it. First test the interface's documented return value; only then, when specified, inspect errno. Save that value before cleanup or logging calls can overwrite it. In a multithreaded POSIX environment errno is thread-specific, but that does not make an old value meaningful. A diagnostic should identify what failed and relevant safe context, not simply print an unexplained integer that a maintainer must guess how to interpret.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SP59.010: 59.4 errno",
+      "question": {
+        "prompt": "Why should cleanup follow saving errno rather than precede it?",
+        "answer": "Cleanup may perform other library or system calls that change errno, obscuring the original failure\u2019s code."
+      }
+    },
+    {
+      "title": "Required work must not hide inside assert",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "concept",
+      "keyPoints": [
+        "NDEBUG can remove assert expressions",
+        "Input validation must remain active in release builds",
+        "Call cleanup explicitly, then check its result"
+      ],
+      "narration": "An assertion is useful for an internal condition that should already be true, but ordinary C and C++ assertions can disappear when NDEBUG is defined. If assert contains close(fd), that build may remove the close itself and leak the descriptor. Likewise, untrusted lengths cannot be accepted merely because a debug assertion checked them during development. Perform required operations and boundary validation explicitly, handle their failure according to the contract, and use assertions for additional internal evidence. Tests should include the release configuration when changing error handling so behavior does not accidentally depend on debug-only evaluation.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SP59.012: 59.5 Assertions",
+      "question": {
+        "prompt": "What is wrong with `assert(close(fd) == 0)` as the only close operation?",
+        "answer": "The entire expression can be removed with NDEBUG, so the descriptor may never be closed. Required side effects must be outside assert."
+      }
+    },
+    {
+      "title": "A private candidate can preserve the old live value",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "concept",
+      "keyPoints": [
+        "Parse and validate before replacing state",
+        "Build the complete candidate separately",
+        "Use one appropriate commit operation"
+      ],
+      "narration": "The workshop version updater keeps its old string while it parses the proposed field, verifies complete consumption, and checks the range. It then constructs the canonical replacement separately and swaps only after preparation succeeds. Invalid input leaves the old live value unchanged. That is a process-local exception-safety guarantee, not a durable file transaction. The key proof is that possible failures occur before the commit step and affect only temporary state. If a future update sends a message or modifies a second subsystem during preparation, the guarantee must be reconsidered because those outside effects are not undone by a string swap.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SYS59.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why is building a replacement separately stronger than editing the live string and hoping parsing later succeeds?",
+        "answer": "A failed preparation can discard the temporary while preserving the old live value. Early in-place edits may leave a partially changed state."
+      }
+    },
+    {
+      "title": "Atomic visibility and durable persistence are different claims",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "concept",
+      "keyPoints": [
+        "Rename can change which complete file a name reaches",
+        "File synchronization and directory synchronization have separate roles",
+        "A later error can occur after the new name is visible"
+      ],
+      "narration": "The source snapshot lab writes a new file in its own temporary directory, synchronizes it, closes it, renames it into place, and synchronizes the directory. That sequence distinguishes prepared contents from publication and requested durability. If rename succeeds but directory synchronization fails, the new name may already be visible even though durability was not confirmed. Reporting simply that nothing changed would be false. The private fixture checks API sequencing and bytes, not power-loss recovery on every filesystem or storage device. A production recovery contract must state which visible and durable states callers should expect after each failure point.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SP59.020: Worked example \u2014 A checked snapshot protocol in a private temporary directory",
+      "question": {
+        "prompt": "After successful rename followed by failed directory synchronization, can the API promise the old file is still the visible one?",
+        "answer": "No. Publication may already have happened. The error concerns unconfirmed durability, so the result must describe that distinction."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Sanitizers cover different failure classes and executed paths",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "concept",
+      "keyPoints": [
+        "Address, undefined-behavior, and race checks differ",
+        "Race instrumentation usually needs a separate build",
+        "A clean run is evidence about that run"
+      ],
+      "narration": "AddressSanitizer can expose certain memory-access and lifetime errors. UndefinedBehaviorSanitizer covers selected undefined operations. ThreadSanitizer targets data races through separate instrumentation with its own runtime requirements. These tools are not interchangeable and some combinations are inappropriate. A clean execution means the enabled checks reported no covered defect on the paths that ran; it does not prove every future input is safe or every failure path is correct. Retain warnings, boundary tests, invariant review, and controlled failure injection. If the environment cannot run a tool, report that limitation rather than silently treating the check as passed.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SP59.014: 59.6 Sanitizers",
+      "question": {
+        "prompt": "Does one clean sanitizer run establish correct recovery after a thread-creation failure that never occurred?",
+        "answer": "No. Unexecuted paths and unsupported failure classes need other tests and reasoning."
+      }
+    },
+    {
+      "title": "Recovery should leave a known state and a reviewable story",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 59",
+      "kind": "concept",
+      "keyPoints": [
+        "Track acquisition, preparation, commit, and cleanup separately",
+        "Inject failures after each meaningful boundary",
+        "Distinguish leak prevention from successful completion"
+      ],
+      "narration": "A robust operation can be described as a sequence of ownership and state transitions. After acquiring a descriptor, who owns it? After allocating a buffer, which failure path releases it? Before commit, can the old state remain valid? After commit, what does a lost acknowledgment mean? Design tests that fail after each meaningful boundary and inspect both resources and user-visible state. Cleanup can prevent leaks without proving that output was flushed successfully. The goal is a clear postcondition, not merely a catch block. That clarity lets maintainers change implementation details without accidentally changing the meaning of failure.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch59.json \u2192 SP59.018: 59.8 Failure recovery",
+      "question": {
+        "prompt": "Why should a durable writer offer an explicit checked completion operation even if its destructor closes resources?",
+        "answer": "Destruction can prevent leaks but may not report meaningful flush or commit failures safely, especially during unwinding. Completion and fallback cleanup have different contracts."
+      }
+    }
+  ]
+}

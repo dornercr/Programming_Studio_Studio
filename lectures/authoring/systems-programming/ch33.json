@@ -1,0 +1,223 @@
+{
+  "chapter": 33,
+  "title": "Files — byte ranges, positions, and object identity",
+  "opening": [
+    {
+      "title": "A file name, a file object, and an open position differ",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "A pathname locates an entry in a namespace",
+        "An open handle identifies the object being used",
+        "Each operation still needs a valid byte range"
+      ],
+      "narration": "Imagine opening a report, then another process renaming a different report over the original pathname. The same path text can now lead to a different object, while the already-open handle still identifies the object it opened. This distinction matters when validating metadata and then reading. A name is a lookup route, not permanent object identity. The file also has contents, metadata, and an open position, which are separate facts. A parser must know which byte range it wants and whether the chosen interface can seek there. We will separate those facts before building a record-address calculation.",
+      "actions": [
+        "Give the rename scenario before discussing file APIs."
+      ],
+      "sourceRef": "content/systems-programming/ch33.json → SP33.004 · 33.1 Regular files",
+      "question": {
+        "prompt": "Does the same pathname string always identify the same object over time?",
+        "answer": "No. Namespace entries can be renamed or replaced; an already-open handle avoids repeating that lookup."
+      }
+    },
+    {
+      "title": "Fixed records require format arithmetic",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "code",
+      "keyPoints": [
+        "Subtract the header only after checking its size",
+        "Require a complete number of records",
+        "Validate the index before forming its offset"
+      ],
+      "narration": "Our new format model has an eight-byte header and twelve-byte records in a fifty-six-byte file. Removing the header leaves forty-eight bytes, so there are four records. Record index two begins at eight plus twice twelve, or byte thirty-two. The program prints four and thirty-two. It first checks for a short header and incomplete trailing records, then validates the selected index. This is arithmetic over a declared format, not a read from a real disk. The sequence matters because unsigned subtraction on a too-small file size would wrap. Prove a calculation's inputs before using it to locate bytes.",
+      "actions": [
+        "Predict the record count and offset before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch33.json → SP33.014 · Worked example — Record boundaries without overflow",
+      "question": {
+        "prompt": "Why must file_size be checked before subtracting header_size?",
+        "answer": "Unsigned subtraction can wrap if the file is shorter than the header."
+      },
+      "code": {
+        "filename": "sys_ch33_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\nint main() {\n    const std::size_t file_size = 56, header = 8, record = 12;\n    if (file_size < header) return 1;\n    const auto payload = file_size - header;\n    if (payload % record != 0) return 1;\n    const auto count = payload / record;\n    const std::size_t index = 2;\n    if (index >= count) return 1;\n    std::cout << \"records=\" << count << '\\n';\n    std::cout << \"record 2 offset=\" << header + index * record << '\\n';\n}\n",
+        "expectedStdout": "records=4\nrecord 2 offset=32\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Declared file-format arithmetic; no actual file is opened."
+      }
+    },
+    {
+      "title": "An endpoint may be a stream without seeking",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "Regular files usually support random access",
+        "Pipes deliver an ordered stream without arbitrary seek",
+        "A short read is not automatically the end"
+      ],
+      "narration": "A regular file lets a program revisit byte one hundred without reading every earlier byte again. A pipe does not provide that ordinary seek operation; it delivers bytes as they become available. Both can be read through a descriptor, so sharing an interface does not mean sharing every capability. A read asking for a thousand bytes might return ten available bytes successfully. The next read may return more. Also distinguish this endpoint meaning of stream from the C library's FILE object, which adds buffering on top of an endpoint. Good APIs state the capabilities they require rather than assuming every input is a disk file.",
+      "actions": [
+        "Compare a regular-file reader with input arriving gradually through a pipe."
+      ],
+      "sourceRef": "content/systems-programming/ch33.json → SP33.006 · 33.2 Streams",
+      "question": {
+        "prompt": "Why is a successful ten-byte read insufficient evidence of EOF?",
+        "answer": "It may be a short successful transfer. A later read can produce more data."
+      }
+    },
+    {
+      "title": "An explicit offset can avoid disturbing shared position",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "code",
+      "keyPoints": [
+        "pread names the offset for one operation",
+        "It leaves the current open-file offset unchanged",
+        "The demo reads CD while the current position remains one"
+      ],
+      "narration": "This Linux and POSIX demonstration creates its own temporary file containing ABCDE. After flushing the library writer, it sets the underlying position to one. pread asks for two bytes at offset two, so it obtains C and D. Querying the current offset still returns one. The output therefore says slice equals CD and position equals one. No existing user file is touched. The example intentionally finishes buffered output before its descriptor operations and closes the stream afterward. Positional reads help independent readers avoid a shared seek-and-read sequence, but they still need bounds checks, return-value checks, and a policy for concurrent file changes.",
+      "actions": [
+        "Predict both the bytes and the untouched position."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch33.json → SP33.010 · 33.4 File position",
+      "question": {
+        "prompt": "What would an ordinary lseek-to-two followed by read change?",
+        "answer": "It would use and advance the shared current position, unlike this pread operation."
+      },
+      "code": {
+        "filename": "sys_ch33_positional_read.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstdio>\n#include <iostream>\n#include <unistd.h>\nint main() {\n    FILE* file = std::tmpfile();\n    if (!file) return 1;\n    bool okay = std::fwrite(\"ABCDE\", 1, 5, file) == 5;\n    okay = std::fflush(file) == 0 && okay;\n    const int fd = fileno(file);\n    if (fd < 0 || lseek(fd, 1, SEEK_SET) != 1) okay = false;\n    char bytes[2]{};\n    if (okay && pread(fd, bytes, 2, 2) != 2) okay = false;\n    const auto position = fd >= 0 ? lseek(fd, 0, SEEK_CUR) : -1;\n    okay = position == 1 && okay;\n    okay = std::fclose(file) == 0 && okay;\n    if (!okay) return 1;\n    std::cout << \"slice=\" << bytes[0] << bytes[1] << '\\n';\n    std::cout << \"position=\" << position << '\\n';\n}\n",
+        "expectedStdout": "slice=CD\nposition=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Subtraction protects a range check from overflow",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "Require offset <= size first",
+        "Then require length <= size - offset",
+        "A valid observed range can still change later"
+      ],
+      "narration": "For an arbitrary slice, the tempting test offset plus length less than or equal to size can fail when that addition wraps. Instead first establish that offset is no greater than the size. Then compare length with size minus offset, which is now safe to form. For a five-byte file, offset five and length zero describes an empty range at the end; offset six is invalid even for zero length. These checks are about the observed size. They do not stop another process from truncating the file after validation. The application must either hold a stable input or handle changes under an explicit coordination policy.",
+      "actions": [
+        "Ask learners to classify the two empty-range boundary cases."
+      ],
+      "sourceRef": "content/systems-programming/ch33.json → SP33.014 · Worked example — Record boundaries without overflow",
+      "question": {
+        "prompt": "Is offset equal to size valid for a zero-length slice?",
+        "answer": "Yes, under this range contract; the empty slice begins at the end without reading a byte."
+      }
+    },
+    {
+      "title": "Metadata describes the object; it does not lock it",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "Size, permissions, and timestamps are metadata",
+        "Descriptor-based inspection targets the opened object",
+        "A metadata result is a snapshot of a moment"
+      ],
+      "narration": "A size of one hundred in a metadata result does not freeze the file at one hundred bytes. Another permitted writer can change it afterward. Likewise, checking a pathname's permissions and later opening that path leaves time for the namespace entry to change. This is a time-of-check/time-of-use gap. Descriptor-based inspection helps bind the check to the object actually opened, but it does not magically prevent all concurrent mutations. State the ownership and synchronization policy: perhaps inputs are immutable during parsing, or the reader detects and rejects inconsistent content. A security-sensitive design needs both object identity and a clear plan for changes after inspection.",
+      "actions": [
+        "Separate namespace replacement from modification of the same object."
+      ],
+      "sourceRef": "content/systems-programming/ch33.json → SP33.012 · 33.5 Metadata",
+      "question": {
+        "prompt": "What problem does descriptor-based inspection solve, and what remains?",
+        "answer": "It identifies the already-open object; later permitted modifications can still occur unless separately controlled."
+      }
+    },
+    {
+      "title": "Logical length need not equal allocated storage",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "Sparse regions can have no separately stored blocks",
+        "Seeking past end alone does not write data",
+        "File formats must define bytes rather than compiler layout"
+      ],
+      "narration": "A file can have a large logical length without allocating physical storage for every region. Sparse-file behavior is one reason size and storage consumption differ. Seeking beyond the end changes the position; it does not by itself fill the gap with an application write. The format must also define its byte representation independently of a C++ structure's in-memory layout. Padding, byte order, and field width can vary across builds. Saving sizeof a struct and calling that a stable record format creates a hidden compiler dependency. An explicit format gives the reader enough information to validate offsets and decode fields consistently.",
+      "actions": [
+        "Ask which parts of a record must be specified in bytes."
+      ],
+      "sourceRef": "content/systems-programming/ch33.json → SP33.008 · 33.3 Random-access files",
+      "question": {
+        "prompt": "Why is writing a raw C++ struct not automatically a portable file format?",
+        "answer": "Padding, field representation, widths, and byte order may not match across implementations or versions."
+      }
+    },
+    {
+      "title": "Copied descriptors may share position; separate opens need not",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "dup and fork can retain one open description",
+        "Position belongs to that shared open description",
+        "Separate open calls normally create independent positions"
+      ],
+      "narration": "Suppose two descriptors share one open file description. Reading two bytes through the first advances the position seen through the second. Copying or duplicating a handle does not necessarily create an independent cursor through the file. By contrast, separate open operations usually have distinct open descriptions and positions even if the underlying file is the same. This distinction explains surprising interleaved reads in larger programs. If independent random access is required, choose positional operations or independent open descriptions rather than surrounding every read with an unprotected seek. The invariant is about which shared object owns the mutable offset, not about how many integer variables appear in the code.",
+      "actions": [
+        "Draw two descriptor entries pointing to one position-owning object."
+      ],
+      "sourceRef": "content/systems-programming/ch33.json → SP33.010 · 33.4 File position",
+      "question": {
+        "prompt": "Where does the offset live when two descriptors came from dup?",
+        "answer": "In their shared open file description, so movement through either descriptor is visible through both."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Design the parser around failure boundaries",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate the format before addressing records",
+        "Check actual transfer counts afterward",
+        "Keep identity, bounds, and concurrency assumptions visible"
+      ],
+      "narration": "A robust record reader has more than one validation step. It first validates the declared format and arithmetic. It then performs the operation and checks how many bytes actually arrived. A previously observed file size is not proof that the transfer completed. Keep errors distinct: malformed trailing bytes, an invalid record index, a short transfer, and an I/O error deserve different explanations. That makes a failed import diagnosable without exposing irrelevant implementation details. Tests should include a header-only file, an incomplete final record, an end-range request, and a large requested length that would overflow a naive sum. The tests protect the contract when the parser evolves.",
+      "actions": [
+        "Choose one arithmetic failure and one I/O failure to test separately."
+      ],
+      "sourceRef": "content/systems-programming/ch33.json → SP33.014 · Worked example — Record boundaries without overflow",
+      "question": {
+        "prompt": "Why keep a transfer-count check after a successful range check?",
+        "answer": "The range was validated against observed metadata; actual I/O can still be short, fail, or encounter changed content."
+      }
+    },
+    {
+      "title": "Recall the four questions before reading bytes",
+      "eyebrow": "SYSTEMS 33 / BYTES, POSITIONS, AND IDENTITY",
+      "kind": "concept",
+      "keyPoints": [
+        "Which object is open?",
+        "Which capabilities and position semantics apply?",
+        "Which range and lifetime remain valid?"
+      ],
+      "narration": "Before a file operation, ask which object the program has opened, whether that endpoint supports the required operation, where the bytes will come from, and how the range remains valid. A regular file, a pipe, and a buffered stream can answer those questions differently even though all carry bytes. The fixed-record model explains safe addressing; the pread example explains independent positioning. Neither proves that an outside writer cannot change the file. Maintaining systems code means keeping those assumptions beside the operation so later developers do not turn a stable-input parser into a concurrent reader without adding the missing coordination and failure tests.",
+      "actions": [
+        "Ask learners to describe one read without using the vague phrase open the file."
+      ],
+      "sourceRef": "content/systems-programming/ch33.json → SP33.004 · 33.1 Regular files",
+      "question": {
+        "prompt": "What extra assumption would change if a parser began reading a file being edited concurrently?",
+        "answer": "It would need an explicit consistency or retry policy because prior size and content checks would no longer guarantee a stable input."
+      }
+    }
+  ]
+}

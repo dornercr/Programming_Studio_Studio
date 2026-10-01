@@ -1,0 +1,734 @@
+Systems Programming and Machine Organization
+Chapter 9: Dynamic Memory: ownership, growth, and failure cleanup
+Dr. Charles Dorner
+
+1. Allocation creates a cleanup obligation
+Problem and first experiment
+
+SAY
+Dynamically created storage can outlive the function that first requested it, which is useful only if the program keeps a clear cleanup plan. Ownership names the component responsible for destruction and release. A borrowed pointer may use the object without taking that responsibility. Unique ownership has one responsible owner; shared ownership coordinates several owners and carries additional cost and rules. Choosing shared ownership merely to avoid deciding who owns the data can create cycles and confusing lifetimes. The chapter's practical goal is to match ownership to the required lifetime graph. Once that graph is clear, containers and smart pointers can enforce much of the cleanup automatically.
+
+DO
+Draw one owner with two borrowers and compare it with two genuine shared owners.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.020 / 9.9 Ownership
+
+------------------------------------------------------------
+
+2. Storage acquisition and object construction are different work
+Problem and first experiment
+
+SAY
+A raw storage request answers where bytes can be placed. A complete C++ object also has initialization and destruction rules. A new expression combines storage acquisition with object initialization, while an allocation function alone is not the whole construction operation. malloc does not run a C++ class constructor, and zeroing bytes with calloc is not a general replacement for object semantics. Containers and make_unique usually let the caller request the object or sequence it needs while keeping cleanup attached to an owner. Low-level storage operations still matter inside such abstractions, but every application call site should not need to rebuild their failure and lifetime rules.
+
+DO
+Separate the verbs acquire storage, initialize object, destroy object, and release storage.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.014 / 9.6 new
+
+------------------------------------------------------------
+
+3. Tie cleanup to the owner’s lifetime
+Problem and first experiment
+
+SAY
+Tracked increments a small diagnostic count when constructed and decrements it when destroyed. make_unique creates one owned object, so the first line prints during work=1. We then throw a controlled exception to represent failure in a later step. Leaving the try block destroys the local owner, which destroys its Tracked object before control reaches the catch. The second line prints after cleanup=0. This is a real C++ lifetime demonstration, not a garbage collector model. No explicit delete appears in the failure branch because the owner already carries that obligation. The same ownership structure also cleans up when the scope exits normally.
+
+DO
+Predict the live count in each block, then run and connect output to construction and destruction.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch9.json → SP09.018 / 9.8 Allocation lifetime
+
+------------------------------------------------------------
+
+4. Keep the old owner until growth succeeds
+Problem and first experiment
+
+SAY
+The program allocates four bytes and stores forty-two in the first. It requests eight bytes through a helper whose policy limit is four, so rejection is guaranteed before realloc is called. This is a controlled way to exercise the preserve-owner branch, not a claim that the operating system ran out of memory. candidate is null, but owner still points to the original valid allocation. The output reports growth=rejected, preserved=42, and owner released after free. Assigning the candidate directly over the only owner would lose the original handle on failure. For a successful real nonzero realloc, use its returned pointer afterward and retire old aliases, even if the numeric address appears unchanged.
+
+DO
+Identify the deterministic policy failure and distinguish it from an actual allocator failure.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch9.json → SP09.010 / 9.4 realloc
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Append three readings and keep their values correct as storage grows. Do not retain a pointer into storage across possible reallocation.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Append an element only when a vector is below a fixed maximum size. Rejection must leave the vector unchanged. Do not retain an element pointer while growing it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Writing values[0] after reserve(1) but before push_back is out of bounds: reserve does not create an element.
+
+A related failure in the generalized operation is concrete: Compare capacity() with maximum. Reserving spare storage can then reject a valid append or confuse storage with live elements.
+
+The repair changes the operation at the point where the rule can be enforced: Use size() for an element-count rule. Keep allocation failures distinct from an intentional capacity policy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The limit is a bound on live elements, not on reserved capacity. A rejection occurs before push_back, so it cannot partially alter the sequence. The vector handles storage growth and release. This function may still throw if allocation fails; its Boolean reports only the explicit size-limit decision.
+
+A plausible alternative: Use std::array for a fixed count; use vector when the count changes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.03
+
+------------------------------------------------------------
+
+8. Chapter 9 — Dynamic Memory
+Systems mechanisms and source lecture
+
+SAY
+Dynamic storage is useful when size or lifetime cannot be fixed at a local scope boundary. It also introduces an explicit responsibility: somebody must keep the storage alive while it is used and release it exactly once afterward. The allocation function is only the beginning of that responsibility.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.001, SP09.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+9.1 Heap allocation 9.2 malloc 9.3 calloc 9.4 realloc ...plus 9 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.003
+
+------------------------------------------------------------
+
+10. Heap allocation
+Systems mechanisms and source lecture
+
+SAY
+A heap allocation requests a region large enough and suitably aligned for a purpose. The allocator may satisfy the request from existing free space or obtain more backing storage. Allocation can fail because of size limits, fragmentation, policy, or resource exhaustion. A successful request for raw storage does not necessarily mean every page has already been physically committed or touched. Nor does it initialize arbitrary C++ objects by itself. Separate storage acquisition, object initialization, use, destruction, and storage release. This sequence helps explain both raw allocation APIs and higher-level containers.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.004, SP09.005
+
+------------------------------------------------------------
+
+11. malloc
+Systems mechanisms and source lecture
+
+SAY
+malloc(n) requests at least n bytes of storage and returns a suitably aligned pointer for the supported ordinary object alignments, or a null pointer on failure. The returned bytes are not initialized. In C, assignment through an appropriately typed pointer can establish the intended object use within the language’s effective-type rules. Compute n safely before calling. Use sizeof *pointer rather than repeating a type name when it reduces maintenance risk. A zero-size request has special behavior that should not be used as an application control signal. Handle an empty collection explicitly so the ownership rules do not depend on a zero-size allocation convention. [ R39 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.006, SP09.007
+
+------------------------------------------------------------
+
+12. calloc
+Systems mechanisms and source lecture
+
+SAY
+calloc(count, size) requests storage for an array and zeroes the allocated bytes. Its separate count and size arguments allow the implementation to detect multiplication overflow. The application still needs semantic bounds, because a representable request may be far larger than policy permits. All-zero bytes are not a universal initializer for every possible object representation. On the reference platform they represent zero for ordinary integer storage, but portable C does not equate zero bytes with every null pointer or floating-point zero representation. In C++, use constructors and value initialization for objects rather than treating calloc as a replacement for object semantics.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.008, SP09.009
+
+------------------------------------------------------------
+
+13. realloc
+Systems mechanisms and source lecture
+
+SAY
+realloc changes the size of a previously allocated block while preserving the common prefix of the old and new sizes. It may move the block. For a nonzero requested size, failure leaves the original allocation available. Success ends the old allocation’s role and returns the pointer to use afterward. Store the result in a temporary pointer. Assigning directly to the only owning pointer can lose the original allocation on failure. After success, old aliases must not be used, even if the returned numeric address happens to match. Avoid realloc(p, 0) in portable application logic because its historical and language-version semantics are troublesome; use an explicit free-and-empty path instead.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.010, SP09.011
+
+------------------------------------------------------------
+
+14. free
+Systems mechanisms and source lecture
+
+SAY
+free releases a block obtained through the matching allocation family. Passing a null pointer has no effect. Passing an interior pointer, a pointer to automatic storage, or an already freed pointer violates the contract. The allocator needs the original allocation identity, not merely an address somewhere inside its payload. Freeing storage does not guarantee that its bytes are erased or that the operating system immediately reclaims its pages. Do not use free as a data-sanitization operation. More importantly, do not read the bytes after release merely because a debugger still shows the old contents. The lifetime boundary is semantic, not a visible overwrite event.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.012, SP09.013
+
+------------------------------------------------------------
+
+15. new
+Systems mechanisms and source lecture
+
+SAY
+A C++ new expression obtains storage and initializes an object. Ordinary allocation failure throws std::bad_alloc ; a nothrow form can return null. If construction throws after storage acquisition, the language arranges the matching cleanup for that failed construction path. Prefer std::make_unique for unique dynamic ownership and containers for collections. A raw new is sometimes needed inside a low-level abstraction, but it should not force every caller to reason about cleanup. The distinction between an allocation function named operator new and a complete new expression also matters: the former obtains storage, while the latter includes object initialization.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.014, SP09.015
+
+------------------------------------------------------------
+
+16. delete
+Systems mechanisms and source lecture
+
+SAY
+A delete expression destroys the object and releases its storage through the matching mechanism. Scalar new matches scalar delete ; array new[] matches delete[] . Mixing allocation families, such as malloc with delete , is invalid. Deleting through a base-class pointer requires appropriate polymorphic destruction when the dynamic object is derived. A base intended for such ownership generally needs a virtual destructor. Resource ownership through a pointer is therefore a type-design issue as well as an allocator issue. A correct address with the wrong destruction interface is still unsafe.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.016, SP09.017
+
+------------------------------------------------------------
+
+17. Allocation lifetime
+Systems mechanisms and source lecture
+
+SAY
+An allocation’s lifetime must cover every use of its storage. Borrowed pointers into a resizable allocation have especially fragile lifetimes because growth can move the block. A function that returns an interior pointer should document which operations invalidate it. Group objects with the same lifetime when that simplifies ownership. A request-scoped arena can release many short-lived allocations together. A vector can own a sequence whose elements move as one resource. Avoid creating a separate ownership obligation for every small object unless independent lifetimes are actually needed.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.018, SP09.019
+
+------------------------------------------------------------
+
+18. Ownership
+Systems mechanisms and source lecture
+
+SAY
+Ownership identifies the component responsible for destruction and release. Unique ownership has one responsible owner. Shared ownership coordinates several owners, commonly with reference counting. Borrowing grants access without release responsibility. Shared ownership is not free and does not automatically make the object thread-safe. A reference count protects lifetime, not arbitrary member updates. Cycles can also prevent reclamation unless broken by weak references or another policy. Choose the simplest ownership model that matches the required lifetime graph; do not use shared ownership merely to avoid deciding who owns a resource.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.020, SP09.021
+
+------------------------------------------------------------
+
+19. Growing a C buffer without losing ownership
+Systems mechanisms and source lecture
+
+SAY
+The requirement is to grow a four-integer allocation to eight integers. If growth fails, the original allocation must remain releasable. The program uses fixed small sizes so the example can focus on ownership rather than input parsing. Companion listing: ch09/grow.c Before growth, four initialized elements exist. On success, the first four values are preserved, but the new suffix is not initialized by realloc ; the program initializes it before reading. Only after that does it update the logical count. The sum is 1+2+3+4+5+6+7+8 = 36 . The failure branch releases the original pointer. The success branch adopts the returned pointer and never compares or uses stale aliases. A production growable buffer would also check multiplication, enforce a capacity limit, and avoid updating its public state until all required initialization succeeds.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.022, SP09.023
+
+------------------------------------------------------------
+
+20. Growing a dynamic array safely
+Systems mechanisms and source lecture
+
+SAY
+If p owns a malloc allocation, do not write p = realloc(p,new_size) unless losing the old block on failure is acceptable. Use tmp = realloc(p,new_size) . If tmp is non-null, assign p=tmp ; otherwise p still owns the original allocation. The temporary preserves ownership across the failure path.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.024, SP09.025
+
+------------------------------------------------------------
+
+21. Matching allocation families
+Systems mechanisms and source lecture
+
+SAY
+Memory obtained with malloc must be released with free ; an object created with new T must be released with delete ; an array created with new T[n] requires delete[] . Mixing families bypasses the assumptions each runtime uses for metadata and object destruction. In modern C++, prefer RAII containers and smart pointers so matching happens structurally.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.026, SP09.027
+
+------------------------------------------------------------
+
+22. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 9. Wrap the C allocation operations behind a small test interface that can deliberately fail the next allocation request. Verify that a failed growth leaves the old contents and owner intact. Do not attempt to trigger failure by exhausting the machine’s memory. Review 1. Why does realloc require a temporary result pointer? Review 2. Why does a shared pointer not remove the need for a mutex around mutable shared data?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.028, SP09.029
+
+------------------------------------------------------------
+
+23. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is dynamic memory. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.030
+
+------------------------------------------------------------
+
+24. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Memory Allocators.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.031
+
+------------------------------------------------------------
+
+25. Check the request before asking for storage
+Reason about the implementation
+
+SAY
+An allocator cannot repair a byte count that was already computed incorrectly. If count times element size wraps before the request, the allocator may successfully return a smaller block than the program intended. Use a checked size calculation and a domain limit before calling. A representable request can still be far too large for the application. Empty collections also deserve an explicit policy, because zero-size allocation conventions are not a useful general signal for success or failure. A high-level container often handles empty state more clearly. When raw storage is necessary, keep the count, capacity, ownership, and allowed failure state together so later code does not reconstruct them from guesses.
+
+DO
+Trace a count through checked multiplication, policy validation, and the actual allocation call.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.006 / 9.2 malloc
+
+------------------------------------------------------------
+
+26. Match the acquisition and release mechanisms
+Reason about the implementation
+
+SAY
+A resource must be released through the mechanism that matches how it was acquired. Storage from malloc belongs with free. A scalar new expression pairs with scalar delete, and array new pairs with delete[]. Mixing them is invalid even if the pointer's numeric address looks correct. C++ object destruction adds another requirement: deleting a derived object through a base pointer needs an appropriate polymorphic destruction interface, normally a virtual destructor for that owning base use. Smart pointers help only when their deleter and pointed-to type express the right contract. They cannot turn a mismatched raw acquisition into correct cleanup merely by wrapping the address.
+
+DO
+Create a matching table verbally for malloc, new, and new[].
+
+SOURCE
+content/systems-programming/ch9.json → SP09.016 / 9.7 delete
+
+------------------------------------------------------------
+
+27. Successful growth ends the old borrowing arrangement
+Reason about the implementation
+
+SAY
+A successful realloc preserves the common prefix of the old and new byte counts, but it may move the allocation. The pointer it returns is the one to use afterward. Old aliases must not be kept in circulation based on a guess that the allocator probably grew in place. Even an equal displayed numeric address does not justify using the old allocation's stale access values. A similar rule appears when vector reallocation invalidates element pointers. Design callers to keep an index or another stable logical identifier where appropriate, then reacquire a bounded view after growth. A buffer API that retains hidden interior pointers makes this transition much harder to maintain.
+
+DO
+Trace owner, cached interior pointer, successful growth, and fresh view as four separate states.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.010 / 9.4 realloc
+
+------------------------------------------------------------
+
+28. Release does not promise erasure or immediate page return
+Reason about the implementation
+
+SAY
+After free or object destruction, the program must stop using the old allocation even if a debugger still displays familiar bytes. Lifetime ends by the language and allocator contract, not by the memory being visibly overwritten. Release also does not promise that sensitive contents were securely erased or that pages were immediately returned to the operating system. Those are separate requirements with separate mechanisms. In normal code, the immediate task is to end all unsupported borrowing and prevent a second release. In diagnostics, do not read freed storage to verify cleanup. Inspect ownership behavior or use appropriate tools rather than adding another invalid access to investigate the first.
+
+DO
+Ask students to distinguish unusable, erased, and returned to the OS.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.012 / 9.5 free
+
+------------------------------------------------------------
+
+29. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Append three readings and keep their values correct as storage grows. Do not retain a pointer into storage across possible reallocation.
+
+Reserve room. capacity is at least 1, size remains 0. Capacity describes storage; size counts constructed elements.
+
+Append. size becomes 1, 2, then 3. The vector manages allocation and moves or copies elements when growth requires it.
+
+Read after growth. sum is 18. Obtaining iterators after the changes avoids using an invalidated pointer or iterator.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch09/main.cpp
+
+------------------------------------------------------------
+
+30. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Reserve room. capacity is at least 1, size remains 0. Capacity describes storage; size counts constructed elements.
+
+Append. size becomes 1, 2, then 3. The vector manages allocation and moves or copies elements when growth requires it.
+
+Read after growth. sum is 18. Obtaining iterators after the changes avoids using an invalidated pointer or iterator.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch09/main.cpp
+
+------------------------------------------------------------
+
+31. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The limit is a bound on live elements, not on reserved capacity. A rejection occurs before push_back, so it cannot partially alter the sequence. The vector handles storage growth and release. This function may still throw if allocation fails; its Boolean reports only the explicit size-limit decision.
+
+Use size() for an element-count rule. Keep allocation failures distinct from an intentional capacity policy.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch09/main.cpp:1-15
+
+------------------------------------------------------------
+
+32. Let a container own a growing sequence
+Code, diagrams, and debugging
+
+SAY
+Let a container own a growing sequence. reserve asks for storage capacity; it does not create an element or change size. A later growth may allocate a different buffer.
+
+Append three readings and keep their values correct as storage grows. Do not retain a pointer into storage across possible reallocation.
+
+Capacity describes storage; size counts constructed elements. The vector manages allocation and moves or copies elements when growth requires it. Obtaining iterators after the changes avoids using an invalidated pointer or iterator.
+
+reserve asks for storage capacity; it does not create an element or change size. A later growth may allocate a different buffer.
+
+push_back constructs a new element at the end. The first live value is 4.
+
+The second append may grow storage and invalidate previously borrowed element addresses. No such addresses are retained here.
+
+The third append grows the live sequence to three elements. The vector owns and eventually destroys all three.
+
+size counts live elements; capacity describes available storage. No borrowed element address is kept across growth.
+
+Writing values[0] after reserve(1) but before push_back is out of bounds: reserve does not create an element. In the extended lab: Compare capacity() with maximum. Reserving spare storage can then reject a valid append or confuse storage with live elements.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch09/main.cpp:8-11
+
+------------------------------------------------------------
+
+33. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Compare capacity() with maximum. Reserving spare storage can then reject a valid append or confuse storage with live elements.
+
+Use size() for an element-count rule. Keep allocation failures distinct from an intentional capacity policy.
+
+The reference solution makes the contract executable with assertions. The limit is a bound on live elements, not on reserved capacity. A rejection occurs before push_back, so it cannot partially alter the sequence. The vector handles storage growth and release. This function may still throw if allocation fails; its Boolean reports only the explicit size-limit decision.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.06
+
+------------------------------------------------------------
+
+34. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch09/starter.cpp. Implement the first acceptance case for grow a collection under a hard limit. State the function inputs and result before adding code. First case: A size-two vector accepts its third element with maximum three.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.07
+
+------------------------------------------------------------
+
+35. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch09/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.08
+
+------------------------------------------------------------
+
+36. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Compare capacity() with maximum. Reserving spare storage can then reject a valid append or confuse storage with live elements. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.09
+
+------------------------------------------------------------
+
+37. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Is calling reserve on every insertion a useful growth strategy? Compare the selected design with this plausible alternative: Use std::array for a fixed count; use vector when the count changes.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.10
+
+------------------------------------------------------------
+
+38. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch09/starter.cpp. Append an element only when a vector is below a fixed maximum size. Rejection must leave the vector unchanged. Do not retain an element pointer while growing it. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch09/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.11
+
+------------------------------------------------------------
+
+39. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Grow a collection under a hard limit belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.12
+
+------------------------------------------------------------
+
+40. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Append an element only when a vector is below a fixed maximum size. Rejection must leave the vector unchanged. Do not retain an element pointer while growing it.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch09/starter.cpp
+
+------------------------------------------------------------
+
+41. Review the extension solution
+Practice and extension
+
+SAY
+The limit is a bound on live elements, not on reserved capacity. A rejection occurs before push_back, so it cannot partially alter the sequence. The vector handles storage growth and release. This function may still throw if allocation fails; its Boolean reports only the explicit size-limit decision. Repair principle: Use size() for an element-count rule. Keep allocation failures distinct from an intentional capacity policy.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Use size() for an element-count rule. Keep allocation failures distinct from an intentional capacity policy.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch09/solution.cpp
+
+------------------------------------------------------------
+
+42. Application case: Dynamic Memory
+Practice and extension
+
+SAY
+realloc fails while growing a nonzero C buffer.
+
+How should the caller preserve its allocation?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.CASE
+
+------------------------------------------------------------
+
+43. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The limit is a bound on live elements, not on reserved capacity. A rejection occurs before push_back, so it cannot partially alter the sequence. The vector handles storage growth and release. This function may still throw if allocation fails; its Boolean reports only the explicit size-limit decision.
+
+Choose a simpler approach when its narrower contract is enough. Use std::array for a fixed count; use vector when the count changes.
+
+When this system changes, retain a check that exposes the known failure: Compare capacity() with maximum. Reserving spare storage can then reject a valid append or confuse storage with live elements. Use size() for an element-count rule. Keep allocation failures distinct from an intentional capacity policy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch9.json → SYS09.14
+
+------------------------------------------------------------
+
+44. Shared ownership solves a lifetime relation, not every dependency
+Recall and transfer
+
+SAY
+A tree of request-owned objects often needs one clear root owner and borrowed access below it. Giving every link shared ownership can make cleanup less obvious, particularly when objects point back to one another. Reference counts may never reach zero in a cycle. A weak reference can express a link that should observe an object without extending its lifetime, but it must be checked when converted to usable access. Do not introduce this machinery without a need for independently lasting owners. The smallest ownership model that matches the real lifetime graph is usually easier to reason about, test, and change when a new component is added.
+
+DO
+Draw a two-object ownership cycle and then identify one non-owning back-link.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.020 / 9.9 Ownership
+
+------------------------------------------------------------
+
+45. Test cleanup on the path that fails halfway
+Recall and transfer
+
+SAY
+A resource test should cover the moment after one acquisition succeeded but a later operation failed. Our tracked-object demonstration shows that the owner releases the earlier object during exception cleanup. The growth demonstration shows a different guarantee: rejection leaves the existing buffer available rather than releasing it. Both are correct because their contracts differ. State the expected remaining ownership explicitly before writing tests. Also test normal exit, repeated operations, empty states, and the boundary that rejects more growth. A maintainable abstraction lets callers trust these outcomes without duplicating cleanup logic at every error return.
+
+DO
+Compare the two demonstrations’ different correct post-failure ownership states.
+
+SOURCE
+content/systems-programming/ch9.json → SP09.030 / Chapter Synthesis

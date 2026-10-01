@@ -1,0 +1,222 @@
+{
+  "chapter": 18,
+  "title": "Compiler Optimizations",
+  "opening": [
+    {
+      "title": "Optimization preserves observations, not source layout",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "concept",
+      "keyPoints": [
+        "The as-if rule permits different implementations.",
+        "Variables and loops can disappear.",
+        "Defined behavior is the foundation of the equivalence claim."
+      ],
+      "narration": "An optimizer is allowed to change the route to an answer when the program's required observations stay the same. This is the as-if rule. A loop over known constants may become one constant result, and a source variable may need no storage at all. That can surprise a reader expecting one assembly instruction per statement, but it does not imply missing work. The essential question is whether every permitted input still gets the required behavior. Undefined behavior undermines that argument rather than forcing the compiler to preserve a familiar accident. We will compare valid calculations and deliberately wrong rewrites without executing invalid memory or arithmetic operations.",
+      "actions": [
+        "Ask what output would establish equivalence for one test but not all inputs."
+      ],
+      "sourceRef": "content/systems-programming/ch18.json → SP18.024",
+      "question": {
+        "prompt": "What must an optimization preserve rather than preserve literally?",
+        "answer": "The program’s required observable behavior, not its source-level sequence or variable layout."
+      }
+    },
+    {
+      "title": "Unroll a loop and keep the remainder path",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "code",
+      "keyPoints": [
+        "The baseline visits one element per iteration.",
+        "The pair loop handles two elements when available.",
+        "A final unmatched element still contributes."
+      ],
+      "narration": "Both functions sum the five unsigned values two, four, six, eight, and ten. The scalar loop adds them one at a time. The pair loop handles two values per iteration, then uses a remainder path for the last value ten. That is why both outputs are thirty. If we omit the remainder path, the optimized-looking version would return twenty and silently drop valid input. All values and sizes here are fixed and small, so arithmetic remains valid. We are comparing semantics, not timing: this output does not prove the pair version is faster or that a compiler emits exactly two additions per loop.",
+      "actions": [
+        "Predict the pair subtotals and the final remainder contribution."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch18.json → SP18.012",
+      "question": {
+        "prompt": "Which value would be lost without the final remainder check?",
+        "answer": "The last value ten, because the sequence length is odd."
+      },
+      "code": {
+        "filename": "sys_ch18_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <cstddef>\n#include <iostream>\n#include <span>\nunsigned scalar(std::span<const unsigned> values) {\n    unsigned sum = 0;\n    for (unsigned value : values) sum += value;\n    return sum;\n}\nunsigned paired(std::span<const unsigned> values) {\n    unsigned sum = 0;\n    std::size_t i = 0;\n    for (; values.size() - i >= 2; i += 2) sum += values[i] + values[i + 1];\n    if (i < values.size()) sum += values[i];\n    return sum;\n}\nint main() {\n    const std::array<unsigned, 5> values{2, 4, 6, 8, 10};\n    std::cout << \"scalar=\" << scalar(values) << \" paired=\" << paired(values) << '\\n';\n}\n",
+        "expectedStdout": "scalar=30 paired=30\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Changing copy order changes overlapping data",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "code",
+      "keyPoints": [
+        "Source and destination can name the same storage.",
+        "Forward writes can replace later source values.",
+        "Backward traversal preserves this right-shift requirement."
+      ],
+      "narration": "Each array begins with one, two, three, four, and five. We want to move the first four values one position to the right. The forward loop writes one into position one, then reads that replaced value on its next iteration, eventually producing five ones. The backward loop reads each original value before overwriting the preceding source region and produces one, one, two, three, four. Every array access is in bounds, so this is a defined demonstration of wrong semantics rather than a memory violation. It shows why an optimization cannot freely reorder accesses when source and destination overlap.",
+      "actions": [
+        "Track array contents after the first two forward iterations."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch18.json → SP18.020",
+      "question": {
+        "prompt": "Why does the forward loop repeatedly copy one?",
+        "answer": "Each write replaces a value that the next iteration later reads as its source."
+      },
+      "code": {
+        "filename": "sys_ch18_overlap_order.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <cstddef>\n#include <iostream>\nvoid show(const char* label, const std::array<int, 5>& a) {\n    std::cout << label;\n    for (int value : a) std::cout << ' ' << value;\n    std::cout << '\\n';\n}\nint main() {\n    std::array<int, 5> forward{1, 2, 3, 4, 5};\n    auto backward = forward;\n    for (std::size_t i = 0; i < 4; ++i) forward[i + 1] = forward[i];\n    for (std::size_t i = 4; i > 0; --i) backward[i] = backward[i - 1];\n    show(\"forward:\", forward);\n    show(\"backward:\", backward);\n}\n",
+        "expectedStdout": "forward: 1 1 1 1 1\nbackward: 1 1 2 3 4\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Inlining exposes context; the keyword does not command it",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "concept",
+      "keyPoints": [
+        "Removing a call can reveal constants and dead branches.",
+        "Large expansion can increase instruction-storage pressure.",
+        "C++ inline also has language definition rules."
+      ],
+      "narration": "If a small helper receives a known constant, bringing its operations into the caller can reveal that one branch is never needed. Inlining therefore offers more than saving a call instruction: it can enable constant folding and other simplifications across the former boundary. However, copying a large body into many callers can increase code size and strain instruction storage. The C++ inline keyword does not force machine-code substitution; it also has important definition and linkage rules. Prefer a clear helper interface, inspect compiler decisions when relevant, and measure the real workload before forcing a source rewrite that duplicates logic across callers.",
+      "actions": [
+        "Use a helper with a constant Boolean argument to identify a removable branch."
+      ],
+      "sourceRef": "content/systems-programming/ch18.json → SP18.004",
+      "question": {
+        "prompt": "Why can inlining enable work removal beyond call overhead?",
+        "answer": "It exposes arguments and surrounding conditions that can become constants or prove paths unnecessary."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "An unused benchmark result can erase the benchmark",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "concept",
+      "keyPoints": [
+        "Dead results need not be computed.",
+        "Make the answer observable outside the timed region.",
+        "Volatile can change the workload instead of fixing it."
+      ],
+      "narration": "A benchmark repeatedly calculates a sum but never uses the answer. An optimizer may remove the entire calculation because it cannot affect required behavior. The resulting short time does not mean the processor performed billions of additions for free. Make the result matter through a legitimate check or output outside the timed region, and use runtime-controlled data when measuring per-element work. Marking every variable volatile is not a neutral repair; it changes access obligations and can prevent useful transformations that production code would use. The experiment should preserve the intended work while adding as little unrelated measurement behavior as practical.",
+      "actions": [
+        "Ask learners what a compiler may remove from a loop with an unused result."
+      ],
+      "sourceRef": "content/systems-programming/ch18.json → SP18.008",
+      "question": {
+        "prompt": "Why should the result usually be reported outside the timed region?",
+        "answer": "It keeps the computation observable without charging each timed iteration for unrelated output work."
+      }
+    },
+    {
+      "title": "Aliasing is a relationship, not a spelling difference",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "concept",
+      "keyPoints": [
+        "Two names can reach one object.",
+        "An intervening write can invalidate a remembered load.",
+        "A non-aliasing promise must be true for every allowed call."
+      ],
+      "narration": "The expressions through p and q may look different while naming the same storage. If code writes through p, a later load through q may observe the new value. Reusing an older cached q value would then change behavior. Our overlapping-array example expands that idea over several elements: access order becomes part of correctness. C restrict can express a particular access promise, but standard C++20 has no directly identical core-language keyword. Compiler extensions do not manufacture a true invariant. Only add such a promise when the public contract excludes the overlapping cases and callers actually satisfy that restriction.",
+      "actions": [
+        "Compare independent arrays with two ranges inside one array."
+      ],
+      "sourceRef": "content/systems-programming/ch18.json → SP18.010",
+      "question": {
+        "prompt": "Can const on one reference prove that no other alias changes its object?",
+        "answer": "No. Const limits access through that reference; another allowed alias may still modify the same object."
+      }
+    },
+    {
+      "title": "Arithmetic equivalence depends on the numeric domain",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "concept",
+      "keyPoints": [
+        "Unsigned modular identities differ from signed-overflow assumptions.",
+        "Floating-point addition is not generally associative.",
+        "Relaxed arithmetic options change the contract."
+      ],
+      "narration": "Algebra from exact arithmetic does not automatically transfer to every machine type. Floating-point addition rounds intermediate results, so regrouping a plus b plus c can change the final value. Signed integer transformations also rely on defined executions not overflowing, while unsigned arithmetic has a modular rule. A performance option that permits reassociation may be useful for a numerical workload, but it changes which observations are required to remain identical. Document the tolerated error, treatment of special values, and reproducibility needs before accepting it. The optimization review should identify the arithmetic domain instead of treating every plus sign as the same mathematical operation.",
+      "actions": [
+        "Discuss a very large value, its negative, and one small addend."
+      ],
+      "sourceRef": "content/systems-programming/ch18.json → SP18.018",
+      "question": {
+        "prompt": "What must be documented when a faster build allows floating-point reassociation?",
+        "answer": "The relaxed numerical contract, including acceptable error, special-value assumptions, and reproducibility requirements."
+      }
+    },
+    {
+      "title": "A barrier limits a particular kind of reordering",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "concept",
+      "keyPoints": [
+        "Compiler barriers and hardware fences are different.",
+        "Volatile does not synchronize threads.",
+        "Use language-level atomics or locks for shared state."
+      ],
+      "narration": "The word barrier can hide several distinct mechanisms. A compiler barrier constrains certain compiler transformations, while a hardware fence controls specified ordering at the processor level. Volatile access has its own observable-access role, often relevant to particular device interfaces, but it does not make an ordinary shared counter safe between threads. Correct synchronization needs a language-level contract the compiler understands, such as atomics or a mutex. Do not scatter volatile through a program to make an optimization concern disappear. State which accesses must be ordered, between which participants, and for what reason, then choose the mechanism that actually provides that guarantee.",
+      "actions": [
+        "Separate a compiler-transformation concern from a thread-communication concern."
+      ],
+      "sourceRef": "content/systems-programming/ch18.json → SP18.022",
+      "question": {
+        "prompt": "Why is volatile not a substitute for an atomic shared counter?",
+        "answer": "It does not provide the required atomic operations or interthread synchronization guarantees."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Tail position does not guarantee constant stack use",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "concept",
+      "keyPoints": [
+        "Cleanup after a call can block a simple tail transfer.",
+        "ABI and compiler decisions also matter.",
+        "Bound depth or choose iteration when resources demand it."
+      ],
+      "narration": "A function whose last apparent action is another call may be a candidate for tail-call optimization. Yet a local object that must be destroyed after that call adds required work, and the ABI or compiler configuration may prevent the simple transformation. Do not accept arbitrary recursion depth because one optimized build happened to use a jump. The input and resource contract must be safe independently unless the environment explicitly guarantees the needed transformation. An iterative version with an explicit data structure can make the resource bound easier to state. Performance evidence from one build is useful, but it is not a portable lifetime or stack guarantee.",
+      "actions": [
+        "Ask where a local destructor would run relative to the final call."
+      ],
+      "sourceRef": "content/systems-programming/ch18.json → SP18.014",
+      "question": {
+        "prompt": "What source-level obligation can prevent a simple tail transfer?",
+        "answer": "Required cleanup, such as destroying a local object after the callee returns."
+      }
+    },
+    {
+      "title": "Use a correctness experiment and a performance experiment",
+      "eyebrow": "SYSTEMS / CHAPTER 18",
+      "kind": "concept",
+      "keyPoints": [
+        "Compare results at boundaries first.",
+        "Inspect generated code at chosen optimization levels.",
+        "Measure runtime data on a stated target."
+      ],
+      "narration": "The paired loop should first be tested on empty, one-element, odd-length, and even-length ranges. Only after those results agree with the baseline should we ask whether the change helps performance. Generate code at several optimization levels and identify transformations supported by the actual listing rather than guessing from a flag name. Then measure a controlled workload whose data and result cannot disappear. Record compiler options and machine context with the result. This separates two claims that are often mixed together: the program computes the right answer, and this implementation is faster under these measured conditions. Either claim needs its own evidence.",
+      "actions": [
+        "Require a boundary-test plan before accepting a benchmark chart."
+      ],
+      "sourceRef": "content/systems-programming/ch18.json → SP18.032",
+      "question": {
+        "prompt": "Does identical output from the paired and scalar demonstrations establish a speedup?",
+        "answer": "No. It checks one semantic case; timing on a controlled workload is separate evidence."
+      }
+    }
+  ]
+}

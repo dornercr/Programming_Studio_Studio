@@ -1,0 +1,233 @@
+{
+  "chapter": 57,
+  "title": "Memory-Safety Vulnerabilities",
+  "opening": [
+    {
+      "title": "A valid address is not a valid object access",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "concept",
+      "keyPoints": [
+        "Capacity, received extent, and lifetime are separate limits",
+        "The OS protects pages, not every C++ object boundary",
+        "Repair the first invalid operation"
+      ],
+      "narration": "A pointer can designate a mapped writable page and still be invalid for the object or range a program intends to use. A large buffer may have capacity for one thousand bytes while only seven bytes were received. A freed object may leave plausible-looking bits at its former address. Neither situation authorizes reading or writing those bytes as live input. Memory safety requires the correct extent and lifetime at each access. This chapter studies those boundaries with safe demonstrations and checked arithmetic. We will not deliberately execute an overflow or use-after-free and then treat one observed outcome as a guarantee.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.008: 57.3 Heap corruption",
+      "question": {
+        "prompt": "Why does a writable page not prove that a copy stays within its destination object?",
+        "answer": "Several objects can share a page. Page permissions do not enforce the allocation or array boundary of each C++ object."
+      }
+    },
+    {
+      "title": "A narrowing conversion can hide an oversized request",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "code",
+      "keyPoints": [
+        "250 payload units plus 10 header units need 260",
+        "An explicit 8-bit conversion produces 4",
+        "Validate before narrowing or allocating"
+      ],
+      "narration": "This demonstration legally converts the number two hundred sixty to an eight-bit unsigned type, producing four modulo two hundred fifty-six. It does not allocate four bytes and copy two hundred fifty into them; that unsafe operation is deliberately absent. The printed wrapped total shows how a bad size pipeline could under-allocate. The checked decision compares the payload against maximum minus header before addition and rejects the request. Use one validated representation for both allocation and the later copy. Checking a narrowed size while retaining the original large copy length creates two conflicting meanings for the same request.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.012: 57.5 Integer errors",
+      "question": {
+        "prompt": "Does the program\u2019s wrapped value of 4 mean a 250-byte payload fits in four bytes?",
+        "answer": "No. It demonstrates legal unsigned narrowing losing the required size. The later unsafe copy is not performed; validation rejects the request."
+      },
+      "code": {
+        "filename": "sys_ch57_size_narrowing.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstdint>\n#include <iostream>\n#include <limits>\nint main() {\n    const unsigned payload = 250, header = 10;\n    const auto narrowed = static_cast<std::uint8_t>(payload + header);\n    const unsigned maximum = std::numeric_limits<std::uint8_t>::max();\n    const bool allowed = header <= maximum && payload <= maximum - header;\n    std::cout << \"wrapped-total=\" << unsigned(narrowed) << '\\n';\n    std::cout << \"checked=\" << (allowed ? \"accept\" : \"reject\") << '\\n';\n    // No allocation or out-of-bounds copy is attempted.\n}\n",
+        "expectedStdout": "wrapped-total=4\nchecked=reject\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Safe unsigned conversion demonstrates a size-validation defect without executing a bad memory access."
+      }
+    },
+    {
+      "title": "A safe observer asks whether ownership still exists",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "code",
+      "keyPoints": [
+        "weak_ptr does not keep the target alive",
+        "lock obtains an owner only while the object exists",
+        "After the owner ends, reject access instead of dereferencing stale memory"
+      ],
+      "narration": "The observer refers weakly to a string created inside a scope. While the strong owner exists, expired is false and the program prints alive equals one. When the scope ends, the only strong owner is destroyed and the object dies. The later lock cannot obtain an owner, so the program prints expired equals one and unavailable. No freed string is accessed. This is one possible lifetime design, not a command to use shared ownership everywhere. A shorter borrowed reference with a guaranteed enclosing owner can be simpler. Shared ownership also does not synchronize concurrent changes to the string itself.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.010: 57.4 Use-after-free",
+      "question": {
+        "prompt": "What lifetime guarantee does a successful weak_ptr::lock provide?",
+        "answer": "It returns a shared owner that keeps the target alive while that owner is retained. It does not automatically protect mutable contents from races."
+      },
+      "code": {
+        "filename": "sys_ch57_checked_observer.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <string>\nint main() {\n    std::weak_ptr<std::string> observer;\n    {\n        auto owner = std::make_shared<std::string>(\"ready\");\n        observer = owner;\n        std::cout << \"alive=\" << !observer.expired() << '\\n';\n    } // The only strong owner ends; the string is destroyed.\n    std::cout << \"expired=\" << observer.expired() << '\\n';\n    if (auto owner = observer.lock()) std::cout << *owner << '\\n';\n    else std::cout << \"unavailable\\n\";\n}\n",
+        "expectedStdout": "alive=1\nexpired=1\nunavailable\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Validate received bytes rather than allocated capacity",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "concept",
+      "keyPoints": [
+        "The header must already exist before decoding",
+        "The payload must fit the received remainder",
+        "The application maximum is an additional check"
+      ],
+      "narration": "Suppose a receive buffer has capacity sixty-four bytes but the latest valid input extent is only five. A two-byte header claiming four payload bytes does not fit: only three payload bytes have arrived. Capacity cannot supply the missing fourth byte. The parser first proves the header exists, then enforces the application maximum, then compares the payload length with received minus header. Short-circuit evaluation makes that subtraction safe only after the header bound holds. This order also avoids an overflowing header-plus-payload expression. Once validation succeeds, use that same checked extent when constructing a view or copying data.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SYS57.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why can a parser not use buffer.capacity() as the number of received bytes?",
+        "answer": "Capacity describes available storage, not initialized input supplied by the peer. Only the returned valid extent is authorized for parsing."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Exactly one frame and one frame from a stream are different APIs",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "concept",
+      "keyPoints": [
+        "A complete-frame parser can reject trailing bytes",
+        "A streaming parser returns a consumed count",
+        "Do not silently switch the contract"
+      ],
+      "narration": "The source complete-frame parser requires the two-byte length to match exactly the remaining input, so trailing bytes are rejected. That is appropriate when the caller promises one complete message. The earlier stream parser instead needs to accept one frame and retain the next frame's bytes, returning a consumed count. Both can be correct because they answer different questions. Silently changing equality to a less-than-or-equal check may hide accidental extra data in the first interface. Write the boundary in the function contract and test trailing input explicitly. Representation should follow the intended unit of validation, not whichever comparison seems convenient.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.014: Worked example \u2014 Validate one complete bounded frame",
+      "question": {
+        "prompt": "Why can rejecting trailing bytes be correct in Chapter 57 but wrong for a multi-frame receive buffer?",
+        "answer": "The complete-frame API validates exactly one supplied message. A streaming API must report consumption and preserve following frames."
+      }
+    },
+    {
+      "title": "Stack corruption has no harmless-layout promise",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "concept",
+      "keyPoints": [
+        "Local arrays have exact valid bounds",
+        "Neighbor order can change with compilation",
+        "An apparent padding overwrite is still invalid"
+      ],
+      "narration": "A local array of thirty-two bytes cannot safely receive forty unchecked bytes. On one build the extra writes might appear to touch unused padding; on another they may affect another variable or implementation-managed state. C++ does not make out-of-bounds access valid because an experiment seems harmless. Optimizations and stack layout can change what symptoms appear, and undefined behavior removes the reliable source-level reasoning we need. The repair is to prove the destination extent before writing, including terminator requirements where relevant. A canary or sanitizer can detect some failures, but neither changes the original bound.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.006: 57.2 Stack corruption",
+      "question": {
+        "prompt": "Does observing no crash after an oversized write establish that the neighboring bytes were safe to use?",
+        "answer": "No. The access already violated the array contract, and the observed outcome is not a portable or reliable guarantee."
+      }
+    },
+    {
+      "title": "A heap failure may be a delayed symptom",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "concept",
+      "keyPoints": [
+        "An earlier write can damage another allocation",
+        "A later allocation or free may expose the damage",
+        "Trace the first invalid access, not just the final crash"
+      ],
+      "narration": "Heap corruption can surface far from its origin. One request writes past its buffer, damaging an adjacent object or allocator bookkeeping. A later unrelated allocation then fails or crashes. Patching the allocator call that finally reports trouble may leave the original write untouched. Reduce the failing case, enable suitable instrumentation, and trace the earliest invalid operation. Keep ownership and extents visible at interfaces so the defect can be narrowed to a specific promise. The operating system may permit the machine write because the surrounding page is writable, even while the language-level object access is already invalid.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.008: 57.3 Heap corruption",
+      "question": {
+        "prompt": "Why is a crash during free not proof that free caused the original defect?",
+        "answer": "Earlier memory corruption can damage the object or allocator state, and deallocation may only be the first operation to detect it."
+      }
+    },
+    {
+      "title": "Validate sign and multiplication before converting a size",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "concept",
+      "keyPoints": [
+        "A negative signed value can become a huge unsigned size",
+        "count \u00d7 element size can overflow",
+        "Check division bounds before multiplication"
+      ],
+      "narration": "An external count should be validated before converting it to an allocation size. If a signed negative count becomes size_t first, it may turn into a very large positive value. For multiplication, a nonzero element size lets us check count against maximum divided by element size before forming the product. The same validated count should then control construction and copying. Re-parsing the field or recomputing it in a narrower type can reintroduce disagreement. These checks belong at the trust boundary, while internal assertions can document the invariant once it has been established.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.012: 57.5 Integer errors",
+      "question": {
+        "prompt": "What safe precondition can precede `count * element_size` for nonzero element_size?",
+        "answer": "Require count <= maximum / element_size, after validating the inputs and choosing the maximum appropriate to the allocation and application."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "An owner cannot protect every observer automatically",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "concept",
+      "keyPoints": [
+        "unique_ptr prevents duplicate exclusive ownership",
+        "Raw pointers derived from it can still dangle after reset",
+        "A borrowed view needs an explicit enclosing lifetime"
+      ],
+      "narration": "Owning abstractions make release responsibility clearer, but they do not repair every borrowed pointer. A raw pointer obtained from unique_ptr becomes invalid when its object is reset or destroyed. A string_view returned by a parser similarly depends on its input owner's lifetime and on changes that may invalidate storage. The complete-frame source deliberately returns a borrowed view, so its caller must keep the input alive while using it. If the result must outlive the input, return owned data or transfer an owner. Choose the least complicated lifetime model that actually supports the caller's use.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.014: Worked example \u2014 Validate one complete bounded frame",
+      "question": {
+        "prompt": "When should a parser copy its payload rather than return a borrowed view?",
+        "answer": "When the result must remain usable beyond the input storage\u2019s guaranteed lifetime or across operations that can invalidate that storage."
+      }
+    },
+    {
+      "title": "Boundary tests should target the first proof obligation",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 57",
+      "kind": "concept",
+      "keyPoints": [
+        "Test missing header, short body, and maximum allowed length",
+        "Test oversized fields and extreme integer values",
+        "Test lifetime endings without dereferencing freed objects"
+      ],
+      "narration": "A useful parser test matrix follows the validation order. Supply fewer bytes than the header requires, a complete header with a short body, an exact maximum-size message, an oversized length, and trailing bytes when the API forbids them. Extreme integer values challenge addition and conversion assumptions. Lifetime tests should observe release or failed ownership acquisition safely, as the weak observer demonstration does, rather than run a freed-pointer access and expect one fixed symptom. Instrumented runs add evidence, but a clean run covers only executed paths. Preserve the explicit checks in ordinary release builds where untrusted input still reaches the program.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch57.json \u2192 SP57.020: Guided lab and review",
+      "question": {
+        "prompt": "Why should expected-output tests avoid deliberately executing use-after-free?",
+        "answer": "Its behavior is undefined, so there is no valid deterministic output contract. Test ownership transitions and rejection paths safely instead."
+      }
+    }
+  ]
+}

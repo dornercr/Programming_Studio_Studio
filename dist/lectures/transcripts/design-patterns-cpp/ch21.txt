@@ -1,0 +1,823 @@
+Design Patterns in C++
+Chapter 21: Template Method
+Dr. Charles Dorner
+
+1. Two conversions, one order of work
+Problem and first design
+
+SAY
+An import tool accepts readings from two sources. One already uses the desired units; the other needs each value doubled. That difference is small, but both imports must reject an empty batch, reject raw readings outside zero through one hundred, and return only a complete string. A bad reading at the end must be found before any conversion starts. If we copy the whole function to change one multiplication, later fixes may reach only one copy. The problem is preserving one required order while letting a few steps differ. We will first make that order visible, then decide how much extension it deserves.
+
+DO
+Ask which requirements belong to both import sources.
+Have learners put validation, conversion, result checking, and formatting in order.
+
+SOURCE
+manuscript/ch21.json → Two imports must follow the same rules
+
+------------------------------------------------------------
+
+2. Define the output, including its spaces
+Problem and first design
+
+SAY
+A string is part of the interface, so its spaces matter. The chapter's plain import returns a space after every value, including the final one. The doubled import adds the word scaled after those values. For input three and eight, the plain string is three, space, eight, space. The doubled string is six, space, sixteen, space, scaled. Brackets in printed output make the trailing space visible. Converted values must lie from zero through two hundred, even when a derived conversion has a mistake. These are postconditions: rules that must hold after a step finishes. We need both raw-input checks and returned-value checks around the variable work.
+
+DO
+Read the bracketed expected strings aloud, including spaces.
+Ask why valid raw input does not prove a custom conversion returns a valid value.
+
+SOURCE
+manuscript/ch21.json → When composition gives a better boundary
+
+------------------------------------------------------------
+
+3. Copying the sequence works until it drifts
+Problem and first design
+
+SAY
+The baseline deliberately repeats the formatting loop. Plain keeps each value; doubled multiplies by two and appends a label. The common validate function prevents this tiny example from having two copies of the range rule, but the larger sequence is still written twice. Run both to establish their output. Imagine a later requirement to check every converted result before appending it. Each loop needs that change, and a missed edit would make one import less strict. Duplication is evidence to investigate, not an automatic order to use inheritance. If one callable parameter can capture the difference cleanly, that may be enough. The chapter explores a fixed inherited sequence with named extension points.
+
+DO
+Predict both bracketed outputs.
+Identify where a future converted-value check would need to be inserted.
+
+SOURCE
+Lecture demonstration for manuscript/ch21.json → Two imports must follow the same rules
+
+------------------------------------------------------------
+
+4. One pass changes the promised call order
+Problem and first design
+
+SAY
+A developer might merge validation and conversion into one loop to save a pass. The next demonstration gives conversion a visible call counter. Both versions reject a batch containing three followed by negative one. But the one-pass version converts three before discovering the later error, so its counter reaches one. The two-pass version finds the invalid value before conversion and leaves its counter at zero. This does not claim that the chapter's conversions write files or perform real imports. The counter is a controlled observation of call order. When a requirement says no conversion before full validation, matching the final exception alone is not enough evidence.
+
+DO
+Predict both conversion counts before Run.
+Explain why throwing the same error does not make the two workflows equivalent.
+
+SOURCE
+Lecture demonstration for manuscript/ch21.json → Where control moves and where it does not
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+One import sequence with ordinary and doubled units. The base class holds the order and the error boundaries. Derived classes only replace conversion and, optionally, final annotation.
+
+Reject empty input and raw values outside 0–100 before calling conversion. Require each converted result to lie within 0–200. Return one complete string and leave the input unchanged.
+
+Every raw value is checked before the first convert call. Only checked converted values enter the local output stream. suffix runs once after all conversions succeed. These are the rules that define a correct extension, even if it has the right C++ types. A function accepting a conversion callable would reduce inheritance and suit a single variable step. A Strategy member is preferable if a running import object must exchange its conversion at runtime.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json
+
+------------------------------------------------------------
+
+6. Two imports must follow the same rules
+Requirements and mechanism
+
+SAY
+An import tool receives whole-number readings from 0 through 100. One input source already uses the desired units. Another source needs every value doubled. Each result is a space-separated string; the doubled form ends with scaled. Reject an empty input and reject any out-of-range reading. A bad reading late in the batch must be found before any conversion begins. The caller must receive a complete string or an exception, never a partly formatted result.
+
+A simple implementation writes one loop for the ordinary input and copies it for the doubled input. The excerpt shows the ordinary conversion after validation. This is easy to understand at first. But when the team adds a full-batch validation rule, both import functions need the same repair. If only one is repaired, the sources obey different rules even though their only intended difference is a unit conversion.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → Two imports must follow the same rules
+
+------------------------------------------------------------
+
+7. The limitation calls for one fixed sequence
+Requirements and mechanism
+
+SAY
+The repeated sequence is validate all inputs, convert each value, check each converted value, and finish the string. The differing step is how one valid integer becomes another. The Template Method pattern places the sequence in a base class and lets derived classes supply selected steps. Here Import::run is the template method. The word template means a shared plan of steps; it does not refer to C++ template parameters.
+
+convert is a required step: every concrete import must supply it. suffix is an optional hook: the base implementation returns an empty string, so an ordinary import need not override it. DoubleImport changes both conversion and suffix. Optional does not mean uncontrolled. A hook must still obey the documented contract and must not quietly perform a second import or change shared input.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → The limitation calls for one fixed sequence
+
+------------------------------------------------------------
+
+8. Where control moves and where it does not
+Requirements and mechanism
+
+SAY
+The caller invokes run. run first walks the full input to check every raw value. Only after that pass succeeds does it create the local stream and call convert for each input. The virtual call selects the actual derived implementation. Control returns to run, which checks that the result lies from 0 through 200 and appends it. The final suffix call happens once after the loop. The base therefore owns the order while the derived class owns a small part of the meaning.
+
+The two passes are deliberate. In a one-pass implementation, convert(3) could run before discovering -1 in the next position. For our pure conversion methods that would not change external state, but the order would violate the stated guarantee. A future conversion with an audit counter would expose that difference. Define order before optimizing away a pass. The cost is one extra linear walk; it does not copy the vector.
+
+input is a const reference, so run borrows existing readings. Each raw loop variable is an integer copy. value is another local integer, held const because the result should not change after the conversion call. The stream owns the characters accumulated so far. Its exception mask enables badbit and failbit exceptions: an output failure must throw rather than silently leave a partial stream result. result.str() returns a string value. If conversion throws or violates the result range, stack cleanup destroys the local stream, and no partial string is returned. This does not undo outside effects a derived step might already have made.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → Where control moves and where it does not
+
+------------------------------------------------------------
+
+9. A skeleton is a contract, not a security barrier
+Requirements and mechanism
+
+SAY
+run is nonvirtual, so calls through Import use this exact sequence. A derived class can declare a same-named nonvirtual member and hide it for calls made through that derived type. That is name hiding, not overriding. Our final concrete classes do not do so, and normal clients use the inherited run. If a framework needs the compiler to forbid overriding an already virtual public entry point, virtual plus final is an available design. It still does not prevent unrelated methods from doing other work.
+
+Protected access lets derived classes implement and use steps without advertising them as normal public operations. A derived override may be private, as it is here: access checking uses the base declaration at the call inside Import, and virtual dispatch can reach the private override. override asks the compiler to verify that the method truly matches a virtual base declaration. It prevents mistakes such as accidentally omitting a trailing const and introducing a different function.
+
+At compilation, types and signatures are checked. During execution, run chooses step implementations from the actual import object. The object must already be fully constructed. Do not call a pure virtual conversion from the base constructor to “test” it: construction-time virtual behavior does not act like a call on a completed derived object. Validate construction data without relying on not-yet-constructed derived behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → A skeleton is a contract, not a security barrier
+
+------------------------------------------------------------
+
+10. When composition gives a better boundary
+Requirements and mechanism
+
+SAY
+Template Method fits a family of closely related processes whose ordering is stable and whose variation belongs in a few well-defined steps. Its cost is inheritance coupling: changing the base sequence changes every derived import. Adding many hooks can make the sequence hard to reason about because every empty-looking call may run unknown derived work.
+
+If callers need to exchange the conversion while keeping the same importer object, inject a Strategy instead. If there are just two lines of differing math, pass a callable to one ordinary function. If whole workflows differ in ordering, forcing them into one inherited skeleton may hide the true differences. Choose a stable sequence first, then decide how much extension it needs.
+
+This example checks both sides of the extension point: raw values are preconditions, converted values are postconditions, which are rules that must hold when a step returns. Runtime range checks catch some bad implementations, such as BrokenImport returning 201. They cannot prove that doubled units have the right business meaning. Keep value-based tests alongside these general contract checks.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → When composition gives a better boundary
+
+------------------------------------------------------------
+
+11. The template is a plan, not a type parameter
+Mechanism in C++
+
+SAY
+Template Method means a shared plan of work. It does not refer to C++ template angle-bracket syntax. Import::run is the template method because it fixes the sequence: validate the full batch, convert each value, check the converted value, append it, and add the suffix. A required step is a virtual function every concrete import must implement; convert is that step. A hook is an optional extension point with a useful default; suffix returns an empty string unless a derived class changes it. PlainImport only supplies conversion. DoubleImport also supplies the final label. Optional hooks still have rules, because they execute inside the promised sequence.
+
+DO
+Name the method that owns order and the methods that own variation.
+Ask learners to distinguish a required step from a hook.
+
+SOURCE
+manuscript/ch21.json → The limitation calls for one fixed sequence
+
+------------------------------------------------------------
+
+12. Follow control down and back up
+Mechanism in C++
+
+SAY
+Trace DoubleImport on values three and eight. The inherited run first checks both raw values. It then calls convert with three. Virtual dispatch reaches DoubleImport's implementation and returns six. Control comes back to run, which checks the returned range and writes six plus a space into its local stream. The next call returns sixteen and is checked the same way. After the loop, suffix returns scaled once. The final string is returned by value. The derived class changes meaning at selected points, but it does not choose when those points run. This controlled direction of calls is the central mechanism of Template Method.
+
+DO
+Trace the return to run after each convert call, not just the downward call.
+Count suffix calls for a batch of two values.
+
+SOURCE
+manuscript/ch21.json → Where control moves and where it does not
+
+------------------------------------------------------------
+
+13. Protected does not mean the override must be public
+Mechanism in C++
+
+SAY
+convert is protected in Import, so it is an implementation step rather than a normal public command for clients. The concrete overrides are private because a class defaults to private member access. That is valid. The call inside Import is checked against the accessible base declaration, and virtual dispatch can then reach the private override in the actual object. override asks the compiler to verify the match. If a learner omits the final const, the declaration describes a different member function and fails that check. Removing override would hide the useful diagnostic while leaving the required const conversion unimplemented. Access and dispatch are related, but they answer different questions.
+
+DO
+Compare the complete base and derived convert signatures.
+Ask learners to repair a missing trailing const without removing override.
+
+SOURCE
+manuscript/ch21.json → A skeleton is a contract, not a security barrier
+
+------------------------------------------------------------
+
+14. A local result gives a clear failure boundary
+Mechanism in C++
+
+SAY
+The input is a const reference, so run reads an existing vector without owning or copying the whole batch. Each raw loop variable is a copied integer. The local stream owns the growing output characters, and the converted value is held in a const local number before writing. If a conversion throws or returns an out-of-range result, stack cleanup destroys the local stream. The caller receives an exception, not a partly completed return string. The source also enables stream error exceptions so output failure does not silently produce a partial result. This is a local-result guarantee. It cannot undo an email, file write, or counter change performed by an extension step elsewhere.
+
+DO
+Identify which objects are borrowed and which are local owners.
+Ask what happens to the local stream after BrokenImport returns 201.
+
+SOURCE
+manuscript/ch21.json → Where control moves and where it does not
+
+------------------------------------------------------------
+
+15. Nonvirtual order is a convention with precise limits
+Mechanism in C++
+
+SAY
+run is nonvirtual in the chapter. A call through an Import reference therefore uses the base sequence. That does not make the sequence an unbreakable security boundary. A derived class could declare a same-named function and hide the inherited member for calls through the derived type. The shown final classes do not do that. The design relies on clients using the inherited public operation and authors respecting the extension contract. Construction adds another boundary: do not call a pure virtual conversion from the base constructor as a test. The complete derived object is not yet ready, and virtual behavior during construction is not the same as behavior after construction.
+
+DO
+Contrast overriding a virtual step with hiding nonvirtual run.
+Ask when the completed object is ready for the public workflow.
+
+SOURCE
+manuscript/ch21.json → A skeleton is a contract, not a security barrier
+
+------------------------------------------------------------
+
+16. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Abstract Class → Import. Own the shared algorithm and declare the steps that implementations may provide.
+
+Template Method → Import::run. Keep the overall order and call the replaceable steps at specified points.
+
+Required operations → Import::convert. Require each concrete implementation to supply essential varying behavior.
+
+Optional hooks → Import::suffix. Offer a default behavior that a subclass may replace when needed.
+
+Concrete Classes → PlainImport and DoubleImport. Supply specialized steps while using the inherited workflow.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → C21.07 concepts
+
+------------------------------------------------------------
+
+17. Template Method: Import::run fixes the sequence
+UML and source walkthrough
+
+SAY
+Flow arrows show execution, not inheritance. The return from convert is checked before appending. A failure exits by exception rather than following a normal arrow. The loop-back arrow represents the next reading; suffix runs only when no reading remains. Comments inside boxes are teaching annotations.
+
+The base class holds the order and the error boundaries. Derived classes only replace conversion and, optionally, final annotation.
+
+A single validation repair benefits every importer using run. Keep hooks narrow so a future source format does not require reading an entire inheritance tree to understand one import.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch21/main.cpp:1-80; content/design-patterns-cpp/ch21.json → diagrams.21
+
+------------------------------------------------------------
+
+18. Template Method — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+The base class holds the order and the error boundaries. Derived classes only replace conversion and, optionally, final annotation.
+
+A single validation repair benefits every importer using run. Keep hooks narrow so a future source format does not require reading an entire inheritance tree to understand one import.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch21/main.cpp:1-80; content/design-patterns-cpp/ch21.json → diagrams.21
+
+------------------------------------------------------------
+
+19. The base sequence surrounds the virtual step
+UML and source walkthrough
+
+SAY
+This is the conversion and formatting phase after full validation. Inside Import::run, after its first loop. It keeps range checking and output order consistent across import types.
+
+The comment records that the first validation pass already succeeded. Create a local stream that owns the characters being built. Enable exceptions for serious stream errors. Also enable ordinary stream-failure exceptions; finish the mask expression. Copy each raw input integer in sequence. Call the derived conversion and keep its returned integer constant. Test whether that integer violates the result range. Begin constructing a logic-error exception for a broken step. Use converted as the message and throw the exception. Append the checked number and one space. Close the conversion loop. Return the completed stream text followed by the optional suffix.
+
+A returned string contains only checked results, in original order. A side effect inside convert cannot be undone merely by destroying the stream.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch21/main.cpp:23-34
+
+------------------------------------------------------------
+
+20. Two changes inside the same overall process
+UML and source walkthrough
+
+SAY
+This derived class supplies a unit conversion and a final annotation. The implementation reached when run is called on DoubleImport. Only the varying steps need new definitions.
+
+Declare a final derived import type; final forbids further derivation. The comment states the unit change. Override the required conversion with matching const signature. Return twice the copied raw value. Close the conversion method. Override the optional string suffix hook. Return the annotation appended after all numbers.
+
+For raw values from 0–100, doubling produces values from 0–200. Changing the multiplier can exceed the base result contract.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch21/main.cpp:43-49
+
+------------------------------------------------------------
+
+21. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. The base class holds the order and the error boundaries. Derived classes only replace conversion and, optionally, final annotation.
+
+main verifies both complete strings, raw and converted boundaries, unchanged input, empty and negative input rejection, and a deliberately defective step whose violation is caught. BrokenImport is exercised only through a checked path. Stream failure exceptions are enabled, but allocation and stream-failure injection are not tested. No test claims to roll back external effects in future steps.
+
+A single validation repair benefits every importer using run. Keep hooks narrow so a future source format does not require reading an entire inheritance tree to understand one import. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch21/main.cpp
+
+------------------------------------------------------------
+
+22. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. input={3,8}; first pass succeeds. Both raw integers are within 0–100.
+
+Step 2. DoubleImport convert(3)=6; output="6 ". The derived step runs, then the base checks and appends.
+
+Step 3. convert(8)=16; output="6 16 ". The same sequence handles the next integer.
+
+Step 4. suffix="scaled"; final="6 16 scaled". The hook is called once after the loop.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → trace
+
+------------------------------------------------------------
+
+23. Debug the promise: Validate raw values only as they are converted.
+Execute and debug
+
+SAY
+Validate raw values only as they are converted. With {3,-1}, convert(3) runs before -1 is rejected. One pass changes the required order even if the final function still throws.
+
+main verifies both complete strings, raw and converted boundaries, unchanged input, empty and negative input rejection, and a deliberately defective step whose violation is caught. BrokenImport is exercised only through a checked path. Stream failure exceptions are enabled, but allocation and stream-failure injection are not tested. No test claims to roll back external effects in future steps.
+
+A single validation repair benefits every importer using run. Keep hooks narrow so a future source format does not require reading an entire inheritance tree to understand one import.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → example.failures
+
+------------------------------------------------------------
+
+24. Debug the promise: Allow a derived convert to return 201 without a postcondition check.
+Execute and debug
+
+SAY
+Allow a derived convert to return 201 without a postcondition check. The output could contain 201, outside the allowed converted range. A valid raw input does not prove that a replaceable step obeys its result contract.
+
+main verifies both complete strings, raw and converted boundaries, unchanged input, empty and negative input rejection, and a deliberately defective step whose violation is caught. BrokenImport is exercised only through a checked path. Stream failure exceptions are enabled, but allocation and stream-failure injection are not tested. No test claims to roll back external effects in future steps.
+
+A single validation repair benefits every importer using run. Keep hooks narrow so a future source format does not require reading an entire inheritance tree to understand one import.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → example.failures
+
+------------------------------------------------------------
+
+25. Trace 1: Template Method: Plain formatting
+Trace experiments
+
+SAY
+Template Method: Plain formatting. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The common formatter intentionally adds a space after every value.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → dpx-c21-trace-1; companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+26. Trace 2: Template Method: Double hook
+Trace experiments
+
+SAY
+Template Method: Double hook. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Each raw value is doubled; the suffix hook adds scaled after the spaces.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → dpx-c21-trace-2; companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 3: Template Method: Input upper gate
+Trace experiments
+
+SAY
+Template Method: Input upper gate. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The base gate owns the zero-through-one-hundred input domain.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → dpx-c21-trace-3; companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 4: Template Method: Broken output hook
+Trace experiments
+
+SAY
+Template Method: Broken output hook. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The workflow checks the derived conversion result as well as raw input.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → dpx-c21-trace-4; companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 5: Template Method: Offset hook
+Trace experiments
+
+SAY
+Template Method: Offset hook. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The extension changes conversion and suffix, not the workflow.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → dpx-c21-trace-5; companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 6: Template Method: Offset endpoints
+Trace experiments
+
+SAY
+Template Method: Offset endpoints. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Valid input endpoints can map to output values above the raw-input limit.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → dpx-c21-trace-6; companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 7: Template Method: Empty workflow rejected
+Trace experiments
+
+SAY
+Template Method: Empty workflow rejected. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The new subclass still uses the base nonempty-input gate.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → dpx-c21-trace-7; companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 8: Template Method: Caller values preserved
+Trace experiments
+
+SAY
+Template Method: Caller values preserved. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The workflow reads a const reference and produces separate text.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → dpx-c21-trace-8; companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+33. Exercise 21.1: Guided modification
+Practice and extension
+
+SAY
+Change the example input to {5,10}. Give both printed bracketed result strings, including spaces.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: PlainImport adds no suffix.
+
+After the discussion, compare the reasoning. The strings are [5 10 ] and [10 20 scaled]. The space before the first closing bracket is part of the plain result, because every number is followed by a space.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch21.json → exercises.21.1
+
+------------------------------------------------------------
+
+34. Exercise 21.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+Define a derived Import whose convert returns raw+1 and whose suffix returns "done". For run({0,2}), list the order of virtual calls and returned string.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The initial validation pass makes no virtual calls.
+
+After the discussion, compare the reasoning. The order is convert(0), convert(2), suffix(). The returned string is "1 3 done". The base checks each returned number before putting it into the stream.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch21.json → exercises.21.2
+
+------------------------------------------------------------
+
+35. Exercise 21.3: Diagnose a bug
+Practice and extension
+
+SAY
+A derived class writes int convert(int raw) override without const. Explain whether this is a runtime failure or a compiler error, and repair it.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Compare the complete signature with Import::convert.
+
+After the discussion, compare the reasoning. It is a compiler error because override requires a matching base virtual function. Add const after the parameter list. Removing override would hide the mistake and leave the class abstract because the pure virtual const function still lacks an implementation.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch21.json → exercises.21.3
+
+------------------------------------------------------------
+
+36. Exercise 21.4: Choose a design
+Practice and extension
+
+SAY
+One import has a fixed sequence with two specialized steps. Another application must switch among many conversions in the same running object. Choose Template Method or Strategy for each.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Separate changing object behavior from defining a related type.
+
+After the discussion, compare the reasoning. Template Method fits the stable inherited sequence. Strategy fits runtime replacement inside one context. A callable is an even smaller option when the replaceable conversion is the only varying operation; neither pattern is mandatory merely because two functions differ.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch21.json → exercises.21.4
+
+------------------------------------------------------------
+
+37. Exercise 21.5: Extend without regressions
+Practice and extension
+
+SAY
+Add OffsetImport: return raw+10 and suffix "offset". Retain raw limits, input order, and all original tests. State outputs for {3,8} and {0,100}.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The added maximum is 110, below 200.
+
+After the discussion, compare the reasoning. The results are "13 18 offset" and "10 110 offset". The companion solution adds the type without changing run, checks both cases, rejects 101, and confirms that input remains unchanged.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch21.json → exercises.21.5
+
+------------------------------------------------------------
+
+38. Exercise 21.6: Justify a decision
+Practice and extension
+
+SAY
+A reviewer wants validation and conversion combined to avoid the second pass. Explain whether that preserves this chapter’s contract.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Consider a bad final raw value and a conversion that records calls.
+
+After the discussion, compare the reasoning. It does not preserve the guarantee that no conversion runs before all raw values are valid. For {3,-1}, a combined pass converts 3 first. Approve the optimization only after deliberately weakening that guarantee, proving pure conversion is sufficient, and updating tests and documentation. Keeping two passes is the correct answer under the current requirements.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch21.json → exercises.21.6
+
+------------------------------------------------------------
+
+39. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add OffsetImport without editing Import::run or existing subclasses. It adds 10 to each valid raw number and appends offset. Preserve all old checks and add normal, boundary, and rejected-input cases.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: {3,8} returns "13 18 offset". {0,100} returns "10 110 offset". {101} is rejected by the inherited input gate. Original input remains {3,8}.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch21/main.cpp
+
+------------------------------------------------------------
+
+40. Extension solution and design review
+Practice and extension
+
+SAY
+The reference solution overrides convert and suffix only. This shows that the new type changes two well-defined steps while the ordering, errors, and formatting remain inherited. A callable version could also meet the requirements, but it would be a deliberate redesign rather than this exercise’s requested extension.
+
+A single validation repair benefits every importer using run. Keep hooks narrow so a future source format does not require reading an entire inheritance tree to understand one import.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch21/main.cpp
+
+------------------------------------------------------------
+
+41. Application case 1: defend your choice
+Practice and extension
+
+SAY
+A workflow must always validate all raw input, convert each value, and add an optional suffix in that order. Subclasses customize conversion. What fits?
+
+Template Method. The base operation fixes the algorithm order and exposes designated customization steps.
+
+Flyweight. No shared intrinsic state is central here.
+
+Strategy only because every step is virtual. Virtuality alone does not identify the design; the inherited fixed workflow is decisive.
+
+Memento. No previous state is being captured for restoration.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → C21.21 scenario
+
+------------------------------------------------------------
+
+42. Application case 2: defend your choice
+Practice and extension
+
+SAY
+With raw input {3,-1}, validation and conversion are combined into one loop. What contract can be broken?
+
+convert(3) runs before the invalid -1 is rejected.. The book requires validating the whole raw batch before any conversion.
+
+The compiler always forbids the loop. The defect is legal execution in the wrong order.
+
+All conversion side effects automatically roll back. The template structure alone provides no rollback.
+
+The optional suffix must run twice. No such behavior follows from combining these loops.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch21.json → C21.22 scenario
+
+------------------------------------------------------------
+
+43. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Template Method means a shared algorithm sequence, not a C++ generic template. Required steps and optional hooks have different extension duties. Preconditions and postconditions belong around variable work. Nonvirtual orchestration fixes calls through the base but does not prevent name hiding. Use composition when behavior must vary independently of inheritance.
+
+A single validation repair benefits every importer using run. Keep hooks narrow so a future source format does not require reading an entire inheritance tree to understand one import.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch21.json → summary
+
+------------------------------------------------------------
+
+44. Do not force different workflows into one skeleton
+Recall and transfer
+
+SAY
+Template Method fits related processes whose order stays the same while a few well-defined steps vary. Inheritance couples every derived class to the base sequence, so changing that sequence can affect the whole family. If callers must swap conversions in one running importer, a Strategy object may provide a clearer boundary. If the only difference is two lines of arithmetic, an ordinary function taking a callable may be simpler. If workflows genuinely require different order, a growing collection of hooks and flags can conceal that fact. Begin with the process contract, then choose the extension mechanism that expresses the actual change without forcing unrelated work into one shape.
+
+DO
+Compare changing a step, replacing a rule, and changing the entire order.
+Have learners defend a callable solution for the two-source baseline.
+
+SOURCE
+manuscript/ch21.json → When composition gives a better boundary
+
+------------------------------------------------------------
+
+45. General checks cannot prove business meaning
+Recall and transfer
+
+SAY
+BrokenImport returns raw plus two hundred and one. On raw zero, the base detects an out-of-range converted result and throws. That is useful, but consider a mistaken DoubleImport that returns raw unchanged. Every result still lies in the allowed range, so the general check would pass. The business meaning is wrong because the unit conversion did not happen. Contract checks and example-based tests therefore serve different roles. Test the common bounds, the exact plain and doubled strings, and the no-conversion-before-validation order. Include a deliberately faulty step when testing the base guard, but do not mistake that one negative test for proof that every meaningful conversion is correct.
+
+DO
+Propose an incorrect conversion that remains within 0 through 200.
+Ask for one test that distinguishes it from the intended doubled behavior.
+
+SOURCE
+manuscript/ch21.json → When composition gives a better boundary
+
+------------------------------------------------------------
+
+46. Add a step without copying the whole process
+Recall and transfer
+
+SAY
+The extension adds OffsetImport, whose conversion adds ten and whose suffix is offset. Valid raw input then produces values from ten through one hundred ten, safely inside the converted range. For three and eight, the returned string is thirteen, space, eighteen, space, offset. The extension should not copy run or weaken its raw-input checks. Retain the existing tests, add zero and one hundred for the new conversion, reject one hundred one, and verify that the original input vector is unchanged. To recall the pattern, say who owns order, where control crosses into a variable step, and what must hold when that step returns. That explanation is more useful than memorizing inheritance arrows alone.
+
+DO
+Ask learners to calculate both boundary conversions before opening the solution.
+Finish by explaining why suffix is called once rather than once per value.
+
+SOURCE
+manuscript/ch21.json → The limitation calls for one fixed sequence

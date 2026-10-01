@@ -1,0 +1,222 @@
+{
+  "chapter": 21,
+  "title": "Processes",
+  "opening": [
+    {
+      "title": "One executable can support several independent lives",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "concept",
+      "keyPoints": [
+        "Executable file: instructions and data on storage",
+        "Process: active resources, mappings, and execution"
+      ],
+      "narration": "A program file is a recipe; a process is one operating-system-managed use of that recipe. Two editor windows can execute the same program while keeping different documents and descriptor tables. A thread is an execution stream within the process, with its own registers and stack. This distinction matters when diagnosing a slow service: is the task waiting for input, competing for a processor, or sharing a lock with another thread? Adding more copies of the executable does not answer that question. Name the resource and execution state before suggesting a scheduling change. Our first demonstration creates a real child process and checks a private-memory relationship.",
+      "actions": [
+        "Ask learners to answer the question with a concrete state or calculation before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch21.json → SP21.004: 21.1 Process abstraction",
+      "question": {
+        "prompt": "Can two processes run the same executable without sharing every variable?",
+        "answer": "Yes. They can execute the same instructions while using distinct private address-space mappings."
+      }
+    },
+    {
+      "title": "A real child changes its private value",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "code",
+      "keyPoints": [
+        "fork creates a child process on Linux/POSIX",
+        "Parent collects status with waitpid",
+        "Only the parent prints, so output order is stable"
+      ],
+      "narration": "This program uses actual process creation rather than a map labeled process. Fork returns zero in the child and a child identifier in the parent. The child changes its local value from seven to nine and exits successfully. The parent waits for that exact child, retrying if waiting was interrupted, then prints its own unchanged seven and the child status zero. No process identifier or timing assumption appears in the expected output. Waitpid also collects the child termination record. The example establishes private modification and status collection; it does not measure physical page copying or prove how the kernel implements that isolation.",
+      "actions": [
+        "Predict every printed line, run the complete program, then explain which operation produced each value."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch21.json → SP21.012: 21.5 Process isolation",
+      "question": {
+        "prompt": "Why does the parent still print seven?",
+        "answer": "The child changed its own private variable; fork does not make later private stores update the parent."
+      },
+      "code": {
+        "filename": "sys_ch21_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cerrno>\n#include <iostream>\n#include <stdexcept>\n#include <sys/wait.h>\n#include <unistd.h>\nint main() {\n    int value = 7;\n    const pid_t child = fork();\n    if (child < 0) throw std::runtime_error(\"fork\");\n    if (child == 0) {\n        value = 9;\n        _exit(value == 9 ? 0 : 1);\n    }\n    int status = 0;\n    pid_t result;\n    do { result = waitpid(child, &status, 0); } while (result < 0 && errno == EINTR);\n    if (result != child || !WIFEXITED(status))\n        throw std::runtime_error(\"child did not exit normally\");\n    std::cout << \"parent=\" << value << \" child-status=\" << WEXITSTATUS(status) << '\\n';\n}\n",
+        "expectedStdout": "parent=7 child-status=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Runnable is a permission, not current execution",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "concept",
+      "keyPoints": [
+        "Ready means eligible to run",
+        "Waiting means an event is still needed",
+        "A wakeup need not preempt the current task"
+      ],
+      "narration": "Consider one processor currently running B while A waits for input. When A receives input, it becomes ready. That does not automatically give it the processor or make B stop. Running describes actual execution; ready describes eligibility; waiting describes a missing prerequisite. Confusing these states can produce a scheduler model with two running tasks on one processor. A terminated child waiting to be collected is different again: its old program is no longer running. The remaining record lets a parent retrieve status. These names are simplified, but the distinctions remain useful when reading real system diagnostics or explaining why a waiting job has little CPU usage.",
+      "actions": [
+        "Ask learners to answer the question with a concrete state or calculation before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch21.json → SP21.006: 21.2 Process state",
+      "question": {
+        "prompt": "Must A become running immediately when its input arrives?",
+        "answer": "No. Wakeup makes it eligible; scheduling decides when it runs."
+      }
+    },
+    {
+      "title": "Reject dispatch while another task owns the CPU",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "code",
+      "keyPoints": [
+        "This is a state model, not an OS scheduler",
+        "Wakeup changes Waiting to Ready",
+        "Dispatch requires an idle modeled CPU"
+      ],
+      "narration": "The modeled CPU initially belongs to B, so dispatching A must fail even after A becomes ready. The first printed false comes from trying to dispatch A while it still waits. Wakeup then returns true and changes only A to ready. A second dispatch still returns false because the CPU owner is B. Once B is explicitly removed from the modeled CPU, dispatch succeeds. The final true confirms both A’s running state and its ownership of the CPU. This adds an invariant the generic source transition helper cannot enforce by itself: at most one task runs on this modeled processor.",
+      "actions": [
+        "Predict every printed line, run the complete program, then explain which operation produced each value."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch21.json → SYS21.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why does ready-after-wakeup still fail its first dispatch?",
+        "answer": "The modeled CPU remains assigned to B; being ready does not establish available execution capacity."
+      },
+      "code": {
+        "filename": "sys_ch21_cpu_owner.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nenum class State { Ready, Running, Waiting };\nint main() {\n    State a = State::Waiting;\n    int cpu_owner = 2; // B owns this modeled single CPU.\n    auto dispatch_a = [&] {\n        if (a != State::Ready || cpu_owner != 0) return false;\n        a = State::Running; cpu_owner = 1; return true;\n    };\n    std::cout << std::boolalpha << \"waiting-dispatch=\" << dispatch_a() << '\\n';\n    const bool woke = a == State::Waiting;\n    if (woke) a = State::Ready;\n    std::cout << \"woke=\" << woke << \" busy-dispatch=\" << dispatch_a() << '\\n';\n    cpu_owner = 0;\n    const bool dispatched = dispatch_a();\n    std::cout << \"idle-dispatch=\" << dispatched\n              << \" invariant=\" << (a == State::Running && cpu_owner == 1) << '\\n';\n}\n",
+        "expectedStdout": "waiting-dispatch=false\nwoke=true busy-dispatch=false\nidle-dispatch=true invariant=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Deterministic single-CPU state model; does not invoke a kernel scheduler."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "A saved context is more than local variables",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "concept",
+      "keyPoints": [
+        "Resume requires instruction and stack positions",
+        "Registers and flags carry live execution state",
+        "A context switch must preserve each stream’s meaning"
+      ],
+      "narration": "Suppose A is paused between computing a sum and storing it. The current instruction position, stack position, registers, and relevant flags help define what happens next. Saving only named source variables is insufficient because the compiler may keep values in registers or remove variables entirely. The kernel preserves the architecture-defined execution context needed to resume correctly. A context switch may also change the active address-space context when the new stream belongs to another process. That is different from a function call, whose calling convention divides preservation duties between caller and callee. Do not diagnose a context-switch error by assuming every source variable occupies one stack slot.",
+      "actions": [
+        "Ask learners to answer the question with a concrete state or calculation before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch21.json → SP21.008: 21.3 CPU context",
+      "question": {
+        "prompt": "Why is saving an integer array of source variables not a complete context switch?",
+        "answer": "Execution also depends on instruction location, stack state, flags, and other architecture-defined register state."
+      }
+    },
+    {
+      "title": "CPU time and elapsed time answer different questions",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "concept",
+      "keyPoints": [
+        "A uses 3 units of CPU across 8 elapsed units",
+        "B executes while A waits",
+        "Utilization needs an explicit observation interval"
+      ],
+      "narration": "In the chapter’s model, A runs from time zero to two, waits until seven, then runs until eight. B runs from two to six. The processor is idle from six to seven, so useful CPU work totals seven units during eight elapsed units: eighty-seven point five percent utilization. A’s own CPU time is only three units, although its completion takes eight. These are model units under stated assumptions, not measurements from our machine. Changing the I/O duration changes elapsed time without changing A’s required computation. When comparing real programs, report whether a number measures wall time, one process’s CPU time, or total CPU work across workers.",
+      "actions": [
+        "Ask learners to answer the question with a concrete state or calculation before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch21.json → SP21.018: Worked example — A scheduling model with waiting",
+      "question": {
+        "prompt": "Does A’s eight-unit completion imply eight units of CPU work?",
+        "answer": "No. Five units are waiting; A performs only three units of CPU work."
+      }
+    },
+    {
+      "title": "Isolation permits deliberate communication",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "concept",
+      "keyPoints": [
+        "Equal address numbers can name different storage",
+        "Shared mappings and descriptors require explicit contracts",
+        "A pointer is not a portable cross-process identifier"
+      ],
+      "narration": "The number three can be a descriptor for a log in one process and a socket in another. Likewise, the same virtual address can map unrelated physical storage. Sending either number to another process does not automatically transfer the resource it names. An intentional communication channel needs a representation and a lifetime rule. For shared regions, an offset from a known base can be meaningful even when each process maps the region at a different address. Isolation also does not prevent competition for processor time or memory bandwidth. Separate what processes may directly access from which physical resources they compete to use.",
+      "actions": [
+        "Ask learners to answer the question with a concrete state or calculation before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch21.json → SP21.010: 21.4 Address space",
+      "question": {
+        "prompt": "Does sending a numeric pointer to another process make the pointed-to object available there?",
+        "answer": "No. Its meaning depends on the sender’s mappings and object lifetime; the receiver needs an explicit shared representation."
+      }
+    },
+    {
+      "title": "Process completion includes collecting the result",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "concept",
+      "keyPoints": [
+        "Termination ends execution",
+        "Waiting collects child status",
+        "Resource ownership continues across error paths"
+      ],
+      "narration": "A child can finish before its parent looks at the result. The kernel retains enough termination information for the parent to collect it; that remaining record is often called a zombie. It is not a hidden worker still executing the old program. Our fork demonstration waits for the exact child and checks that termination was normal before reading an exit code. This ordering matters because a signal termination has a different status representation. In a server that repeatedly launches children, forgetting collection can accumulate records even when every child’s work completed. Review creation and collection as one lifecycle, including error and cancellation paths.",
+      "actions": [
+        "Ask learners to answer the question with a concrete state or calculation before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch21.json → SP21.006: 21.2 Process state",
+      "question": {
+        "prompt": "Why check WIFEXITED before WEXITSTATUS?",
+        "answer": "The exit-code interpretation applies to normal exit; termination by a signal has different status information."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Scheduling policy cannot repair a missing event",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "concept",
+      "keyPoints": [
+        "Investigate blocking before increasing priority",
+        "Context-switch cost depends on workload and hardware",
+        "Caches are not universally emptied by every switch"
+      ],
+      "narration": "If a worker waits for a client request that has not arrived, a higher scheduling priority cannot manufacture that input. If many workers are runnable, priorities instead decide who receives scarce execution time. Context switches also have indirect costs because the newly running work may use different cache lines or translations. That does not mean every switch flushes every cache. Hardware and kernel mechanisms vary, and some state remains useful. For maintenance, collect evidence about runnable demand, actual execution, and reasons for blocking before adjusting thread counts. A single average CPU percentage cannot explain which of these limits dominates.",
+      "actions": [
+        "Ask learners to answer the question with a concrete state or calculation before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch21.json → SP21.016: 21.7 Scheduling",
+      "question": {
+        "prompt": "Why can a low-CPU server still have slow requests?",
+        "answer": "Its requests may spend most elapsed time waiting for I/O, locks, clients, or other events rather than executing."
+      }
+    },
+    {
+      "title": "Defend a process model with explicit invariants",
+      "eyebrow": "SYSTEMS / CHAPTER 21",
+      "kind": "concept",
+      "keyPoints": [
+        "Separate program identity, execution state, and resources",
+        "Keep one CPU owner in the one-core model",
+        "Test rejection as well as successful transitions"
+      ],
+      "narration": "A useful process explanation follows four things: which program image is installed, what mappings and resources belong to the process, which thread can run, and what event changes its state. The source example introduces ready, running, and waiting with strings; the lab improves their representation with an enum. Our added dispatcher also tracks processor ownership. None is a complete kernel scheduler. Each model should say which rules it enforces and which it leaves to its caller. Extend the model by adding two CPUs only after stating whether each task may run on one CPU at a time. Otherwise an extra enum value can hide a broken ownership rule.",
+      "actions": [
+        "Ask learners to answer the question with a concrete state or calculation before revealing the explanation."
+      ],
+      "sourceRef": "content/systems-programming/ch21.json → SYS21.12: Exercise 6: Justify the boundary",
+      "question": {
+        "prompt": "What regression test catches a wakeup incorrectly taking over B’s CPU?",
+        "answer": "Wake A while B remains running; verify A is ready and the CPU owner is still B."
+      }
+    }
+  ]
+}

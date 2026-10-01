@@ -1,0 +1,824 @@
+Design Patterns in C++
+Chapter 15: Iterator — positions, boundaries, and valid traversal
+Dr. Charles Dorner
+
+1. The report needs values, not the storage plan
+Problem and first design
+
+SAY
+A measurement log contains four and nine. One report needs their sum; another is still examining the first reading. We could give both reports the whole vector. That is easy today, but each report could start depending on indexing, contiguous storage, or the ability to change the vector. If the log later uses chunks, those assumptions become obstacles. The needed behavior is smaller: ask whether traversal is finished, read one value, and advance. An iterator is a separate object that holds this traversal position. The chapter calls its teaching interface Cursor. First we will see why an ordinary vector loop is enough until storage independence becomes a real requirement.
+
+DO
+Ask two learners to point at different readings without changing the log.
+
+SOURCE
+manuscript/ch15.json → The problem: callers need readings, not storage details
+
+------------------------------------------------------------
+
+2. Use the existing container when its contract fits
+Problem and first design
+
+SAY
+The shortest reasonable report uses a vector and a range-based for loop. In for followed by int value, a colon, and readings, the colon separates the element declaration from the range being visited. Each integer is copied into value, then added to total. The collection itself does not change. The result is thirteen. This is already a sound use of iteration supplied by the standard library; writing a custom Cursor would not improve this tiny program. Our later wrapper is justified by a different public contract: reports should not know that the storage is a vector, and mutation should have an explicit checked policy. Keep the baseline as a reference when judging that added complexity.
+
+DO
+Predict thirteen and Run.
+Explain the colon at the point where it first appears.
+
+SOURCE
+Lecture demonstration for manuscript/ch15.json → The problem: callers need readings, not storage details
+
+------------------------------------------------------------
+
+3. A single position cannot serve independent readers
+Problem and first design
+
+SAY
+Imagine placing a current_index member directly in the measurement log and letting every report use it. The first report advances, and the second unexpectedly starts at nine instead of four. The data did not change; the reports accidentally shared their progress. That is the pressure for a separate position object. Each Cursor contains its own index while borrowing the same Readings owner. Copying a cursor copies the position, so advancing the copy leaves the original alone. This does not mean the data was copied. The design separates two kinds of state: values owned by the collection and progress owned by each traversal. That separation lets reports compose without resetting one another.
+
+DO
+Trace one cursor to nine while leaving its copy at four.
+
+SOURCE
+manuscript/ch15.json → Separate a collection from a position within it
+
+------------------------------------------------------------
+
+4. An in-range index can still belong to stale work
+Problem and first design
+
+SAY
+This controlled model keeps a copied index rather than a standard vector iterator, so no invalid iterator is dereferenced. Before the append, index zero refers to four and the saved generation is two. After adding twelve, index zero is still within bounds and at still returns four. Yet the saved generation no longer matches. Under the chapter's chosen policy, the old traversal is stale because any successful append ends it. A bound check alone cannot enforce that rule. The word stale means an old view of a changed collection, not necessarily a missing element. Later we place the version comparison inside every public cursor operation so callers cannot forget it.
+
+DO
+Predict the three output lines before running this safe model.
+
+SOURCE
+Lecture demonstration for manuscript/ch15.json → A changed collection makes old cursors stale
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+A checked cursor over a readings log. Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.
+
+Visit readings in insertion order and support independent positions. Make empty/end behavior explicit. Reject cursor operations after a successful append.
+
+The owner must remain alive and in place while a cursor is used. A live cursor index is at most the number of readings. A version mismatch is rejected before data access. An end position is never read as an element. These are the rules that define a correct extension, even if it has the right C++ types. Expose a vector const_iterator if the public contract can depend on vector rules. Own a snapshot if scans must survive later edits or owner destruction. A snapshot gives stability in exchange for copying and storage costs.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json
+
+------------------------------------------------------------
+
+6. The problem: callers need readings, not storage details
+Requirements and mechanism
+
+SAY
+A measurement log stores a sequence of integer readings. A report must visit the readings in insertion order and compute their total. The simplest loop uses a vector directly, and that is often the best answer when the vector is already part of the public design. The new constraint is that reports should not depend on the storage layout. The log may later use chunks, a file cache, or a filtered view. Reports also need independent positions: one view may be examining the first reading while another has reached the second.
+
+Giving every caller a reference to the internal vector exposes more than traversal. Callers can start depending on contiguous memory, indexing, and mutation details. Copying the entire vector into every report hides storage but can waste memory when readings are numerous. We need a small object that remembers a position and provides the next value without handing over the container. That object is an iterator. The teaching implementation calls it Cursor to emphasize its explicit done, read, and next operations.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → The problem: callers need readings, not storage details
+
+------------------------------------------------------------
+
+7. Separate a collection from a position within it
+Requirements and mechanism
+
+SAY
+Readings owns its vector and a version number. Cursor borrows the Readings object, stores the version seen at creation, and starts its own index at zero. The collection therefore holds data while each cursor holds traversal state. Copying a cursor copies its position and saved version but still refers to the same owner. Advancing the copy does not advance the original. In the example, one cursor moves to nine while an independent copy still reads four.
+
+The nested class declaration places Cursor inside Readings as part of its interface. A nested class can access the enclosing class private members through an object; it does not carry an implicit enclosing object by magic. owner_ provides that actual object. const Readings& prevents the cursor from modifying the owner through that reference. It does not prevent other code from calling append on the original non-const collection. That distinction is why a read-only reference does not make a changing collection safe by itself.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → Separate a collection from a position within it
+
+------------------------------------------------------------
+
+8. An end position exists, but it is not an element
+Requirements and mechanism
+
+SAY
+For two readings, legal traversal positions are index zero, index one, and index two as the end marker. done reports true at index two. There is no third reading to return. read calls vector.at, which checks the bound and throws std::out_of_range when asked for the end element. next also rejects an attempt to step beyond end. Empty collections begin at end, so the same loop works without a special branch in the report.
+
+The report loop checks !scan.done before calling read. The exclamation mark means not: it enters the body only while the cursor is not at end. After reading, scan.next advances one position. read returns int by value, so the report receives an independent copy. An element reference could avoid copying a large object, but that reference would introduce its own invalidation and lifetime rules. A copied integer keeps this first traversal interface honest and small. The cursor still borrows the collection and must not outlive it.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → An end position exists, but it is not an element
+
+------------------------------------------------------------
+
+9. A changed collection makes old cursors stale
+Requirements and mechanism
+
+SAY
+Invalidation means that an operation has ended a cursor validity under its documented rules. This implementation chooses a strict policy: every successful append invalidates every existing cursor, even if the vector happened to have spare capacity. append first checks that the version counter can be increased without wrapping, then appends the value, then increases the version. If vector growth fails, neither the collection contents nor the version is committed by this append of an integer. A cursor compares its captured version with the current version before done, read, or next proceeds.
+
+A stale cursor is different from a cursor at end. End is a valid position in an unchanged collection. Stale means the view no longer matches the collection generation, even if its numeric index remains within bounds. Merely using at would detect a bad index but would not detect a changed traversal contract. The program checks this difference by creating a cursor, appending twelve, and rejecting use of the old cursor. Version exhaustion is rejected instead of wrapping to an old number that might make a stale cursor look current.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → A changed collection makes old cursors stale
+
+------------------------------------------------------------
+
+10. A safety check cannot bring a dead owner back
+Requirements and mechanism
+
+SAY
+The version check reads owner_.stamp_. If the Readings object has already been destroyed, even that first read would use a dangling reference. The check therefore protects against documented mutation while the owner is alive; it is not a general lifetime detector. main declares the collection first and all cursors later, so the collection outlives them. Copy and assignment of Readings are deleted in this example, and it has no implicit move operation. Its identity stays fixed while cursors borrow it.
+
+Alternative designs make different promises. A snapshot cursor could own a copy of the values, remain valid after append, and cost more memory. A cursor holding shared ownership of an immutable collection can extend lifetime without copying its data. Standard-library containers already supply carefully specified iterators; use them when their contracts fit. This Cursor deliberately does not claim to model a standard C++ iterator category: it lacks operator*, operator++, comparison, and the related type information. It teaches the separation of traversal state from storage without pretending to work with every standard algorithm.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → A safety check cannot bring a dead owner back
+
+------------------------------------------------------------
+
+11. Choose traversal features from the reporting problem
+Requirements and mechanism
+
+SAY
+A forward scan is enough for the total. The lab introduces a real new need: show the newest readings first. Its reverse cursor stores the number of elements still available and reads the element at remaining minus one. It checks for zero before subtracting, because size_t is unsigned and zero minus one would wrap to a huge value. Forward and reverse cursors follow the same version policy, so a caller does not need to guess which mutation rules apply.
+
+The primary tests establish behavior for a small deterministic collection, an empty collection, independent positions, end access, end advancement, and stale access. They do not prove thread safety. Concurrent append and read without synchronization can create a data race; a version integer is not a lock. A real reporting subsystem should either prevent concurrent edits during a scan, take a stable snapshot, or define synchronization around both data and cursor checks. The traversal interface makes that choice easier to review, but cannot make it disappear.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → Choose traversal features from the reporting problem
+
+------------------------------------------------------------
+
+12. A nested type still needs an actual owner
+Mechanism in C++
+
+SAY
+Cursor is declared inside Readings, which makes it a nested class. That placement grants access to the enclosing class's private members, but it does not magically provide a particular Readings object. The owner_ reference supplies that object. The const in const Readings& prevents the cursor from modifying the owner through this reference. It does not stop other code from calling append on a non-const Readings. Cursor also stores the generation it saw at creation and its own index. The compiler checks access and const rules when building the program. It cannot know whether someone will append later, so comparing generations is a runtime responsibility.
+
+DO
+Separate owner identity, saved generation, and current index on the board.
+
+SOURCE
+manuscript/ch15.json → Separate a collection from a position within it
+
+------------------------------------------------------------
+
+13. End is a position, not a hidden last element
+Mechanism in C++
+
+SAY
+With two readings, zero and one select values. Two is the valid end position and selects no value. This extra position lets a loop stop without special knowledge of the last element. An empty collection starts at end immediately. The chapter's loop tests not done before reading, then advances once. The exclamation mark negates the boolean result: enter only while not finished. read uses at, so reading end throws instead of accessing unchecked memory. next rejects another advance from end. These are explicit contracts of the teaching Cursor, not a claim that every library iterator permits the same operations or throws the same errors.
+
+DO
+Trace empty and two-element loops using the same control flow.
+
+SOURCE
+manuscript/ch15.json → An end position exists, but it is not an element
+
+------------------------------------------------------------
+
+14. Commit the collection change before the new version
+Mechanism in C++
+
+SAY
+The generation records successful collection changes. append first checks whether increasing the counter would exhaust its range. It then adds the integer to the vector, and only after success increases stamp_. If allocating more vector storage fails for this integer append, the contents and generation remain as they were. Incrementing first could invalidate cursors even though no append took place. Letting the counter wrap creates the opposite risk: an ancient cursor could accidentally match a repeated number. The strict policy does not depend on vector capacity. Even an append that uses spare memory makes all old cursors stale. That predictable rule is easier to explain than an accidental dependency on allocation behavior.
+
+DO
+Ask learners to distinguish the wrapper’s contract from vector’s own iterator rules.
+
+SOURCE
+manuscript/ch15.json → A changed collection makes old cursors stale
+
+------------------------------------------------------------
+
+15. A version number cannot resurrect an owner
+Mechanism in C++
+
+SAY
+validate compares two numbers, but one number lives inside owner_. If that object has died, even performing the safety check is already invalid. The version mechanism therefore checks mutation while the owner is alive; it is not a lifetime detector. In main, Readings is declared before the cursors so its lifetime extends beyond theirs. The class also rejects copying and assignment, which keeps its identity simple and suppresses an implicit move in this design. None of this makes concurrent reads and appends safe. Two threads still need a shared synchronization rule around the data and checks. A snapshot or immutable shared owner changes these guarantees, but also changes cost and ownership.
+
+DO
+Identify the first owner access in validate, not just the later element read.
+
+SOURCE
+manuscript/ch15.json → A safety check cannot bring a dead owner back
+
+------------------------------------------------------------
+
+16. Reverse traversal needs a careful zero boundary
+Mechanism in C++
+
+SAY
+The reverse extension answers a new reporting need: show the newest reading first. It stores how many elements remain. With three readings, remaining is three, so the first index is two; next reduces the count to two. At zero there is no next index to compute. size_t is unsigned, so zero minus one wraps to a very large value instead of becoming a useful negative index. The source therefore checks done before subtracting. This design is not just the forward loop written backward. Its state meaning differs, while lifetime, stale-generation checking, and end rejection stay consistent. Keeping those shared rules makes future reporting features easier to test and explain.
+
+DO
+Trace remaining values 3, 2, 1, 0 beside indices 2, 1, 0.
+
+SOURCE
+manuscript/ch15.json → Choose traversal features from the reporting problem
+
+------------------------------------------------------------
+
+17. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Collection → Readings. Own elements and supply a new compatible traversal object. Both keep their vector representation private.
+
+Concrete iterator → Readings::Cursor. Remember one traversal position and implement the operations for reading, advancing, and detecting completion.
+
+Iterator protocol → done, read, next. Describe how a client visits elements. These examples use concrete C++ APIs rather than a separate virtual iterator base.
+
+Client → main scan loop. Consume values through traversal operations. The client must check completion before reading an element.
+
+Element → int readings. Hold the visited value. Element type and traversal position are different things.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → C15.08 concepts
+
+------------------------------------------------------------
+
+18. Two cursor positions, one owner
+UML and source walkthrough
+
+SAY
+Only the collection-to-elements edge means ownership. Both cursor dependencies borrow the same Readings object, but each cursor has its own index and version value. Copying a cursor does not copy the readings or create shared ownership. The two iterator nodes are distinct Cursor instances. They share the collection, not their traversal positions.
+
+Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.
+
+Callers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch15/main.cpp:1-89; content/design-patterns-cpp/ch15.json → diagrams.15
+
+------------------------------------------------------------
+
+19. Iterator — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.
+
+Callers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch15/main.cpp:1-89; content/design-patterns-cpp/ch15.json → diagrams.15
+
+------------------------------------------------------------
+
+20. Check the captured generation
+UML and source walkthrough
+
+SAY
+This guard detects a collection change while its owner is still alive. done and read call it; next reaches it through done. An in-range index does not prove that a cursor still belongs to the same view.
+
+Define a read-only validity check for this cursor. The comment states that a collection change ends the view. Compare the saved generation with the owner current generation. Begin creating and throwing a logic error for a mismatch. Give the error its stale-cursor message and finish the throw. Close the mismatch branch. Close the guard and label its boundary.
+
+The owner must outlive this guard, and every successful append must increase its version. Removing the generation check allows silent use after an append; it cannot detect a destroyed owner.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch15/main.cpp:25-31
+
+------------------------------------------------------------
+
+21. Return a checked value
+UML and source walkthrough
+
+SAY
+The caller receives an independent integer from the current position. The report calls read only after checking done. Returning by value avoids exposing an element reference and its lifetime.
+
+Define a read-only operation returning an integer value. The comment explains that the element is copied out. Check that the collection version still matches. Use checked vector access and copy the resulting integer. Close the read operation.
+
+Validate before reading; the index must denote an element, not end. Replacing at with unchecked indexing removes the defined end-read rejection.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch15/main.cpp:39-43
+
+------------------------------------------------------------
+
+22. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Cursor stores only a borrowed owner, saved version, and index. Readings keeps its representation private and refuses copying or moving that could complicate its identity. Values are copied out.
+
+The executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested.
+
+Callers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch15/main.cpp
+
+------------------------------------------------------------
+
+23. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. Empty: index=0, size=0.. done is true; read is rejected because there is no element.
+
+Step 2. After appending 4 and 9: version=2.. New cursors capture two and begin at index zero.
+
+Step 3. cursor index=1; independent index=0.. Advancing one cursor does not alter the copied position.
+
+Step 4. Scan sees 4, then 9, then end.. The running total becomes thirteen.
+
+Step 5. Append 12: version=3; old saved version=2.. Old operations are rejected before accessing an element.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → trace
+
+------------------------------------------------------------
+
+24. Debug the promise: Treat a bounds check as a complete validity check.
+Execute and debug
+
+SAY
+Treat a bounds check as a complete validity check. An old cursor can continue after append even though the promised fixed view has ended. Its index may still be in bounds; validity also depends on collection generation.
+
+The executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested.
+
+Callers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → example.failures
+
+------------------------------------------------------------
+
+25. Debug the promise: Keep a cursor after its owner leaves scope.
+Execute and debug
+
+SAY
+Keep a cursor after its owner leaves scope. Even done() accesses a dead object; the behavior is undefined. A borrowed reference does not own or extend the collection lifetime.
+
+The executable checks an empty cursor, checked end reads and advances, independent copied positions, the total thirteen, and rejection after append. Version-counter exhaustion is guarded in code but is not forced by the public-interface tests. No concurrent behavior is tested.
+
+Callers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → example.failures
+
+------------------------------------------------------------
+
+26. Trace 1: Iterator: Forward first
+Trace experiments
+
+SAY
+Iterator: Forward first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A new cursor starts at the first stored element.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → dpx-c15-trace-1; companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 2: Iterator: Forward second
+Trace experiments
+
+SAY
+Iterator: Forward second. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+One next advances by one element.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → dpx-c15-trace-2; companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 3: Iterator: Independent cursor copy
+Trace experiments
+
+SAY
+Iterator: Independent cursor copy. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Copying a cursor copies its position; advancing one does not move the other.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → dpx-c15-trace-3; companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 4: Iterator: Stale forward cursor
+Trace experiments
+
+SAY
+Iterator: Stale forward cursor. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Appending changes the owner’s version and invalidates the old view.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → dpx-c15-trace-4; companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 5: Iterator: Reverse first
+Trace experiments
+
+SAY
+Iterator: Reverse first. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Reverse traversal starts at the last stored element.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → dpx-c15-trace-5; companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 6: Iterator: Reverse second
+Trace experiments
+
+SAY
+Iterator: Reverse second. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+One reverse step reaches the previous element, not the end yet.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → dpx-c15-trace-6; companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 7: Iterator: Empty reverse
+Trace experiments
+
+SAY
+Iterator: Empty reverse. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A zero-length collection has no reverse element to read.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → dpx-c15-trace-7; companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+33. Trace 8: Iterator: Stale reverse cursor
+Trace experiments
+
+SAY
+Iterator: Stale reverse cursor. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Reverse cursors obey the same owner-version rule as forward cursors.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → dpx-c15-trace-8; companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+34. Exercise 15.1: Guided modification
+Practice and extension
+
+SAY
+Add a third reading, six, before creating the primary scan. What total should the scan check?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Only add values before the new cursor is created.
+
+After the discussion, compare the reasoning. The scan total is nineteen: four plus nine plus six. Any cursor created before the append becomes stale, so create the scan after all three insertions.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch15.json → exercises.15.1
+
+------------------------------------------------------------
+
+35. Exercise 15.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+For readings [2,5], let a=readings.cursor(); let b=a; call a.next(); then print b.read(), a.read(), b.done(). Give the values.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Each cursor keeps its own index.
+
+After the discussion, compare the reasoning. The values are 2, 5, and false, printed as 0 by default stream formatting. Copying b preserved index zero while a moved to index one.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch15.json → exercises.15.2
+
+------------------------------------------------------------
+
+36. Exercise 15.3: Diagnose a bug
+Practice and extension
+
+SAY
+A loop runs read() before checking done(). What happens for an empty Readings object in this implementation?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Check the operation used inside read.
+
+After the discussion, compare the reasoning. vector.at(0) throws std::out_of_range. No value is produced. Move the done check before read; do not special-case emptiness by inventing a zero reading.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch15.json → exercises.15.3
+
+------------------------------------------------------------
+
+37. Exercise 15.4: Choose a design
+Practice and extension
+
+SAY
+A long report must see the original readings even while new readings arrive. Choose strict invalidation or a snapshot and explain the cost.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The report needs stability, not an error after the first append.
+
+After the discussion, compare the reasoning. A snapshot matches that requirement because it keeps the original view. It costs copied data or shared immutable storage. Strict invalidation is simpler for single-threaded scans but interrupts the required report.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch15.json → exercises.15.4
+
+------------------------------------------------------------
+
+38. Exercise 15.5: Extend without regressions
+Practice and extension
+
+SAY
+Implement reverse traversal with the same invalidation rule. What must happen for an empty log and after append?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Guard zero before subtracting from an unsigned count.
+
+After the discussion, compare the reasoning. An empty reverse cursor is done immediately. read and next at end throw. Any later append makes old reverse cursors stale. The lab solution visits 12, 9, 4 and checks these cases.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch15.json → exercises.15.5
+
+------------------------------------------------------------
+
+39. Exercise 15.6: Justify a decision
+Practice and extension
+
+SAY
+Write a review comment explaining why the version field does not make concurrent append and read safe.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Both the vector and version are ordinary unsynchronized state.
+
+After the discussion, compare the reasoning. The check detects a sequential contract violation; it does not serialize access. A writer can race with the check or data access. Use a lock, a stable snapshot, or another explicit concurrency design around the entire operation.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch15.json → exercises.15.6
+
+------------------------------------------------------------
+
+40. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add ReverseCursor and reverse_cursor() without exposing values_. Visit newest to oldest; return integers by value. Match forward rules for owner lifetime, stale checks, end reads, and end advancement. Keep all primary tests.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: For [4,9,12], reverse reads 12,9,4, then done. Reading reverse end throws; an empty reverse cursor is done. Appending after creation makes reverse done reject the old cursor.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch15/main.cpp
+
+------------------------------------------------------------
+
+41. Extension solution and design review
+Practice and extension
+
+SAY
+The solution stores remaining_ initialized to the collection size, checks for zero, reads remaining_-1, and decrements on next. It uses the same captured version policy. A signed index could also work, but would require clear size conversion and lower-bound handling.
+
+Callers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch15/main.cpp
+
+------------------------------------------------------------
+
+42. Application case 1: defend your choice
+Practice and extension
+
+SAY
+Clients need independent traversal positions without seeing a collection’s storage. Which role fits?
+
+Factory Method. A creation hook does not explain advancing through elements.
+
+Facade only. A coordination entry point does not define traversal state.
+
+Iterator. A cursor exposes traversal while hiding the representation.
+
+Mediator. Coordinating peers is a different responsibility.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → C15.22 scenario
+
+------------------------------------------------------------
+
+43. Application case 2: defend your choice
+Practice and extension
+
+SAY
+A Cursor is still within bounds after Readings::append, but its saved version differs from the owner. What should happen?
+
+Delete the owner through the cursor. The cursor only borrows the collection.
+
+Copying the cursor restores its validity. A copy keeps the same stale owner version.
+
+Continue because the index is in range. Append deliberately invalidates saved versions in this example.
+
+Reject the stale cursor under this fixed-view contract.. Bounds alone do not establish that the traversal is still valid.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch15.json → C15.23 scenario
+
+------------------------------------------------------------
+
+44. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+A cursor owns its position, not necessarily its collection. End is a valid position with no readable element. Bounds and generation are separate checks. Read-only access does not freeze other access paths. Custom traversal interfaces should not claim standard-iterator compatibility without meeting its requirements.
+
+Callers depend on a traversal contract instead of vector storage. Future representation changes must preserve order, lifetime, and invalidation semantics or deliberately revise that contract.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch15.json → summary
+
+------------------------------------------------------------
+
+45. Custom Cursor or standard iterator?
+Recall and transfer
+
+SAY
+The custom Cursor teaches independent traversal and a deliberately checked mutation policy. It does not implement the standard iterator operations, comparisons, and type information expected by ordinary standard-library algorithms. Naming something an iterator does not make it usable by every algorithm. If a vector is already the intended public representation, its existing iterators are usually the simpler choice. If a report must survive later appends, a copied snapshot may be more useful than rejecting stale access, at the cost of copied data. Shared immutable storage can reduce copying while extending lifetime. Compare these options by the report's consistency and ownership needs before judging their syntax.
+
+DO
+Ask which report requirement justifies snapshot cost.
+
+SOURCE
+manuscript/ch15.json → A safety check cannot bring a dead owner back
+
+------------------------------------------------------------
+
+46. Three failures need three different tests
+Recall and transfer
+
+SAY
+Do not collapse every traversal failure into out of range. At end, the owner is alive and unchanged, but no element occupies the current position. A stale cursor may still have index zero, yet its generation contract has ended. A dangling cursor has no valid owner to inspect and must be prevented by design, not demonstrated by executing undefined behavior. The chapter tests empty input, independent positions, end reads, end advancement, and mutation rejection. When adding reverse traversal, repeat the contract tests for that direction rather than checking only the printed reverse order. A sequence that prints twelve, nine, four can still mishandle empty input or wrap after the last element.
+
+DO
+Ask learners to name a safe test for each documented condition.
+
+SOURCE
+manuscript/ch15.json → Choose traversal features from the reporting problem
+
+------------------------------------------------------------
+
+47. Describe the boundary between data and travel
+Recall and transfer
+
+SAY
+Explain Iterator without starting from pointer syntax. A collection keeps values. A small separate object remembers where one caller is in those values and provides a limited way to visit them. Two callers can move independently without seeing the collection's internal layout. Then explain the chapter's additional rules: append ends existing views, end is not an element, and the owner must remain alive. Transfer this to paged records from a file cache. A cursor could remember a page and offset, but the report could still ask for the next reading. Storage independence is useful only if the public traversal contract remains clear about failures, freshness, and cost.
+
+DO
+Have learners explain a chunked-storage change without exposing vector operations.
+
+SOURCE
+manuscript/ch15.json → The problem: callers need readings, not storage details

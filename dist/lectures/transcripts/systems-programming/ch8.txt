@@ -1,0 +1,719 @@
+Systems Programming and Machine Organization
+Chapter 8: Process Memory Layout: storage duration, mappings, and startup input
+Dr. Charles Dorner
+
+1. A process map is useful without being a fixed picture
+Problem and first experiment
+
+SAY
+The familiar picture of code, static data, heap, and stack helps organize questions, but a real process can also contain shared libraries, mapped files, thread stacks, guard regions, and several allocator regions. The loader and operating system establish a virtual address space, not a promise that every run uses the same numeric addresses. Address-space randomization is one reason layouts can differ. Start by identifying a region's purpose, permissions, and lifetime rather than memorizing a vertical diagram. A source declaration can tell us an object's storage duration, but usually not its final numeric address or whether all mapped pages are currently resident in physical memory.
+
+DO
+Ask learners to separate conceptual region names from measured numeric addresses.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.001 / Chapter 8 — Process Memory Layout
+
+------------------------------------------------------------
+
+2. Uninitialized static data still begins in a defined state
+Problem and first experiment
+
+SAY
+The conventional BSS name is often described as uninitialized data, which can mislead beginners. A static-duration integer without an explicit initializer still begins with the language's required zero state. An automatic local integer without an initializer does not gain that same guarantee. The executable can describe a zero-filled region without storing every zero byte literally in the file, so the memory image can be larger than the corresponding stored bytes. This is one reason file size is not a direct measure of live process memory. Keep the language initialization rule, the executable representation, and the eventual mapping as related but distinct explanations.
+
+DO
+Compare storage duration before discussing customary section placement.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.010 / 8.4 Uninitialized data
+
+------------------------------------------------------------
+
+3. Predict duration before guessing placement
+Problem and first experiment
+
+SAY
+The first line prints global zero=0 because the global integer has static storage duration and zero initialization. Each call to visit creates a new automatic local initialized to zero, so incrementing it prints local=1 both times. retained is a static local: its name is local to visit, but its object persists between calls. It prints one and then two. We have shown lifetime and initialization relationships without printing addresses or claiming exact sections. A compiler could choose different physical representations while preserving these required outputs. This distinction is more useful than labeling every local as a permanent stack slot, especially once optimization enters the picture.
+
+DO
+Predict all three lines and label each object’s storage duration.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch8.json → SP08.020 / Worked example — Predicting placement without assuming addresses
+
+------------------------------------------------------------
+
+4. A numeric prefix is not a validated startup option
+Problem and first experiment
+
+SAY
+These fixed test strings model text supplied as a command-line option; the demonstration does not inspect your actual command line or environment. from_chars reports both an error code and where parsing stopped. Twelve is accepted and prints twelve. Twelve followed by x is rejected because parsing did not consume the whole string. Zero is syntactically numeric but violates the allowed range. Negative one is rejected for this unsigned-count grammar. The outputs show why syntax and semantic bounds are separate checks. Startup input can influence later allocation and loops, so validate it once near the boundary before converting it into trusted configuration.
+
+DO
+Predict the accepted case and name the different rejection reasons before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch8.json → SP08.016 / 8.7 Command-line arguments
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Keep a heap-allocated integer alive after a temporary pointer variable leaves its block.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Create a unique owner in a factory function, return it, move it to a second owner, and show the original owner is empty afterward.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Returning the address of an ordinary local int would not transfer its lifetime. That object would die on return.
+
+A related failure in the generalized operation is concrete: Return the address of a local int from the factory. It points at an object whose lifetime ends when the function returns.
+
+The repair changes the operation at the point where the rule can be enforced: Return the value itself when ownership is unnecessary, or return an owning handle for a separately allocated object. A raw address cannot extend lifetime.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The allocated int and the local unique_ptr are different objects. Returning the owner transfers responsibility without returning the address of a dying local int. std::move allows transfer; the unique_ptr operation performs it. The second owner releases the int when its scope ends, including during stack unwinding.
+
+A plausible alternative: An ordinary local int is sufficient when no lifetime needs to cross a scope boundary.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.03
+
+------------------------------------------------------------
+
+8. Chapter 8 — Process Memory Layout
+Systems mechanisms and source lecture
+
+SAY
+A process sees a virtual address space containing mappings with different purposes and permissions. The familiar picture of code, data, heap, and stack is useful, but it is a conceptual map rather than a universal fixed arrangement. Shared libraries, thread stacks, mapped files, guard pages, and allocator regions make real layouts more complex.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.001, SP08.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+8.1 Code/text segment 8.2 Read-only data 8.3 Initialized data 8.4 Uninitialized data ...plus 8 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.003
+
+------------------------------------------------------------
+
+10. Code/text segment
+Systems mechanisms and source lecture
+
+SAY
+The text region contains executable instructions. In an ELF file, sections organize linking information while loadable segments describe mappings needed at execution time. Several sections can contribute to one segment. Do not confuse a linker section name with a complete runtime mapping. Executable mappings are commonly readable and executable but not writable. This limits accidental modification and supports security policy. A function’s instructions may be shared physically among processes running the same executable while each process retains its own virtual mappings and private writable state. The sharing is below the source-level function abstraction.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.004, SP08.005
+
+------------------------------------------------------------
+
+11. Read-only data
+Systems mechanisms and source lecture
+
+SAY
+Read-only regions commonly hold constants, string literals, and tables that need not change. A string literal’s storage must not be modified through an ordinary program operation. In C, historical syntax may allow a pointer assignment that does not itself enforce that rule; the attempted modification is still invalid. A const object is not guaranteed to appear in a particular read-only section. It may be automatic, optimized away, embedded into instructions, or stored elsewhere according to its use. The language’s const qualification and the operating system’s page permissions are related design tools, not identical mechanisms.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.006, SP08.007
+
+------------------------------------------------------------
+
+12. Initialized data
+Systems mechanisms and source lecture
+
+SAY
+Writable objects with static storage duration and explicit nonzero initial values commonly contribute to an initialized-data region. Their initial bytes are described by the executable or its loading process. Each process can then modify its private copy according to the mapping rules. A global counter initialized to seven is logically initialized before ordinary application use, but the exact startup work can differ for C++ objects requiring dynamic initialization. Separate the initial byte image from constructors and runtime initialization. A complex global object’s readiness may depend on code that runs before main .
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.008, SP08.009
+
+------------------------------------------------------------
+
+13. Uninitialized data
+Systems mechanisms and source lecture
+
+SAY
+The conventional BSS region represents static-duration storage that begins zero-initialized without requiring every zero byte to be stored literally in the executable file. “Uninitialized data” is therefore a misleading everyday label: these objects do receive the language’s required initial state. An automatic local integer without an initializer is different. Its value is not made zero merely because a global integer would be. The storage-duration distinction matters more than whether the source visibly contains = 0 . The loader and runtime can efficiently establish zero-filled pages for large static regions.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.010, SP08.011
+
+------------------------------------------------------------
+
+14. Heap
+Systems mechanisms and source lecture
+
+SAY
+The heap is a conventional name for dynamically managed storage. A user-space allocator may obtain regions from the operating system through several mechanisms and divide them into allocations. Large allocations may use separate mappings rather than one continuously growing area. Calling malloc does not necessarily trigger a system call, and calling free does not necessarily return pages immediately to the operating system. The allocator can retain free blocks for reuse. Consequently, a process’s resident memory may remain high after application objects are released. Distinguish live allocations, allocator-retained storage, mapped address space, and resident physical pages.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.012, SP08.013
+
+------------------------------------------------------------
+
+15. Stack
+Systems mechanisms and source lecture
+
+SAY
+A thread’s stack supports call state and automatic storage that the compiler chooses to place there. On the reference ABI it conventionally grows toward lower addresses. Optimized functions can omit frame pointers, keep values in registers, or use other layouts permitted by the ABI. Each thread needs its own execution stack. Stack capacity is finite, and guard mappings can detect some growth beyond its boundary. Large automatic arrays and deep recursion can exhaust it. A stack overflow is not reliably recoverable by ordinary code that needs the same exhausted stack to run its error path.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.014, SP08.015
+
+------------------------------------------------------------
+
+16. Command-line arguments
+Systems mechanisms and source lecture
+
+SAY
+Program startup provides an argument count and an array of pointers to strings. In the usual main(int argc, char* argv[]) form, valid argument entries are argv[0] through argv[argc-1] , and argv[argc] is a null pointer. The first entry conventionally identifies the program, but applications should not treat it as a trusted executable path. Arguments are input, not authority. Parse numeric strings with range and syntax checks. A string that begins with a valid number but contains trailing junk should not silently become a valid count unless that grammar is intended. Never use an argument length or value directly in allocation arithmetic without validation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.016, SP08.017
+
+------------------------------------------------------------
+
+17. Environment
+Systems mechanisms and source lecture
+
+SAY
+The environment supplies named string values such as locale settings, search paths, and configuration. It is inherited and can be replaced when a new program image is executed. Environment values can affect library behavior before the application examines them. Treat environment data as untrusted configuration where appropriate, especially across privilege boundaries. Avoid printing the complete environment in diagnostics because it can contain secrets. Concurrent modification also complicates use: a pointer returned by an environment lookup should not be assumed permanently stable while other code changes the environment. Prefer capturing required configuration during controlled startup.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.018, SP08.019
+
+------------------------------------------------------------
+
+18. Predicting placement without assuming addresses
+Systems mechanisms and source lecture
+
+SAY
+Consider four objects: a global initialized integer, a global zero-initialized array, an automatic local integer, and an allocated integer. Their storage-duration categories are known from the source. Their exact addresses are runtime observations and may change between executions because of address-space randomization. Companion listing: ch08/regions.c The stable value output is values=7 0 11 13 . The pointer output is intentionally variable. Predict categories first, then compare addresses with a mapping tool such as the process’s Linux maps view. A large gap between two addresses does not prove a corresponding amount of physical memory is resident. The program does not print function pointers by converting them to void* , because that conversion is not a general portable C object-pointer operation. To inspect executable mappings, use binary and process inspection tools. This keeps a language-level demonstration from quietly depending on an unnecessary pointer-conversion extension. [ R4 , R37 ]
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.020, SP08.021
+
+------------------------------------------------------------
+
+19. Placing common objects conceptually
+Systems mechanisms and source lecture
+
+SAY
+A function’s instructions normally belong to executable text; a string literal typically resides in read-only data; an initialized global such as int g=7; belongs to initialized static storage; an uninitialized global such as int h; is represented in a zero-initialized region; dynamically allocated storage comes from the heap; and ordinary local variables commonly use stack storage. Exact addresses are loader and ABI details, but these conceptual regions explain protection and lifetime differences.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.022, SP08.023
+
+------------------------------------------------------------
+
+20. Estimating stack growth
+Systems mechanisms and source lecture
+
+SAY
+Suppose a recursive function consumes roughly 256 bytes of stack per call and the usable thread stack is 8 MiB. Ignoring guard pages and other frames, the crude upper bound is 8 × 1024 × 1024 / 256 = 32768 frames. Real safe depth is lower because startup frames, alignment, libraries, and variable frame sizes consume space too. The calculation is an estimate, not a recursion guarantee.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.024, SP08.025
+
+------------------------------------------------------------
+
+21. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 8. Inspect the executable’s sections and program headers with readelf . Relate the zero-initialized array to file size versus memory size, and distinguish section organization from loadable segments. Do not expect exact addresses to match another build. Review 1. Why does a global integer without an explicit initializer begin at zero while an ordinary local integer may not? Review 2. Why can freeing all application allocations leave the process with mapped memory?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.026, SP08.027
+
+------------------------------------------------------------
+
+22. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is process memory layout. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.028
+
+------------------------------------------------------------
+
+23. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Dynamic Memory.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.029
+
+------------------------------------------------------------
+
+24. Sections help link; segments help load
+Reason about the implementation
+
+SAY
+A binary inspection tool can show section names such as text or data, but those names are not a complete map of the running process. Sections organize information used by linking and other tools. Program headers describe loadable segments that the loader uses to establish mappings. Several sections can contribute to one segment, and the process also gains regions not explained by one source section name. This distinction helps interpret a file whose stored size and mapped memory size differ. Inspect the appropriate view for the question: symbols and sections for compiled organization, program headers and process mappings for loading and runtime placement.
+
+DO
+Ask which tool view answers where symbols live versus what the loader maps.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.004 / 8.1 Code/text segment
+
+------------------------------------------------------------
+
+25. const is a language access rule, not a section command
+Reason about the implementation
+
+SAY
+Declaring a local value const restricts how the program may modify it through that declaration. It does not command the loader to create a read-only page for that one object. The compiler may keep the value in a register, embed it in an instruction, or choose ordinary storage as appropriate. String literals have their own rule: the program must not modify their storage, regardless of whether a particular cast makes an assignment expression compile. Operating-system page protections can catch some illegal writes, but language validity does not depend on receiving a hardware fault. Keep source access rules and mapping permissions separate when explaining a failure.
+
+DO
+Compare a const automatic integer with literal storage without predicting exact addresses.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.006 / 8.2 Read-only data
+
+------------------------------------------------------------
+
+26. Freed objects and resident memory are different counts
+Reason about the implementation
+
+SAY
+After a program releases a collection, its resident memory reading may remain high. That observation does not automatically prove the collection is still live. A user-space allocator can retain blocks for reuse rather than returning every page immediately to the operating system. Mapped address space and resident physical pages are different quantities too. To diagnose growth, state which metric you are following: live allocations, allocator-held storage, mapped virtual regions, or resident pages. These counts answer different questions. A memory investigation should connect the metric to ownership evidence and workload history instead of assuming every decrease in application object count must instantly shrink the process map.
+
+DO
+Have learners name the four accounting layers before interpreting a memory graph.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.012 / 8.5 Heap
+
+------------------------------------------------------------
+
+27. A recursion estimate is not a portable stack guarantee
+Reason about the implementation
+
+SAY
+A recursive function can have a correct base case and still exhaust its thread's finite stack before reaching it. A rough calculation dividing available stack space by estimated frame size can help planning, but it is not a language guarantee. Startup frames, alignment, library calls, optimization, and varying local data all affect the usable depth. Tail-call optimization is not a portable correctness requirement you can assume will happen. For untrusted depth, an iterative design with an explicit bounded container can make the resource policy visible. Do not demonstrate stack exhaustion as if it were an ordinary recoverable exception; the error path may need the very stack space already exhausted.
+
+DO
+Distinguish reaches a base case eventually from stays within available resources.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.014 / 8.6 Stack
+
+------------------------------------------------------------
+
+28. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Keep a heap-allocated integer alive after a temporary pointer variable leaves its block.
+
+Allocate. temporary owns an int containing 42. The pointer variable and the allocated int are different objects with different lifetimes.
+
+Transfer ownership. owner becomes responsible for the int. std::move permits moving the unique_ptr. The object itself stays allocated.
+
+Leave the inner block. temporary dies; the int remains. owner outlives the inner block and releases the int at the end of main.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch08/main.cpp
+
+------------------------------------------------------------
+
+29. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Allocate. temporary owns an int containing 42. The pointer variable and the allocated int are different objects with different lifetimes.
+
+Transfer ownership. owner becomes responsible for the int. std::move permits moving the unique_ptr. The object itself stays allocated.
+
+Leave the inner block. temporary dies; the int remains. owner outlives the inner block and releases the int at the end of main.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch08/main.cpp
+
+------------------------------------------------------------
+
+30. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The allocated int and the local unique_ptr are different objects. Returning the owner transfers responsibility without returning the address of a dying local int. std::move allows transfer; the unique_ptr operation performs it. The second owner releases the int when its scope ends, including during stack unwinding.
+
+Return the value itself when ownership is unnecessary, or return an owning handle for a separately allocated object. A raw address cannot extend lifetime.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch08/main.cpp:1-15
+
+------------------------------------------------------------
+
+31. Scope and object lifetime are different questions
+Code, diagrams, and debugging
+
+SAY
+Scope and object lifetime are different questions. make_unique allocates and constructs one int with value 42. temporary is its sole owning handle; destruction of that owner would normally destroy the integer.
+
+Keep a heap-allocated integer alive after a temporary pointer variable leaves its block.
+
+The pointer variable and the allocated int are different objects with different lifetimes. std::move permits moving the unique_ptr. The object itself stays allocated. owner outlives the inner block and releases the int at the end of main.
+
+make_unique allocates and constructs one int with value 42. temporary is its sole owning handle; destruction of that owner would normally destroy the integer.
+
+std::move permits the move assignment. unique_ptr transfers its ownership to owner and empties temporary; the integer itself stays alive at the same address.
+
+The ! expression tests that the moved-from unique_ptr is empty. This empty-state guarantee is specific to unique_ptr; do not assume every moved-from type is empty.
+
+Exactly one unique_ptr owns the integer at a time. The moved-from temporary is empty; owner remains alive when the integer is read.
+
+Returning the address of an ordinary local int would not transfer its lifetime. That object would die on return. In the extended lab: Return the address of a local int from the factory. It points at an object whose lifetime ends when the function returns.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch08/main.cpp:9-11
+
+------------------------------------------------------------
+
+32. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Return the address of a local int from the factory. It points at an object whose lifetime ends when the function returns.
+
+Return the value itself when ownership is unnecessary, or return an owning handle for a separately allocated object. A raw address cannot extend lifetime.
+
+The reference solution makes the contract executable with assertions. The allocated int and the local unique_ptr are different objects. Returning the owner transfers responsibility without returning the address of a dying local int. std::move allows transfer; the unique_ptr operation performs it. The second owner releases the int when its scope ends, including during stack unwinding.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.06
+
+------------------------------------------------------------
+
+33. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch08/starter.cpp. Implement the first acceptance case for return an owner across a function boundary. State the function inputs and result before adding code. First case: make_value(42) returns a non-null owner.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.07
+
+------------------------------------------------------------
+
+34. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch08/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.08
+
+------------------------------------------------------------
+
+35. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Return the address of a local int from the factory. It points at an object whose lifetime ends when the function returns. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.09
+
+------------------------------------------------------------
+
+36. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Does this demonstrate a fixed numeric heap or stack address? Compare the selected design with this plausible alternative: An ordinary local int is sufficient when no lifetime needs to cross a scope boundary.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.10
+
+------------------------------------------------------------
+
+37. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch08/starter.cpp. Create a unique owner in a factory function, return it, move it to a second owner, and show the original owner is empty afterward. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch08/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.11
+
+------------------------------------------------------------
+
+38. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Return an owner across a function boundary belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.12
+
+------------------------------------------------------------
+
+39. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Create a unique owner in a factory function, return it, move it to a second owner, and show the original owner is empty afterward.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch08/starter.cpp
+
+------------------------------------------------------------
+
+40. Review the extension solution
+Practice and extension
+
+SAY
+The allocated int and the local unique_ptr are different objects. Returning the owner transfers responsibility without returning the address of a dying local int. std::move allows transfer; the unique_ptr operation performs it. The second owner releases the int when its scope ends, including during stack unwinding. Repair principle: Return the value itself when ownership is unnecessary, or return an owning handle for a separately allocated object. A raw address cannot extend lifetime.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Return the value itself when ownership is unnecessary, or return an owning handle for a separately allocated object. A raw address cannot extend lifetime.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch08/solution.cpp
+
+------------------------------------------------------------
+
+41. Application case: Process Memory Layout
+Practice and extension
+
+SAY
+A program prints different stack addresses on two launches.
+
+What follows?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.CASE
+
+------------------------------------------------------------
+
+42. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The allocated int and the local unique_ptr are different objects. Returning the owner transfers responsibility without returning the address of a dying local int. std::move allows transfer; the unique_ptr operation performs it. The second owner releases the int when its scope ends, including during stack unwinding.
+
+Choose a simpler approach when its narrower contract is enough. An ordinary local int is sufficient when no lifetime needs to cross a scope boundary.
+
+When this system changes, retain a check that exposes the known failure: Return the address of a local int from the factory. It points at an object whose lifetime ends when the function returns. Return the value itself when ownership is unnecessary, or return an owning handle for a separately allocated object. A raw address cannot extend lifetime.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch8.json → SYS08.14
+
+------------------------------------------------------------
+
+43. Capture configuration deliberately without exposing the environment
+Recall and transfer
+
+SAY
+Environment variables can configure library behavior and application options, but they should not be treated as trusted authority merely because startup supplied them. Some values can contain secrets, so printing the complete environment to debug one setting is an unnecessarily broad disclosure. Read the specific value you need, validate it, and capture owned configuration during controlled startup when that fits the program. Concurrent environment modification complicates the lifetime of lookup results, so do not assume a borrowed character pointer remains stable indefinitely. The same general lesson applies to command-line parsing: keep external text at a boundary and give the rest of the program a checked representation.
+
+DO
+Ask which data the count parser needs and which unrelated startup data it should not print.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.018 / 8.8 Environment
+
+------------------------------------------------------------
+
+44. Use a process map to test a hypothesis, not to invent a lifetime
+Recall and transfer
+
+SAY
+Three kinds of evidence fit together. The source tells us whether an object is automatic, static-duration, or dynamically created under an owner. Binary inspection shows sections, symbols, and segments produced by a particular build. Runtime inspection shows the mappings of a particular process at a particular moment. None should be substituted silently for the others. A mapped address does not prove an object is alive, and a source-level static duration does not reveal a universal numeric address. When documenting a system, connect the views with explicit assumptions and label observations as observations. This makes the explanation survive optimization changes, a new loader layout, and a different test machine.
+
+DO
+Ask students to choose source, binary, or runtime evidence for three different layout questions.
+
+SOURCE
+content/systems-programming/ch8.json → SP08.028 / Chapter Synthesis

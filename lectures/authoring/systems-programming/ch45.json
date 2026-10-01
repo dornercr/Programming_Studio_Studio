@@ -1,0 +1,233 @@
+{
+  "chapter": 45,
+  "title": "Race Conditions: atomic accesses versus correct transactions",
+  "opening": [
+    {
+      "title": "Count the promises before counting the writes",
+      "eyebrow": "COUNT THE PROMISES BEFORE COUNTING THE WRITES",
+      "kind": "concept",
+      "keyPoints": [
+        "One item can fund one reservation",
+        "A decision and its update form one operation",
+        "Race conditions can exist with atomic variables"
+      ],
+      "narration": "Two customers ask for the last available item. The requirement is simple: at most one request succeeds, and stock never becomes negative. Reading stock and later writing it back are not enough if another request can act between those steps. A race condition is a result that incorrectly depends on timing. A C++ data race is a narrower language rule about conflicting unsynchronized accesses, and it causes undefined behavior. The distinction matters because atomic accesses can remove the data race while leaving the reservation algorithm logically wrong. First state the whole promise, then choose an operation boundary that preserves it.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch45.json \u2192 SP45.008",
+      "question": {
+        "prompt": "Can individually atomic reads and writes still sell one item twice?",
+        "answer": "Yes. Two requests can both decide from the same old stock value unless the check and update are coordinated."
+      }
+    },
+    {
+      "title": "An invariant is wider than a convenient statement",
+      "eyebrow": "AN INVARIANT IS WIDER THAN A CONVENIENT STATEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Stock plus accepted reservations stays one",
+        "A failed reservation changes neither value",
+        "Every access path must obey the same rule"
+      ],
+      "narration": "An invariant is a rule that must stay true when the state is visible to the next operation. Here, starting with one item, remaining stock plus accepted reservations should equal one. A reservation that fails must not consume stock. That relationship spans both a decision and a change. Locking only the final assignment would still allow two callers to make decisions from the same earlier value. A suitable critical section begins before checking availability and ends after the update is consistent. A suitable atomic operation instead combines the conditional replacement. Naming the invariant prevents a review from mistaking the mere presence of a mutex or atomic type for a complete solution.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch45.json \u2192 SP45.014",
+      "question": {
+        "prompt": "Where must a mutex-protected reservation\u2019s critical section begin?",
+        "answer": "Before reading and validating availability, because that decision must remain tied to the later stock update."
+      }
+    },
+    {
+      "title": "Safely model two stale reservation decisions",
+      "eyebrow": "SAFELY MODEL TWO STALE RESERVATION DECISIONS",
+      "kind": "code",
+      "keyPoints": [
+        "Both requests read the one-item snapshot",
+        "Both accept from that same snapshot",
+        "The final stock hides the duplicate grant"
+      ],
+      "narration": "This single-thread program deliberately models two separate requests reading the same stock snapshot. Each then stores snapshot minus one and marks its own grant. It prints remaining=0 grants=2 accounted=2. The remaining stock looks plausible, but the accounting invariant reveals the duplicated reservation. No actual concurrent ordinary access is executed, so this example has no C++ data race. Its purpose is to show a logical schedule with explicit steps. A test that checked only final stock would miss the defect. The repaired design must protect the decision as well as the store, so only one request can successfully consume that one unit.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch45.json \u2192 SP45.008",
+      "question": {
+        "prompt": "Which printed number exposes the defect that remaining=0 hides?",
+        "answer": "grants=2, and therefore accounted=2, contradict the one-item starting inventory."
+      },
+      "code": {
+        "filename": "sys_ch45_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    // Serialized model of two stale decisions; no threads or data race.\n    int stock = 1;\n    const int first_snapshot = stock;\n    const int second_snapshot = stock;\n    bool first_grant = false, second_grant = false;\n    if (first_snapshot > 0) { stock = first_snapshot-1; first_grant = true; }\n    if (second_snapshot > 0) { stock = second_snapshot-1; second_grant = true; }\n    const int grants = int(first_grant) + int(second_grant);\n    std::cout << \"remaining=\" << stock << \" grants=\" << grants\n              << \" accounted=\" << stock+grants << '\\n';\n}\n",
+        "expectedStdout": "remaining=0 grants=2 accounted=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Serialized check-then-act schedule; does not execute a C++ data race."
+      }
+    },
+    {
+      "title": "Run one indivisible claim on the last item",
+      "eyebrow": "RUN ONE INDIVISIBLE CLAIM ON THE LAST ITEM",
+      "kind": "code",
+      "keyPoints": [
+        "CAS replaces one only if it is still one",
+        "Exactly one contender succeeds",
+        "Join before inspecting per-thread results"
+      ],
+      "narration": "The repaired demonstration uses compare_exchange_strong to change stock from one to zero only if it is still one. Both workers begin with an expected value of one. One successful comparison consumes the item; the other observes that the value is no longer one and fails. Each writes its own result slot, and main reads those slots only after both joins. The output grants=1 remaining=0 is stable even though the winning thread is not predictable. This small one-shot protocol has only the states one and zero. A reusable inventory with replenishment would need a broader loop and lifetime contract rather than assuming this exact two-state proof still applies.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch45.json \u2192 SP45.012",
+      "question": {
+        "prompt": "Why do we print the number of winners rather than which worker won?",
+        "answer": "The count is required to be one; the winner\u2019s identity is scheduling-dependent and is not part of the contract."
+      },
+      "code": {
+        "filename": "sys_ch45_atomic_claim.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <atomic>\n#include <iostream>\n#include <thread>\nint main() {\n    std::atomic<int> stock{1};\n    std::array<int,2> granted{};\n    const auto claim = [&](int id) {\n        int expected = 1;\n        granted[id] = stock.compare_exchange_strong(expected, 0) ? 1 : 0;\n    };\n    std::jthread a(claim, 0), b(claim, 1);\n    a.join(); b.join();\n    std::cout << \"grants=\" << granted[0]+granted[1]\n              << \" remaining=\" << stock.load() << '\\n';\n}\n",
+        "expectedStdout": "grants=1 remaining=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Do not teach undefined behavior as a fixed schedule",
+      "eyebrow": "DO NOT TEACH UNDEFINED BEHAVIOR AS A FIXED SCHEDULE",
+      "kind": "concept",
+      "keyPoints": [
+        "Ordinary shared increments can be undefined",
+        "Models need explicitly defined steps",
+        "Atomic models preserve language correctness"
+      ],
+      "narration": "The historical source includes a read-add-write explanation of counter increments. Use that explanation as a logical model, not as the promised outcome of racing ordinary C++ code. Two unsynchronized threads modifying the same non-atomic integer have a data race and therefore undefined behavior. The language does not promise only the numbers one or two. A safe lesson can serialize the modeled steps, as our reservation example does, or use atomic operations with a barrier to force a particular logical failure. That lets students observe a real, repeatable result while keeping the important distinction between algorithmic atomicity and the language's defined execution rules.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch45.json \u2192 SP45.010",
+      "question": {
+        "prompt": "Why should a lesson avoid repeatedly running plain shared-int races to find a lost update?",
+        "answer": "The code has undefined behavior, so the observed number is not a controlled demonstration of the intended abstract interleaving."
+      }
+    },
+    {
+      "title": "Location identity and aliasing matter",
+      "eyebrow": "LOCATION IDENTITY AND ALIASING MATTER",
+      "kind": "concept",
+      "keyPoints": [
+        "Different names can reach the same storage",
+        "Distinct array elements can be independently written",
+        "Cache lines concern performance, not this identity rule"
+      ],
+      "narration": "Suppose one function receives a pointer called left and another receives a pointer called right. The names do not prove independence; both pointers may designate the same integer. Race analysis follows actual overlapping storage and lifetime, not variable spelling. Conversely, our two ordinary result array elements are separate locations, and each worker owns one until joining. They may share a hardware cache line, which can affect performance, but that is distinct from a language data race. Review aliases, references, and returned pointers whenever ownership seems unclear. Destroying or reallocating shared storage can create a conflict even when the source code appears to contain only a harmless read.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch45.json \u2192 SP45.006",
+      "question": {
+        "prompt": "Why is \u201cthe threads use different pointer variables\u201d not proof of independent access?",
+        "answer": "Different pointer values or variable names can designate overlapping storage; the actual target objects determine whether accesses conflict."
+      }
+    },
+    {
+      "title": "A mutex must protect the semantic transaction",
+      "eyebrow": "A MUTEX MUST PROTECT THE SEMANTIC TRANSACTION",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate and update under one policy",
+        "Do not unlock between the check and commit",
+        "Keep callbacks outside unless their effects are included"
+      ],
+      "narration": "A mutex repair is often clearer when a reservation changes several fields, such as stock, a customer record, and an audit sequence. The critical section should protect the semantic transaction, meaning the operation that observers must treat as one consistent change. Moving the availability check outside to shorten lock time reopens the stale-decision bug. On the other hand, calling unknown callbacks while locked can introduce reentry or deadlock. One solution is to update protected state, copy the notification data, release the lock, then call external code under a documented policy. The correct boundary follows the invariant, not a general rule that shorter or longer locking is always better.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch45.json \u2192 SP45.014",
+      "question": {
+        "prompt": "What must be reconsidered after unlocking and later applying work based on a snapshot?",
+        "answer": "The snapshot may be stale, so any assumptions used for the update must be revalidated or protected by another versioned protocol."
+      }
+    },
+    {
+      "title": "Testing needs both observations and a proof",
+      "eyebrow": "TESTING NEEDS BOTH OBSERVATIONS AND A PROOF",
+      "kind": "concept",
+      "keyPoints": [
+        "Stress tests explore some schedules",
+        "Race detectors find observed conflicts",
+        "Neither proves every logical invariant"
+      ],
+      "narration": "Run a race detector to find conflicting accesses that a test actually exercises, but do not treat a clean report as proof that reservations cannot be duplicated. Our first model has a logical bug without any concurrent accesses at all. Useful tests count accepted requests, remaining stock, and unique item identities, then check the conservation rule after all work finishes. Forced schedules or barriers can expose known risky windows deterministically. The design argument explains why the repair excludes those windows. Tools and tests provide evidence about exercised paths; the invariant and synchronization rules explain why a wider set of permitted executions should remain correct.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch45.json \u2192 SP45.010",
+      "question": {
+        "prompt": "Why might a data-race detector report no problem in an incorrect atomic reservation algorithm?",
+        "answer": "Every access can be atomic while the combined check-then-act logic still violates the application invariant."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Prefer removing shared writes when the task allows it",
+      "eyebrow": "PREFER REMOVING SHARED WRITES WHEN THE TASK ALLOWS IT",
+      "kind": "concept",
+      "keyPoints": [
+        "Private counts need no shared increment",
+        "Reduction happens after completion",
+        "Use a shared claim only for genuinely shared ownership"
+      ],
+      "narration": "Not every counting task needs a contended global atomic. Workers can count their own completed items and return totals for a parent to combine after joining. That changes the design so no two workers update the same counter. Reservation is different: deciding who receives the last item really does coordinate shared ownership, so independent local counts cannot replace the claim protocol. Distinguish statistics from allocation of a limited resource. A local count may be sufficient for reporting progress, while a global admission decision needs stronger coordination. Reducing sharing is often the simplest repair, but it must preserve the actual meaning of the operation.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch45.json \u2192 SP45.004",
+      "question": {
+        "prompt": "Why can private counters replace a shared statistic but not independently reserve the same last item?",
+        "answer": "Statistics can be combined afterward; exclusive allocation needs a decision coordinated before more than one caller receives the resource."
+      }
+    },
+    {
+      "title": "Review the whole invariant after every repair",
+      "eyebrow": "REVIEW THE WHOLE INVARIANT AFTER EVERY REPAIR",
+      "kind": "concept",
+      "keyPoints": [
+        "Define the indivisible operation",
+        "Distinguish data races from logical races",
+        "Verify rejected requests and final accounting"
+      ],
+      "narration": "Finish a race review by stating one exact promise. For this chapter's reservation, at most one request receives the only item, rejected requests do not alter stock, and final accounting equals the initial inventory. Then identify the operation that enforces that promise and the lifetime rule that keeps all referenced storage valid. Check both success and failure paths, including a request arriving after stock reaches zero. Keep historical source explanations available, but teach the corrected C++ guarantee explicitly. A successful run can confirm expected output; it cannot turn undefined code into a valid program or make separated atomic operations into a transaction.",
+      "actions": [
+        "Predict the named output or state before revealing the answer.",
+        "Explain the operation boundary and its guarantee."
+      ],
+      "sourceRef": "content/systems-programming/ch45.json \u2192 SP45.022",
+      "question": {
+        "prompt": "What three checks should accompany the final stock value?",
+        "answer": "Count successful claims, verify failed claims do not consume stock, and check that accepted plus remaining resources equal the original inventory."
+      }
+    }
+  ]
+}

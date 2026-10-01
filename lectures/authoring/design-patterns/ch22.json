@@ -1,0 +1,298 @@
+{
+  "chapter": 22,
+  "title": "Visitor",
+  "opening": [
+    {
+      "title": "The parts stay; the reports multiply",
+      "eyebrow": "VISITOR / THE PROBLEM",
+      "kind": "concept",
+      "keyPoints": [
+        "Bolts use a piece count",
+        "Cable uses whole metres",
+        "Price, labels, and audits need different operations"
+      ],
+      "narration": "A workshop order contains bolts and cable. Bolts are measured in pieces; cable is measured in whole metres. Pricing is easy at first: multiply each quantity by its rate and add the results. Then the workshop asks for labels, packing summaries, and audit reports. The data types are stable, but the operations keep growing. Putting every new report into every part class spreads reporting changes across those classes. We need to send a mixed list through one traversal while each outside operation still receives the exact kind of part. Visitor addresses that direction of change. Before reaching its mechanism, keep the two units distinct and the original arithmetic visible.",
+      "actions": [
+        "Ask which is changing more often: element types or reports.",
+        "Name the units before multiplying quantities."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 The problem: the parts stay familiar while reports multiply",
+      "question": {
+        "prompt": "What change pressure makes Visitor relevant here?",
+        "answer": "Many new operations must work across a fairly stable set of part types. Keeping each operation together avoids editing every part class for each report."
+      }
+    },
+    {
+      "title": "State the price and ownership contracts",
+      "eyebrow": "VISITOR / REQUIREMENTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Each quantity is from 0 through 100",
+        "Bolts cost 5 cents each; cable costs 40 cents per metre",
+        "Total stays at or below 1,000,000 cents",
+        "Reports read parts without owning them"
+      ],
+      "narration": "The sample has three bolts and two metres of cable. Three times five contributes fifteen cents; two times forty contributes eighty, giving ninety-five cents. Constructors reject quantities below zero or above one hundred. A report's running total must not exceed one million cents. A new report starts from zero, and a rejected addition must leave the old total intact. We also need an ownership rule. The order owns its parts; a report only borrows each part long enough to read it. These rules are independent of the dispatch mechanism. A beautiful Visitor diagram would still be wrong if it used the cable rate for bolts or reused an old report total accidentally.",
+      "actions": [
+        "Calculate both terms with their units.",
+        "Ask which object should destroy the parts when the order ends."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 The price calculation also needs ordinary correctness",
+      "question": {
+        "prompt": "Why is 95 the expected mixed-order price?",
+        "answer": "Three bolts contribute 3 \u00d7 5 = 15 cents, and two metres of cable contribute 2 \u00d7 40 = 80 cents. The total is 95."
+      }
+    },
+    {
+      "title": "For one operation, direct functions are enough",
+      "eyebrow": "VISITOR / RUN THE BASELINE",
+      "kind": "code",
+      "keyPoints": [
+        "Small value records hold validated quantities",
+        "Separate price overloads express different units",
+        "A known pair needs no hierarchy"
+      ],
+      "narration": "This complete baseline uses two small value records and overloaded price functions. Overloading gives functions the same name with different parameter types. The compiler chooses the Bolts overload for the bolts variable and the Cable overload for the cable variable. Each constructor checks its own quantity before any price calculation. The program prints one total, and it does not need inheritance, heap allocation, or a visitor. This is a strong choice when callers already know the concrete types and pricing is the main operation. The limitation appears when callers traverse a mixed collection through one common interface and many outside operations need each exact type.",
+      "actions": [
+        "Predict the total for four bolts and three metres.",
+        "Identify which overload each expression selects during compilation."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch22.json \u2192 The problem: the parts stay familiar while reports multiply",
+      "question": {
+        "prompt": "Why does the baseline not need Visitor to choose the correct price function?",
+        "answer": "The argument expressions already have concrete Bolts and Cable types, so compile-time overload resolution selects the correct functions."
+      },
+      "code": {
+        "filename": "dp_ch22_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\nstruct Bolts {\n    int count;\n    explicit Bolts(int value) : count(value) {\n        if (value < 0 || value > 100)\n            throw std::out_of_range(\"bolt count\");\n    }\n};\nstruct Cable {\n    int metres;\n    explicit Cable(int value) : metres(value) {\n        if (value < 0 || value > 100)\n            throw std::out_of_range(\"cable length\");\n    }\n};\nint price(const Bolts& bolts) { return bolts.count * 5; }\nint price(const Cable& cable) { return cable.metres * 40; }\nint main() {\n    const Bolts bolts(4);\n    const Cable cable(3);\n    std::cout << \"total=\" << price(bolts) + price(cable) << '\\n';\n}\n",
+        "expectedStdout": "total=140\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "A base reference does not select a derived overload",
+      "eyebrow": "VISITOR / CONTROLLED FAILURE",
+      "kind": "code",
+      "keyPoints": [
+        "The object remains Bolts",
+        "The expression can have type Part&",
+        "Overload resolution uses the expression\u2019s static type"
+      ],
+      "narration": "This demonstration creates one Bolts object and gives it two names: a concrete variable and a reference viewed as Part. The two report calls print different labels even though they refer to the same object. The reason is overload resolution, the compiler's choice among functions with the same name. That choice uses the type known at the call site. report(as_part) selects the Part parameter; it does not search for a better overload based on the object's runtime kind. In the chapter's Visitor interface there is no Part overload, so a direct visit of a Part reference would fail to compile. Adding a fallback overload would compile but would not create automatic concrete dispatch.",
+      "actions": [
+        "Predict each printed label before Run.",
+        "Ask whether making the base destructor virtual changes overload resolution."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch22.json \u2192 Why a single overloaded call is not enough",
+      "question": {
+        "prompt": "Does the Part reference copy or slice the Bolts object?",
+        "answer": "No. It refers to the same complete Bolts object. The different selected overload comes from the expression\u2019s static type, not object slicing."
+      },
+      "code": {
+        "filename": "dp_ch22_static_overload.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nstruct Part { virtual ~Part() = default; };\nstruct Bolts final : Part {};\nvoid report(const Part&) { std::cout << \"Part overload\\n\"; }\nvoid report(const Bolts&) { std::cout << \"Bolts overload\\n\"; }\nint main() {\n    Bolts bolts;\n    const Part& as_part = bolts; // Borrows the same complete object.\n    report(bolts);\n    report(as_part);\n    std::cout << \"same object: \" << std::boolalpha\n              << (&as_part == static_cast<const Part*>(&bolts)) << '\\n';\n}\n",
+        "expectedStdout": "Bolts overload\nPart overload\nsame object: true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Give every operation an entry for every part kind",
+      "eyebrow": "VISITOR / RESPONSIBILITIES",
+      "kind": "concept",
+      "keyPoints": [
+        "Part offers accept(Visitor&) const",
+        "Visitor offers visit(Bolts) and visit(Cable)",
+        "Price implements both and owns its running total"
+      ],
+      "narration": "Visitor is an interface for outside operations. It declares one visit overload for each supported part type. Price implements both overloads and owns a running cents total. Part is the common element interface and offers accept. Bolts and Cable each implement accept by passing themselves to the visitor. The loop can now work through Part while the operation still receives a precise concrete reference. This arrangement makes a new operation, such as Labels, one new visitor with explicit cases for both kinds. It also exposes the tradeoff immediately: a new kind of part requires another overload in the Visitor interface and a response from every concrete visitor.",
+      "actions": [
+        "Match Part, Bolts, Cable, Visitor, and Price to their roles.",
+        "Ask where the cents total belongs and why."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 One visitor operation has one entry point for each kind",
+      "question": {
+        "prompt": "What must a new Labels visitor implement?",
+        "answer": "A visit overload for Bolts and one for Cable. It can use the existing accept methods and traversal without changing the element classes."
+      }
+    },
+    {
+      "title": "Trace both runtime choices and the static bridge",
+      "eyebrow": "VISITOR / DOUBLE DISPATCH",
+      "kind": "concept",
+      "keyPoints": [
+        "Virtual accept selects the concrete element",
+        "Inside Bolts::accept, *this is a Bolts expression",
+        "Overload resolution selects the Bolts visit signature",
+        "Virtual visit selects the concrete operation"
+      ],
+      "narration": "Double dispatch means the result depends on two runtime kinds: the element and the visitor. Follow a Part pointer owning Bolts while the operation object is Price. Calling accept makes the first virtual choice and reaches Bolts::accept. Inside that member, the compiler knows that *this refers to a Bolts object. It selects visit(const Bolts&) when compiling that call. The selected visit is itself virtual, so execution then chooses Price's implementation of that signature. There are two virtual selections with a compile-time overload choice between them. Ordinary overload resolution has not become dynamic. The accept method supplies the concrete static type that the outer mixed-list loop lacks.",
+      "actions": [
+        "Speak the full call path, including the compile-time step.",
+        "Ask learners to mark which choices depend on the element and visitor objects."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 Why a single overloaded call is not enough",
+      "question": {
+        "prompt": "Which step makes the concrete Bolts type visible to overload resolution?",
+        "answer": "Entering Bolts::accept. Inside that member, *this has the concrete Bolts type, so the compiler selects visit(const Bolts&)."
+      },
+      "theory": {
+        "what": "Two virtual calls use a concrete accept body as the overload-selection bridge.",
+        "where": "The Part traversal enters accept, which calls the selected Visitor::visit signature.",
+        "why": "A common element loop can invoke type-specific outside operations.",
+        "invariant": "Each element forwards itself using its own precise type.",
+        "risk": "Calling visit directly with a base expression selects only a base signature, if one exists; it cannot infer a derived overload."
+      }
+    },
+    {
+      "title": "Read-only parts and a changing report can coexist",
+      "eyebrow": "VISITOR / CONST AND BORROWING",
+      "kind": "concept",
+      "keyPoints": [
+        "accept is const on the part",
+        "The visitor reference is mutable",
+        "visit receives const Bolts& or const Cable&",
+        "The report retains results, not borrowed parts"
+      ],
+      "narration": "The signature accept(Visitor&) const contains two different permissions. The trailing const says the operation does not change the part through this call. The visitor parameter lacks const because a report may update its own running result. Inside Price::visit, a const reference lets the visitor read the quantity without taking ownership or making a part copy. Price keeps the resulting number, not a pointer to the visited part. This distinction matters when the order goes out of scope. The report's numeric result can remain useful without keeping parts alive. const is attached to particular objects and access paths; it does not mean every object touched by the whole call tree is frozen.",
+      "actions": [
+        "Identify which object changes during Price::visit.",
+        "Ask what remains in Price after a visited Cable is destroyed."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 One visitor operation has one entry point for each kind",
+      "question": {
+        "prompt": "Why is accept const while its Visitor& parameter is not const?",
+        "answer": "The part is read-only during acceptance, but the visitor may update its own report state, such as the running price."
+      }
+    },
+    {
+      "title": "Dependencies do not imply ownership",
+      "eyebrow": "VISITOR / LIFETIME AND HEADERS",
+      "kind": "concept",
+      "keyPoints": [
+        "The vector owns unique_ptr<Part> elements",
+        "Part has a virtual destructor",
+        "The local visitor borrows during each call",
+        "Forward declarations allow reference declarations"
+      ],
+      "narration": "The mixed vector owns unique_ptr<Part> handles. Destroying the vector destroys those handles and the complete concrete elements. Part needs a virtual destructor because destruction occurs through the base type. Price is a separate local object owned by its scope, not by any part. A dependency arrow in the class diagram means one type knows or calls another; it does not transfer ownership. The source starts by announcing Bolts and Cable before Visitor mentions references to them. Those forward declarations name types without giving their full layout. Reference declarations can use those names; later complete definitions provide getters and accept bodies. In a larger project, this distinction helps control header dependencies and rebuild costs.",
+      "actions": [
+        "Separate ownership edges from dependency arrows in the diagram.",
+        "Ask whether accepting a visitor transfers either object\u2019s ownership."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 Follow ownership without giving it to the visitor",
+      "question": {
+        "prompt": "Does accept(Visitor&) give the part ownership of the visitor?",
+        "answer": "No. It borrows the visitor for the call. The local scope owns the visitor, and the vector\u2019s unique pointers own the parts."
+      }
+    },
+    {
+      "title": "Check the total before adding the next term",
+      "eyebrow": "VISITOR / NUMERIC INVARIANTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Validated quantities bound each price term",
+        "Reject when total > limit \u2212 next term",
+        "A rejected addition preserves the previous total",
+        "A reused visitor continues accumulating"
+      ],
+      "narration": "The pattern handles routing, but Price still needs ordinary arithmetic discipline. Quantity checks keep each bolt term at most five hundred cents and each cable term at most four thousand. Before adding a nonnegative term, add checks whether the current total is greater than one million minus that term. This avoids forming an excessive total and checking afterward. At exactly one million, a further positive term throws and leaves the total unchanged. The visitor also has lifetime state: its total starts at zero and grows with visits. Reusing the same Price for another order does not reset it. Two identical ninety-five-cent orders produce one hundred ninety if the same visitor accumulates both.",
+      "actions": [
+        "Calculate the number of 100-metre cable visits needed to reach the limit.",
+        "Ask learners to separate a fresh report from continuation of an existing report."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 The price calculation also needs ordinary correctness",
+      "question": {
+        "prompt": "Why does the source test the limit before modifying cents_?",
+        "answer": "So rejection leaves the existing total intact and the calculation avoids relying on a potentially invalid sum after it has already been formed."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose which direction of growth should be easy",
+      "eyebrow": "VISITOR / DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "New operations are local visitor additions",
+        "New element kinds affect every visitor",
+        "Virtual members favor a stable operation set",
+        "variant suits a closed value-type set"
+      ],
+      "narration": "Think of a grid whose rows are part kinds and whose columns are operations. Visitor groups work by operation, making a new column straightforward: implement each known type's case in one visitor. A new row is broader because every visitor must decide what it means. Ordinary virtual members favor the other direction when new kinds appear often and operations stay stable. For simple value data with a closed type set, std::variant and std::visit can offer another arrangement without the same owning base hierarchy. They still make the alternatives explicit. The right choice depends on expected change, not on whether a diagram has more arrows or a pattern name sounds advanced.",
+      "actions": [
+        "Ask whether a new report or a new part kind is more common in the proposed product.",
+        "Have learners defend a variant alternative for small value records."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 Choose which direction of change should be easy",
+      "question": {
+        "prompt": "Which change is deliberately more expensive with this classic Visitor interface?",
+        "answer": "Adding a new concrete element kind, because Visitor and every concrete visitor need a case for that kind."
+      },
+      "comparisons": [
+        {
+          "label": "Visitor",
+          "text": "Stable element kinds; many new operations across them."
+        },
+        {
+          "label": "Virtual element members",
+          "text": "Stable operations; many new element kinds."
+        },
+        {
+          "label": "std::variant + std::visit",
+          "text": "Explicit closed set of value alternatives, often without a virtual base or per-element allocation."
+        }
+      ]
+    },
+    {
+      "title": "Distinguish routing bugs from report-state bugs",
+      "eyebrow": "VISITOR / DIAGNOSIS",
+      "kind": "concept",
+      "keyPoints": [
+        "Wrong overload: inspect static type and accept",
+        "Wrong repeated total: inspect visitor reuse",
+        "Wrong unit: inspect the concrete visit calculation"
+      ],
+      "narration": "Three failures can produce a bad report for very different reasons. If every part reaches a generic Part case, inspect whether the loop bypassed accept and called visit directly through a base expression. If the second independent order reports twice the expected price, inspect whether the caller reused a visitor that still contains the first total. If cable is charged at five cents per metre, inspect the Cable overload's unit-specific arithmetic. None of these diagnoses requires changing every class. Follow the path of type selection, data, and retained state separately. Focused tests should name which contract failed so a maintainer can find the responsible boundary quickly.",
+      "actions": [
+        "Classify three symptoms: generic label, doubled second total, wrong cable rate.",
+        "Ask for the smallest test that separates each failure."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 The price calculation also needs ordinary correctness",
+      "question": {
+        "prompt": "A second independent sample order prints 190 instead of 95. What should you inspect first?",
+        "answer": "Check whether the same Price object was reused without a documented reset. Its state accumulates across visits; a fresh order should use a fresh report here."
+      }
+    },
+    {
+      "title": "Add Labels and explain the whole path",
+      "eyebrow": "VISITOR / TRANSFER AND RECALL",
+      "kind": "concept",
+      "keyPoints": [
+        "Labels supplies both concrete visits",
+        "Existing elements and traversal remain usable",
+        "Each report owns its own result",
+        "Explain the cost of adding Paint next"
+      ],
+      "narration": "The extension creates Labels with one visit for bolt counts and one for cable metres. It appends strings to its own list. The existing parts, accept methods, and traversal remain unchanged, and running Labels does not change an already computed Price result. Verify the mixed order, an empty fresh label report, and a zero-quantity bolt label. Then imagine adding Paint. That addition requires a new element, a Visitor overload, and a decision in Price, Labels, and every other concrete visitor. This deliberate cost is part of the design. Recall Visitor by explaining why a common traversal needs accept, which object owns each result, and which direction of change the interface makes easier.",
+      "actions": [
+        "Ask learners to narrate one Cable visit into Labels from the outer loop.",
+        "Finish by listing the impacted interfaces if Paint is added."
+      ],
+      "sourceRef": "manuscript/ch22.json \u2192 Choose which direction of change should be easy",
+      "question": {
+        "prompt": "Why can Labels be added without editing Bolts or Cable in this chapter?",
+        "answer": "Their accept methods already forward the precise element type through Visitor. Labels supplies the existing required overloads and keeps its own output state."
+      }
+    }
+  ]
+}

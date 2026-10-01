@@ -1,0 +1,318 @@
+{
+  "chapter": 61,
+  "title": "Putting the System Together",
+  "opening": [
+    {
+      "title": "The whole system must preserve one end-to-end contract",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Every accepted byte contributes exactly once",
+        "Resources remain bounded under the stated scope",
+        "Threads finish before shared storage is destroyed",
+        "Parallel performance is measured, not assumed"
+      ],
+      "narration": "The capstone combines byte representation, input extents, memory ownership, queue synchronization, worker lifetimes, and output verification. The sequential utility remains our reference. A concurrent result must match it even if the operating system runs all workers on one core in an interleaved order. The design does not promise speed merely because it uses threads. It promises that accepted bytes are counted once, partial results are combined correctly, and failures do not print a misleading successful total. We will follow ownership and publication boundaries before discussing throughput, because a faster pipeline with duplicated slots or dangling storage is not the same program.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.026: 61.12 Correctness + Performance + Security + Robustness",
+      "question": {
+        "prompt": "What must remain true even if the scheduler never runs two workers simultaneously?",
+        "answer": "Correctness: every valid input contribution is processed exactly once, ownership remains valid, and the final result matches the sequential contract."
+      }
+    },
+    {
+      "title": "Partition seven items without dropping the remainder",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "code",
+      "keyPoints": [
+        "Three workers receive ranges of lengths 2, 2, and 3",
+        "Each writes one separate result element",
+        "Joining precedes the ordered report"
+      ],
+      "narration": "The earlier fixed six-item example splits evenly; this new fixture uses seven items and three workers. Integer boundary calculations give ranges zero through two, two through four, and four through seven, with the right endpoint excluded. Their lengths are two, two, and three, so no remainder is lost. Each jthread captures its worker index by value and writes only its own result slot. The vector of thread owners is destroyed before main reads those results, and jthread joins on destruction. The printed total is twenty-eight, equal to the sequential reference. No speed claim or scheduling-dependent output is made.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SYS61.10: Exercise 4: Choose a design",
+      "question": {
+        "prompt": "Why is capturing worker by value important in the thread lambda?",
+        "answer": "Each thread must retain its own index. Borrowing the changing loop variable could give workers the wrong index or an invalid lifetime."
+      },
+      "code": {
+        "filename": "sys_ch61_uneven_partition.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\n#include <numeric>\n#include <thread>\n#include <vector>\nint main() {\n    const std::vector<int> input{1, 2, 3, 4, 5, 6, 7};\n    std::array<int, 3> partial{}, lengths{};\n    {\n        std::vector<std::jthread> workers;\n        workers.reserve(3);\n        for (std::size_t worker = 0; worker < partial.size(); ++worker) {\n            workers.emplace_back([&, worker] {\n                const auto first = worker * input.size() / partial.size();\n                const auto last = (worker + 1) * input.size() / partial.size();\n                lengths[worker] = static_cast<int>(last - first);\n                partial[worker] = std::accumulate(input.begin() + first, input.begin() + last, 0);\n            });\n        }\n    } // All jthreads join before results are read.\n    const int parallel = std::accumulate(partial.begin(), partial.end(), 0);\n    const int sequential = std::accumulate(input.begin(), input.end(), 0);\n    std::cout << \"chunks=\" << lengths[0] << ',' << lengths[1] << ',' << lengths[2] << '\\n';\n    std::cout << \"parallel=\" << parallel << \" sequential=\" << sequential << '\\n';\n    return parallel == sequential ? 0 : 1;\n}\n",
+        "expectedStdout": "chunks=2,2,3\nparallel=28 sequential=28\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Slot identity must have exactly one current owner",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "code",
+      "keyPoints": [
+        "Free \u2192 producer \u2192 ready \u2192 worker \u2192 free",
+        "A duplicate return violates the ownership state",
+        "This model checks transitions without running a queue"
+      ],
+      "narration": "This small state model gives two buffer slots a current owner. Slot zero moves from free to producer, then ready, then worker, then free again. Both slots are now free, so the first output is free slots equals two. A second attempted worker-to-free return fails because the slot is no longer worker-owned; duplicate rejected is one. The program does not implement queue synchronization. It isolates the invariant that the real queue transfers must preserve. Returning one slot twice could let two later users overwrite the same storage, while losing a slot could reduce capacity until progress stops.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.016: 61.7 Threads \u2192 Shared Memory",
+      "question": {
+        "prompt": "Why is a duplicate free-slot return more serious than an inaccurate counter?",
+        "answer": "It can permit simultaneous reuse of the same buffer identity, breaking exclusive access and potentially causing data races or corrupted results."
+      },
+      "code": {
+        "filename": "sys_ch61_slot_ownership.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <array>\n#include <iostream>\nenum class Owner { free, producer, ready, worker };\nint main() {\n    std::array<Owner, 2> slots{Owner::free, Owner::free};\n    const auto transfer = [&](std::size_t slot, Owner from, Owner to) {\n        if (slots.at(slot) != from) return false;\n        slots[slot] = to;\n        return true;\n    };\n    if (!transfer(0, Owner::free, Owner::producer)\n        || !transfer(0, Owner::producer, Owner::ready)\n        || !transfer(0, Owner::ready, Owner::worker)\n        || !transfer(0, Owner::worker, Owner::free)) return 1;\n    const bool duplicate = transfer(0, Owner::worker, Owner::free);\n    std::cout << \"free slots=\" << std::count(slots.begin(), slots.end(), Owner::free) << '\\n';\n    std::cout << \"duplicate rejected=\" << !duplicate << '\\n';\n}\n",
+        "expectedStdout": "free slots=2\nduplicate rejected=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Serialized ownership-state model; it does not implement concurrent queue operations."
+      }
+    },
+    {
+      "title": "Choose arithmetic that permits the intended combination",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Unsigned modular addition is associative",
+        "A byte contributes a value from 0 through 255",
+        "Byte-count overflow has a separate check",
+        "An additive checksum is not cryptographic authentication"
+      ],
+      "narration": "The source pipeline treats input as uninterpreted bytes and adds their unsigned values into a sixty-four-bit sum. Unsigned modular addition can be regrouped, so worker partial sums can combine in any completion order under that arithmetic contract. A signed overflow or a strict floating-point reduction would need a different argument. The byte count is separately checked rather than assumed safe because the sum uses unsigned arithmetic. This simple checksum makes an integration lesson easier to verify, but does not authenticate input or resist deliberate collisions. Replacing it with an order-sensitive hash requires defining a correct parallel combination rule before reusing the worker structure.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.004: 61.1 Data Representation \u2192 Machine Instructions",
+      "question": {
+        "prompt": "Why cannot an arbitrary order-sensitive hash automatically replace the additive checksum unchanged?",
+        "answer": "Its partial results may not combine associatively or without ordering information. The algorithm\u2019s combination contract must be redesigned and tested."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Distinct output slots avoid a shared append operation",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Allocate result storage before workers start",
+        "Assign each index once",
+        "Do not resize the vector while workers borrow its elements",
+        "Main reads and prints after completion"
+      ],
+      "narration": "The workshop pipeline allocates the results vector before starting workers and assigns each work index once. Different workers can then write distinct result elements without competing to change container size. Having every worker call push_back on the same unprotected vector would instead race on shared container state and could invalidate storage. Main waits for completion before reading and printing, so report order follows input indexes rather than scheduling. The input strings are owned by work items, avoiding borrowed pointers into disappearing temporary data. These guarantees depend on the no-duplicate-index rule and the absence of concurrent resizing, not merely on choosing a vector type.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SYS61.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "Why are writes to distinct pre-existing vector elements different from concurrent push_back calls?",
+        "answer": "Distinct elements can be separate objects, while push_back modifies shared container bookkeeping and may reallocate storage. The fixed-storage and unique-index assumptions matter."
+      }
+    },
+    {
+      "title": "Name the payload budget without claiming it covers everything",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Eight 4096-byte slots provide 32 KiB of payload storage",
+        "Stacks, queues, metadata, and runtime state add more",
+        "A capacity-two work queue does not bound already-loaded input"
+      ],
+      "narration": "The source streaming pipeline reuses eight four-kibibyte slots, giving thirty-two kibibytes of byte payload storage. That arithmetic excludes thread stacks, queue metadata, result objects, descriptors, and runtime overhead. It is not a claim that the entire process fits in one cache. The smaller workshop lab has a different boundary: its capacity-two queue bounds queued jobs, but the caller has already loaded the input vector of strings. Keeping these two implementations distinct prevents a false memory claim. To support large streaming input, the application must budget the producer's input ownership as well as the queue.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.008: 61.3 Processor Execution \u2192 Memory Hierarchy",
+      "question": {
+        "prompt": "Does a capacity-two queue guarantee that the workshop pipeline uses only two payloads\u2019 worth of memory?",
+        "answer": "No. The already-loaded input vector and other owned state also consume memory. Queue capacity bounds only the queued portion."
+      }
+    },
+    {
+      "title": "The ready queue publishes filled bytes to a worker",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Producer writes occur before enqueue publication",
+        "Mutex-protected handoff makes the bytes visible",
+        "A worker must dequeue before reading its slot"
+      ],
+      "narration": "The producer owns a free slot while filling its bytes and recording the valid count. It then publishes the slot index through the ready queue. The queue's mutex and condition-variable protocol establishes the ordering that lets a worker safely read the filled data after a successful dequeue. The slot index is not just a number; it represents transfer of exclusive access. No extra per-slot atomic ready flag is needed in this design because the queue handoff supplies the synchronization. Removing that queue protection while keeping ordinary byte storage would require a new publication proof rather than only a faster container.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.018: 61.8 Shared Memory \u2192 Synchronization",
+      "question": {
+        "prompt": "Why is seeing a slot index through the synchronized ready queue important before reading the corresponding bytes?",
+        "answer": "The handoff establishes both ownership and visibility of the producer\u2019s earlier writes under the queue\u2019s synchronization protocol."
+      }
+    },
+    {
+      "title": "The free queue publishes permission to reuse storage",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Worker finishes all reads before returning the index",
+        "Producer cannot overwrite a worker-owned slot",
+        "Slot conservation also supports a progress argument"
+      ],
+      "narration": "The reverse handoff matters as much as publication of filled data. A worker must finish reading the slot before returning its index to the free queue. Only after the producer obtains that index again may it overwrite the storage. In the eight-slot design, a worker holding one valid identity means at most seven other identities can already be in the free queue. Returning its identity therefore has room during normal completion, provided no slot was duplicated or lost. That is a resource-count argument for progress, not a guess that the producer will probably run soon.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.028: Worked example \u2014 A bounded concurrent byte-summary pipeline",
+      "question": {
+        "prompt": "What invariant makes the normal return-to-free-queue capacity argument work?",
+        "answer": "Exactly eight distinct slot identities exist, and each occupies exactly one ownership state at a time. No identity is duplicated or lost."
+      }
+    },
+    {
+      "title": "EOF closes production after publishing all valid bytes",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "A short positive read still contains useful input",
+        "Only the returned extent is published",
+        "Ready work drains before workers finish"
+      ],
+      "narration": "A short read is not EOF. If the buffer can hold four thousand ninety-six bytes and read returns one hundred, the producer must publish those one hundred bytes with the slot's valid count. A later zero return ends input. Normal completion then closes the ready queue so workers can drain already-enqueued slots and stop once no work remains. The upstream pipe matters too: an accidentally retained write descriptor can prevent EOF even when no more bytes are intended. Diagnose the process graph and the internal queue separately before blaming a worker that is correctly waiting for the producer's completion signal.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.014: 61.6 Processes \u2192 Interprocess Communication",
+      "question": {
+        "prompt": "Why can the capstone wait for input even though its internal worker queues are correct?",
+        "answer": "An external producer or inherited pipe writer may still keep the pipe\u2019s write end open, so the reader has not observed EOF."
+      }
+    },
+    {
+      "title": "Shutdown must wake waiters before collecting workers",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Normal completion and failure have distinct paths",
+        "Failure closes queues so waiting threads can stop",
+        "Every created thread is joined before shared objects die"
+      ],
+      "narration": "If a producer fails while workers wait on an empty ready queue, simply returning would leave blocked threads borrowing local queues and slots. The failure path records the error, closes the relevant queues, and joins every successfully created thread before destroying shared storage. Partial thread-creation failure needs the same care: earlier threads already exist even if a later creation throws. Scope ownership helps collect them, but a join cannot finish a worker that is waiting for an event nobody will send. Wakeup policy, error propagation, and lifetime order form one shutdown design.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.020: 61.9 Synchronization \u2192 Correct Concurrent Programs",
+      "question": {
+        "prompt": "Why must queue closure generally precede joining a worker blocked in pop after failure?",
+        "answer": "Closure lets the waiting predicate become true and gives the worker a way to stop. Joining alone does not create that wakeup condition."
+      }
+    },
+    {
+      "title": "A stop hint does not publish unrelated shared data",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "The atomic failure flag only suggests stopping",
+        "Protected exception storage carries the actual error",
+        "Queue handoffs publish slots; joins complete worker results"
+      ],
+      "narration": "The source uses different synchronization mechanisms for different facts. Its atomic failure flag is a stop hint, so relaxed ordering can be sufficient for that hint under the stated design. The actual exception object has protected storage, and thread joins govern completion before the caller accesses final state. Slot bytes become visible through queue handoffs, not through the relaxed flag. Mixing those roles is a common error: an atomic Boolean does not automatically publish every ordinary object nearby. When reviewing memory ordering, identify the exact data each synchronization edge protects instead of assuming that the presence of any atomic makes the whole program safe.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.020: 61.9 Synchronization \u2192 Correct Concurrent Programs",
+      "question": {
+        "prompt": "Can the relaxed stop flag replace the mutex protecting the stored exception object?",
+        "answer": "No. It does not establish the required protection and publication for that separate shared object. Each synchronization role must be justified."
+      }
+    },
+    {
+      "title": "Closing a queue cannot interrupt every external wait",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "The producer uses blocking input in this capstone",
+        "Queue shutdown affects queue waiters",
+        "Responsive cancellation needs an explicit I/O wakeup design"
+      ],
+      "narration": "The source deliberately accepts finite blocking input. If the producer is already blocked in read waiting for an external peer, closing an internal queue cannot force that read to return. This is an important limit, not a contradiction in the queue's shutdown logic. A production job requiring prompt cancellation needs a suitable nonblocking readiness design with a cancellation event, or another interface with a defined cancellation contract. Do not rely on closing a descriptor from an unrelated thread as a universal answer. Add cancellation only after naming which waits it must interrupt and how resources remain owned until those waits end.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.012: 61.5 Processes \u2192 Files and I/O",
+      "question": {
+        "prompt": "What extra design is needed for a strict whole-job cancellation deadline with an idle external input source?",
+        "answer": "An explicitly cancellable I/O or nonblocking readiness/wakeup mechanism, in addition to closing internal queues and collecting workers."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Compare the concurrent pipeline with the real sequential baseline",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Use identical finite input and required checksum",
+        "Measure end-to-end time and CPU time",
+        "Vary one bounded parameter at a time",
+        "A lightweight checksum may not amortize queue costs"
+      ],
+      "narration": "The checksum does very little work per byte, so synchronization and scheduling overhead may exceed the benefit of several workers. Compare with the sequential utility on empty, tiny, boundary-sized, and larger finite binary fixtures. Keep output equality as a required condition, then measure the relevant timing boundary and CPU cost. Change slot size, slot count, or worker count one at a time when practical. A correct four-worker run is not automatically faster than one worker, and an impressive throughput number does not excuse excess memory or worse tail behavior in a different service context.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.022: 61.10 Architecture \u2192 Performance",
+      "question": {
+        "prompt": "Why might the sequential version beat the concurrent version on the same correct checksum task?",
+        "answer": "The per-byte work is small, so thread, queue, synchronization, and cache-coherence costs can outweigh parallel computation benefits."
+      }
+    },
+    {
+      "title": "A capstone extension must preserve the chain of guarantees",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 61",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate new worker limits before acquisition",
+        "Keep owned payloads and exactly-once indexes",
+        "Add failure and boundary tests alongside new behavior",
+        "Explain correctness, performance, security, and recovery together"
+      ],
+      "narration": "Finish by proposing one extension and defending its boundaries. A configurable worker count needs bounds and setup-failure cleanup. Larger inputs need a streaming ownership and memory budget. A stronger checksum needs an order-correct combination rule. A network input needs framing, deadlines, and cancellation beyond the internal queue. Keep the sequential reference and test empty input, exact slot boundaries, one byte beyond a boundary, binary nulls, and input errors. The final argument should connect valid bytes, representation, ownership, synchronization, completion, and observable output. Systems reasoning succeeds when these promises hold together, not when each subsystem merely looks plausible in isolation.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch61.json \u2192 SP61.034: Guided lab and review",
+      "question": {
+        "prompt": "What would make a parallel checksum extension incomplete even if its ordinary output matches once?",
+        "answer": "Missing ownership, overflow, failure cleanup, boundary, cancellation-scope, or combination-order guarantees can leave the whole-system contract unproven."
+      }
+    }
+  ]
+}

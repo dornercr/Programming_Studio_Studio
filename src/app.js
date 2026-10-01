@@ -59,10 +59,11 @@
 
   modes.push(...modes.splice(0,2));
   modes.push({id:'lectures',label:'Lectures',icon:'source',color:'bg-mint text-mint-ink'});
-  modes.push({id:'slides',label:'Slides',icon:'layers',color:'bg-mint text-mint-ink'});
+  modes.push({id:'slides',label:'Lectures',icon:'layers',color:'bg-mint text-mint-ink'});
   modes.push({id:'coding',label:'Coding Lab',icon:'edit',color:'bg-mint text-mint-ink'});
   modes.push({id:'book',label:'Book',icon:'book',color:'bg-brand-soft text-brand'});
-  function availableModes(){return modes.filter(m=>m.id==='slides'?slidesHasCourse(state.courseId):!['uml','code','lectures','book'].includes(m.id)||(m.id==='book'&&course().series)||(m.id==='uml'&&Object.keys(course().diagrams||{}).length)||(m.id==='code'&&(Object.keys(course().examples||{}).length||course().series?.listings.length))||(m.id==='lectures'&&Object.keys(course().lectures||{}).length));}
+  function normalizeLectureMode(mode){return mode==='lectures'&&slidesHasCourse(state.courseId)?'slides':mode;}
+  function availableModes(){const hasSlides=slidesHasCourse(state.courseId);return modes.filter(m=>m.id==='slides'?hasSlides:m.id==='lectures'&&hasSlides?false:!['uml','code','lectures','book'].includes(m.id)||(m.id==='book'&&course().series)||(m.id==='uml'&&Object.keys(course().diagrams||{}).length)||(m.id==='code'&&(Object.keys(course().examples||{}).length||course().series?.listings.length))||(m.id==='lectures'&&Object.keys(course().lectures||{}).length));}
   function courses() {
     return seed.courses.map(c => c.id === 'my-material' ? {...c,topics:store.customTopics} : c).concat(store.courses);
   }
@@ -111,6 +112,7 @@
     return items.find(x=>x.id===id)||items.find(x=>x.topic.id===state.topicId)||items[0]||null;
   }
   function synchronize() {
+    state.mode=normalizeLectureMode(state.mode);
     if(!availableModes().some(m=>m.id===state.mode))state.mode='outline';
     const all=course().topics;if(!all.length){state.topicId=null;return;}
     if(!all.some(t=>t.id===state.topicId))state.topicId=all[0].id;
@@ -296,6 +298,7 @@
     await renderAll();window.scrollTo({top:0,behavior:'instant'});
   }
   function switchMode(mode) {
+    mode=normalizeLectureMode(mode);
     if(!availableModes().some(m=>m.id===mode))return;
     const current=topic();state.mode=mode;state.flipped=false;
     const items=deck(mode);const key=mode==='flashcards'?'cardId':'scenarioId';
@@ -619,7 +622,7 @@
     const n=params.get('chapter'),c=course();
     if(n!==null){const t=c.topics.find(t=>String(t.chapter)===n);if(t){state.chapter=n;state.topicId=c.teaching?.[n]?.startTopicId||t.id;state.lessonView='map';}}
     const t=params.get('topic');if(t&&c.topics.some(x=>x.id===t)){state.topicId=t;state.chapter=String(topic().chapter);}
-    if(params.get('view'))state.mode=params.get('view');
+    if(params.get('view'))state.mode=normalizeLectureMode(params.get('view'));
     if(state.mode==='slides'&&params.has('slide')){const n=Number(params.get('slide'));if(Number.isInteger(n)&&n>0&&n<10000)slidesState().index=n-1;}
     if(params.get('lesson'))state.lessonView=params.get('lesson');
     state.cardId=params.get('card')||state.cardId;state.scenarioId=params.get('practice')||state.scenarioId;

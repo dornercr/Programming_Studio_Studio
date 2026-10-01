@@ -1,0 +1,707 @@
+Systems Programming and Machine Organization
+Chapter 45: Race Conditions: atomic accesses versus correct transactions
+Dr. Charles Dorner
+
+1. Count the promises before counting the writes
+Problem and first experiment
+
+SAY
+Two customers ask for the last available item. The requirement is simple: at most one request succeeds, and stock never becomes negative. Reading stock and later writing it back are not enough if another request can act between those steps. A race condition is a result that incorrectly depends on timing. A C++ data race is a narrower language rule about conflicting unsynchronized accesses, and it causes undefined behavior. The distinction matters because atomic accesses can remove the data race while leaving the reservation algorithm logically wrong. First state the whole promise, then choose an operation boundary that preserves it.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.008
+
+------------------------------------------------------------
+
+2. An invariant is wider than a convenient statement
+Problem and first experiment
+
+SAY
+An invariant is a rule that must stay true when the state is visible to the next operation. Here, starting with one item, remaining stock plus accepted reservations should equal one. A reservation that fails must not consume stock. That relationship spans both a decision and a change. Locking only the final assignment would still allow two callers to make decisions from the same earlier value. A suitable critical section begins before checking availability and ends after the update is consistent. A suitable atomic operation instead combines the conditional replacement. Naming the invariant prevents a review from mistaking the mere presence of a mutex or atomic type for a complete solution.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.014
+
+------------------------------------------------------------
+
+3. Safely model two stale reservation decisions
+Problem and first experiment
+
+SAY
+This single-thread program deliberately models two separate requests reading the same stock snapshot. Each then stores snapshot minus one and marks its own grant. It prints remaining=0 grants=2 accounted=2. The remaining stock looks plausible, but the accounting invariant reveals the duplicated reservation. No actual concurrent ordinary access is executed, so this example has no C++ data race. Its purpose is to show a logical schedule with explicit steps. A test that checked only final stock would miss the defect. The repaired design must protect the decision as well as the store, so only one request can successfully consume that one unit.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch45.json → SP45.008
+
+------------------------------------------------------------
+
+4. Run one indivisible claim on the last item
+Problem and first experiment
+
+SAY
+The repaired demonstration uses compare_exchange_strong to change stock from one to zero only if it is still one. Both workers begin with an expected value of one. One successful comparison consumes the item; the other observes that the value is no longer one and fails. Each writes its own result slot, and main reads those slots only after both joins. The output grants=1 remaining=0 is stable even though the winning thread is not predictable. This small one-shot protocol has only the states one and zero. A reusable inventory with replenishment would need a broader loop and lifetime contract rather than assuming this exact two-state proof still applies.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch45.json → SP45.012
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Use atomic accesses but deliberately read twice before storing. Then compare two fetch_add operations.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Keep a deterministic split-load/store counterexample, then have two real workers perform 1000 atomic fetch_add operations each.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Stronger memory ordering on separate load and store calls does not combine them into a transaction.
+
+A related failure in the generalized operation is concrete: Replace fetch_add with load followed by store in each worker. The C++ accesses remain atomic, but increments can be lost.
+
+The repair changes the operation at the point where the rule can be enforced: Use one read-modify-write operation for the counter, or protect the entire logical update with a mutex when several objects must change together.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Every access to each shared atomic counter is atomic, but only fetch_add combines reading and updating into one indivisible operation. The split trace intentionally separates those steps and has a logical lost update without undefined behavior. Completion of both futures makes the final count meaningful; checking while workers run would observe a valid but incomplete total.
+
+A plausible alternative: Use a mutex when one logical update must protect several related values; one atomic counter is enough only for the narrower contract.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.03
+
+------------------------------------------------------------
+
+8. Chapter 45 — Race Conditions
+Systems mechanisms and source lecture
+
+SAY
+A race condition is a logical dependence on timing that violates the intended result. A data race has a specific C++ memory-model meaning involving conflicting accesses without the required ordering, with at least one access non-atomic. Data races cause undefined behavior; logical races can also occur in programs that use atomics and contain no data race. [ R22 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.001, SP45.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+45.1 Shared state 45.2 Conflicting accesses 45.3 Race conditions 45.4 Data races ...plus 6 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.003
+
+------------------------------------------------------------
+
+10. Shared state
+Systems mechanisms and source lecture
+
+SAY
+Shared state is information accessible to multiple activities. Mutable shared state requires a policy: one owner, a lock, atomic operations, or another proven protocol. The policy should cover related fields together when their relationship forms an invariant. A common design improvement is to reduce sharing. Give each worker a private accumulator, use immutable messages, or transfer ownership through a queue. Eliminating a shared write is often simpler than coordinating it correctly.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.004, SP45.005
+
+------------------------------------------------------------
+
+11. Conflicting accesses
+Systems mechanisms and source lecture
+
+SAY
+Two accesses conflict when they target overlapping memory in a way relevant to the language rules and at least one modifies state or affects object lifetime. Two ordinary reads can coexist when the object is safely initialized and remains alive. Different source-level variables can still interact through aliasing or overlapping storage. Conversely, distinct non-bit-field array elements are separate memory locations for ordinary concurrent-access reasoning. Hardware cache-line sharing is a performance concern distinct from language-level location identity.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.006, SP45.007
+
+------------------------------------------------------------
+
+12. Race conditions
+Systems mechanisms and source lecture
+
+SAY
+A check-then-act sequence can race even when each individual check and update is atomic. Two customers may both observe the last item as available and each reserve it unless the combined transaction is coordinated. Define the intended indivisible operation. Is it one counter increment, a transfer between two accounts, or removal of one queue item together with count adjustment? Synchronization must protect that semantic unit, not merely surround an arbitrary convenient statement.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.008, SP45.009
+
+------------------------------------------------------------
+
+13. Data races
+Systems mechanisms and source lecture
+
+SAY
+In C++, conflicting accesses in different threads require the appropriate happens-before relationship unless the accesses are covered by the atomic rules. A non-atomic shared counter increment without synchronization is not merely allowed to lose updates; the program has undefined behavior. Do not use a run that “usually prints the expected number” as evidence of correctness. Compiler transformations and hardware execution are constrained by the language’s defined programs, not by a programmer’s preferred interleaving of an undefined one. ThreadSanitizer can help detect observed races but cannot prove their absence on every path. [ R6 ]
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.010, SP45.011
+
+------------------------------------------------------------
+
+14. Atomicity
+Systems mechanisms and source lecture
+
+SAY
+Atomicity means that an operation is indivisible with respect to the relevant observers and model. An atomic load and an atomic store are individually indivisible, but the pair is not automatically one atomic read-modify-write transaction. Atomicity also has scope. An atomic integer operation does not make a neighboring ordinary structure update safe. A transaction spanning several objects generally needs a broader synchronization protocol or carefully designed multi-object algorithm.
+
+In plain English: This is a coordination rule that helps multiple workers share information without stepping on each other's work.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.012, SP45.013
+
+------------------------------------------------------------
+
+15. Critical sections
+Systems mechanisms and source lecture
+
+SAY
+A critical section is code that accesses state under an exclusion or coordination rule. Its boundaries should preserve the state invariant: acquire the protection, inspect and update related fields, restore a consistent state, then release. Keep blocking I/O and unknown callbacks outside a lock when possible, but do not shorten the section by moving required validation outside and reintroducing a race. Performance changes must preserve the same indivisible logical operation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.014, SP45.015
+
+------------------------------------------------------------
+
+16. A data-race-free lost update
+Systems mechanisms and source lecture
+
+SAY
+The first phase below deliberately separates atomic load and store. A barrier ensures that both participants read zero before either stores one. The second phase uses fetch_add , which performs one atomic read-modify-write per increment. Companion listing: ch45/logical_race.cpp The expected output is load/store=1 fetch_add=2 . Every counter access is atomic, so the first phase has no C++ data race. It is still the wrong implementation of “count two increments.” Strong default memory ordering does not combine separate operations into a transaction. The barrier makes the failure deterministic and inspectable. This is preferable to a demonstration that runs undefined code repeatedly and hopes to display a surprising number.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.016, SP45.017
+
+------------------------------------------------------------
+
+17. Lost update race
+Systems mechanisms and source lecture
+
+SAY
+C++ correction: the source describes a conceptual read/add/write interleaving. Two unsynchronized ordinary counter++ operations in real C++ have a data race and undefined behavior; a final value of 1 is not guaranteed. The atomic chapter workshop below provides a defined, deterministic demonstration of the logical lost update.
+
+The retained source panel includes the original interleaving description. Use it only as a conceptual model; it does not bound the behavior of an unsynchronized ordinary C++ counter. The chapter's atomic demonstration gives a defined experiment for the logical lost update.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.018, SP45.019
+
+------------------------------------------------------------
+
+18. Critical-section repair
+Systems mechanisms and source lecture
+
+SAY
+Protecting the increment with the same mutex makes the read-modify-write sequence mutually exclusive. Thread A locks, reads zero, stores one, unlocks; only then can thread B enter and produce two. The lock protects the invariant that no two threads update the counter simultaneously.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.020, SP45.021
+
+------------------------------------------------------------
+
+19. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 45. Replace the first phase’s separate load/store with fetch_add while retaining a barrier before the operation. Verify the final value remains 2 regardless of which participant performs its increment first. Review 1. Can a program contain a race condition without a data race? Review 2. Why does sequential consistency not turn two separate atomic operations into one transaction?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.022, SP45.023
+
+------------------------------------------------------------
+
+20. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is race conditions. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.024
+
+------------------------------------------------------------
+
+21. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Atomic Operations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.025
+
+------------------------------------------------------------
+
+22. Do not teach undefined behavior as a fixed schedule
+Reason about the implementation
+
+SAY
+The historical source includes a read-add-write explanation of counter increments. Use that explanation as a logical model, not as the promised outcome of racing ordinary C++ code. Two unsynchronized threads modifying the same non-atomic integer have a data race and therefore undefined behavior. The language does not promise only the numbers one or two. A safe lesson can serialize the modeled steps, as our reservation example does, or use atomic operations with a barrier to force a particular logical failure. That lets students observe a real, repeatable result while keeping the important distinction between algorithmic atomicity and the language's defined execution rules.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.010
+
+------------------------------------------------------------
+
+23. Location identity and aliasing matter
+Reason about the implementation
+
+SAY
+Suppose one function receives a pointer called left and another receives a pointer called right. The names do not prove independence; both pointers may designate the same integer. Race analysis follows actual overlapping storage and lifetime, not variable spelling. Conversely, our two ordinary result array elements are separate locations, and each worker owns one until joining. They may share a hardware cache line, which can affect performance, but that is distinct from a language data race. Review aliases, references, and returned pointers whenever ownership seems unclear. Destroying or reallocating shared storage can create a conflict even when the source code appears to contain only a harmless read.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.006
+
+------------------------------------------------------------
+
+24. A mutex must protect the semantic transaction
+Reason about the implementation
+
+SAY
+A mutex repair is often clearer when a reservation changes several fields, such as stock, a customer record, and an audit sequence. The critical section should protect the semantic transaction, meaning the operation that observers must treat as one consistent change. Moving the availability check outside to shorten lock time reopens the stale-decision bug. On the other hand, calling unknown callbacks while locked can introduce reentry or deadlock. One solution is to update protected state, copy the notification data, release the lock, then call external code under a documented policy. The correct boundary follows the invariant, not a general rule that shorter or longer locking is always better.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.014
+
+------------------------------------------------------------
+
+25. Testing needs both observations and a proof
+Reason about the implementation
+
+SAY
+Run a race detector to find conflicting accesses that a test actually exercises, but do not treat a clean report as proof that reservations cannot be duplicated. Our first model has a logical bug without any concurrent accesses at all. Useful tests count accepted requests, remaining stock, and unique item identities, then check the conservation rule after all work finishes. Forced schedules or barriers can expose known risky windows deterministically. The design argument explains why the repair excludes those windows. Tools and tests provide evidence about exercised paths; the invariant and synchronization rules explain why a wider set of permitted executions should remain correct.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.010
+
+------------------------------------------------------------
+
+26. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Use atomic accesses but deliberately read twice before storing. Then compare two fetch_add operations.
+
+Separate loads. both read 0. Each operation is atomic, but the pair is not one indivisible increment.
+
+Separate stores. both store 1. The logical lost update occurs without any C++ data race in this trace.
+
+Use fetch_add. 0 becomes 1, then 2. Each read-modify-write is one atomic operation with respect to the counter.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch45/main.cpp
+
+------------------------------------------------------------
+
+27. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Separate loads. both read 0. Each operation is atomic, but the pair is not one indivisible increment.
+
+Separate stores. both store 1. The logical lost update occurs without any C++ data race in this trace.
+
+Use fetch_add. 0 becomes 1, then 2. Each read-modify-write is one atomic operation with respect to the counter.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch45/main.cpp
+
+------------------------------------------------------------
+
+28. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Every access to each shared atomic counter is atomic, but only fetch_add combines reading and updating into one indivisible operation. The split trace intentionally separates those steps and has a logical lost update without undefined behavior. Completion of both futures makes the final count meaningful; checking while workers run would observe a valid but incomplete total.
+
+Use one read-modify-write operation for the counter, or protect the entire logical update with a mutex when several objects must change together.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch45/main.cpp:1-17
+
+------------------------------------------------------------
+
+29. Atomic loads and stores do not form one increment
+Code, diagrams, and debugging
+
+SAY
+Atomic loads and stores do not form one increment. This store writes a+1 based on the earlier snapshot zero. Atomicity of the store alone does not refresh that snapshot.
+
+Use atomic accesses but deliberately read twice before storing. Then compare two fetch_add operations.
+
+Each operation is atomic, but the pair is not one indivisible increment. The logical lost update occurs without any C++ data race in this trace. Each read-modify-write is one atomic operation with respect to the counter.
+
+This store writes a+1 based on the earlier snapshot zero. Atomicity of the store alone does not refresh that snapshot.
+
+The second atomic store writes b+1, also one, replacing the first result. Each store is indivisible, but the combined load/compute/store operation is not.
+
+The defined split_result is one. Later fetch_add operations combine the read and modification atomically, so two updates produce two.
+
+Each atomic access is indivisible, but separate loads and stores do not constitute one increment. fetch_add combines the read and modification.
+
+Stronger memory ordering on separate load and store calls does not combine them into a transaction. In the extended lab: Replace fetch_add with load followed by store in each worker. The C++ accesses remain atomic, but increments can be lost.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch45/main.cpp:9-11
+
+------------------------------------------------------------
+
+30. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Replace fetch_add with load followed by store in each worker. The C++ accesses remain atomic, but increments can be lost.
+
+Use one read-modify-write operation for the counter, or protect the entire logical update with a mutex when several objects must change together.
+
+The reference solution makes the contract executable with assertions. Every access to each shared atomic counter is atomic, but only fetch_add combines reading and updating into one indivisible operation. The split trace intentionally separates those steps and has a logical lost update without undefined behavior. Completion of both futures makes the final count meaningful; checking while workers run would observe a valid but incomplete total.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.06
+
+------------------------------------------------------------
+
+31. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch45/starter.cpp. Implement the first acceptance case for compare split updates with atomic read-modify-write. State the function inputs and result before adding code. First case: Two split loads followed by two stores finish at one.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.07
+
+------------------------------------------------------------
+
+32. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch45/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.08
+
+------------------------------------------------------------
+
+33. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Replace fetch_add with load followed by store in each worker. The C++ accesses remain atomic, but increments can be lost. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.09
+
+------------------------------------------------------------
+
+34. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why is this a better teaching trace than running two unsynchronized ordinary increments? Compare the selected design with this plausible alternative: Use a mutex when one logical update must protect several related values; one atomic counter is enough only for the narrower contract.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.10
+
+------------------------------------------------------------
+
+35. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch45/starter.cpp. Keep a deterministic split-load/store counterexample, then have two real workers perform 1000 atomic fetch_add operations each. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch45/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.11
+
+------------------------------------------------------------
+
+36. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Compare split updates with atomic read-modify-write belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.12
+
+------------------------------------------------------------
+
+37. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Keep a deterministic split-load/store counterexample, then have two real workers perform 1000 atomic fetch_add operations each.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch45/starter.cpp
+
+------------------------------------------------------------
+
+38. Review the extension solution
+Practice and extension
+
+SAY
+Every access to each shared atomic counter is atomic, but only fetch_add combines reading and updating into one indivisible operation. The split trace intentionally separates those steps and has a logical lost update without undefined behavior. Completion of both futures makes the final count meaningful; checking while workers run would observe a valid but incomplete total. Repair principle: Use one read-modify-write operation for the counter, or protect the entire logical update with a mutex when several objects must change together.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Use one read-modify-write operation for the counter, or protect the entire logical update with a mutex when several objects must change together.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch45/solution.cpp
+
+------------------------------------------------------------
+
+39. Application case: Race Conditions
+Practice and extension
+
+SAY
+Two threads increment the same non-atomic C++ int without synchronization.
+
+What is the issue?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.CASE
+
+------------------------------------------------------------
+
+40. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Every access to each shared atomic counter is atomic, but only fetch_add combines reading and updating into one indivisible operation. The split trace intentionally separates those steps and has a logical lost update without undefined behavior. Completion of both futures makes the final count meaningful; checking while workers run would observe a valid but incomplete total.
+
+Choose a simpler approach when its narrower contract is enough. Use a mutex when one logical update must protect several related values; one atomic counter is enough only for the narrower contract.
+
+When this system changes, retain a check that exposes the known failure: Replace fetch_add with load followed by store in each worker. The C++ accesses remain atomic, but increments can be lost. Use one read-modify-write operation for the counter, or protect the entire logical update with a mutex when several objects must change together.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch45.json → SYS45.14
+
+------------------------------------------------------------
+
+41. Prefer removing shared writes when the task allows it
+Recall and transfer
+
+SAY
+Not every counting task needs a contended global atomic. Workers can count their own completed items and return totals for a parent to combine after joining. That changes the design so no two workers update the same counter. Reservation is different: deciding who receives the last item really does coordinate shared ownership, so independent local counts cannot replace the claim protocol. Distinguish statistics from allocation of a limited resource. A local count may be sufficient for reporting progress, while a global admission decision needs stronger coordination. Reducing sharing is often the simplest repair, but it must preserve the actual meaning of the operation.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.004
+
+------------------------------------------------------------
+
+42. Review the whole invariant after every repair
+Recall and transfer
+
+SAY
+Finish a race review by stating one exact promise. For this chapter's reservation, at most one request receives the only item, rejected requests do not alter stock, and final accounting equals the initial inventory. Then identify the operation that enforces that promise and the lifetime rule that keeps all referenced storage valid. Check both success and failure paths, including a request arriving after stock reaches zero. Keep historical source explanations available, but teach the corrected C++ guarantee explicitly. A successful run can confirm expected output; it cannot turn undefined code into a valid program or make separated atomic operations into a transaction.
+
+DO
+Predict the named output or state before revealing the answer.
+Explain the operation boundary and its guarantee.
+
+SOURCE
+content/systems-programming/ch45.json → SP45.022

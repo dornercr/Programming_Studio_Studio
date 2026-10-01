@@ -1,0 +1,674 @@
+Systems Programming and Machine Organization
+Chapter 6: Memory Layout: shape, padding, byte order, and alignment
+Dr. Charles Dorner
+
+1. Contiguous elements still require a valid shape
+Problem and first experiment
+
+SAY
+A matrix stored as two rows of three integers has six elements, but the pair row and column still needs validation before it becomes a linear index. Row one, column two maps to element five using row times three plus column. That arithmetic describes the shape only when the dimensions match the actual storage and both coordinates are in range. An array of structures repeats the whole structure size, including padding, rather than only the useful fields. These rules connect logical indexing to layout. They do not authorize reaching adjacent memory because an address happens to be mapped or because a neighboring value looks plausible.
+
+DO
+Translate a valid coordinate into a linear index and then challenge the claimed shape.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.004 / 6.1 Arrays
+
+------------------------------------------------------------
+
+2. Padding is part of layout but not part of the value contract
+Problem and first experiment
+
+SAY
+A structure can contain gaps between members so each member begins at a suitable alignment. It can also have padding at the end so the next element of a structure array is properly aligned. Those bytes contribute to sizeof, but they are not additional named values in the application's record. Comparing whole object representations can therefore disagree with memberwise equality, and sending all bytes can expose data the format never meant to include. Use actual layout tools for supported types and stated ABI assumptions. For a file or network format, encoding each field explicitly usually gives a clearer contract than assuming a native structure matches the external layout.
+
+DO
+Draw a record with one alignment gap and explain who, if anyone, owns its meaning.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.006 / 6.2 Structures
+
+------------------------------------------------------------
+
+3. Byte order changes interpretation, not the input bytes
+Problem and first experiment
+
+SAY
+The array stores the two values two and one in that order. The big-endian expression treats the first as the high octet, computing two times two hundred fifty-six plus one, which is five hundred thirteen. The little-endian expression computes one times two hundred fifty-six plus two, which is two hundred fifty-eight. The final line confirms that the first stored octet remains two. No byte swapping or pointer cast occurs. We explicitly assemble unsigned values, so this demonstration does not depend on the host integer's native byte order. A format must specify which interpretation is correct. Neither convention is inherently the right answer without that agreement.
+
+DO
+Predict both decimal results from the two weights before Run.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch6.json → SP06.010 / 6.4 Endianness
+
+------------------------------------------------------------
+
+4. A layout model can explain padding without inventing measurements
+Problem and first experiment
+
+SAY
+This program calculates a declared layout model; it does not inspect an actual compiler's structure. In the first order, the one-byte field ends at offset one, padding advances the eight-byte field to offset eight, and the two-byte field ends at eighteen. Tail padding brings the total to twenty-four. Reordering puts the eight-byte field first, then two bytes, then one, reaching eleven before tail padding brings the total to sixteen. The printed saving is eight bytes per modeled record. This is a derived storage result, not a measured speedup. Reordering a real public structure also changes offsets, so compatibility must be reviewed before applying such a change.
+
+DO
+Trace the offsets for each order and clearly label them modeled.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch6.json → SP06.018 / Worked example — Predicting structure padding
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Three int objects form an array. Find the third element and the number of elements between its address and the first.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Map a row and column into a flat vector with a known number of columns. Check dimensions and bounds before accessing the data.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Assuming sizeof(int) is always four confuses one common platform with the language rule.
+
+A related failure in the generalized operation is concrete: Use row+col instead of row*cols+col. Coordinate (1,2) then reads 4 instead of 6.
+
+The repair changes the operation at the point where the rule can be enforced: Count complete rows before adding the position inside the selected row. Test a non-square grid so swapped dimensions do not hide the error.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The logical shape is part of the indexing contract; a flat allocation alone cannot prove coordinates are valid. Once the shape and coordinates are checked, row*cols+col selects the row-major element. Multiplication is bounded by data.size() before it is used. The vector owns the storage while the const reference only borrows it.
+
+A plausible alternative: Indexing values[2] is clearer when no pointer-based API is involved.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.03
+
+------------------------------------------------------------
+
+8. Chapter 6 — Memory Layout
+Systems mechanisms and source lecture
+
+SAY
+Layout translates logical objects into byte positions. It determines array strides, structure offsets, alignment requirements, and how a binary dump appears. Layout also affects performance, but its first obligation is correctness: every access must refer to the intended live object with a suitable type and alignment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.001, SP06.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+6.1 Arrays 6.2 Structures 6.3 Unions 6.4 Endianness ...plus 5 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.003
+
+------------------------------------------------------------
+
+10. Arrays
+Systems mechanisms and source lecture
+
+SAY
+Array elements occupy adjacent storage with no extra gap between complete elements beyond each element’s own size. If the element type includes padding, that padding is included in the stride. An array of structures therefore repeats the full structure size, not just the sum of useful field bytes. Contiguity supports efficient traversal and simple address calculations. It also means one out-of-bounds write can reach a neighboring element or another object. The fact that a numeric address lies near valid storage does not make it part of the array. Bounds come from the object, not from what the surrounding memory happens to contain. The element size is sizeof(element_type) . In int a[10] on a platform with four-byte int , the array occupies 40 bytes. In struct Record a[10] , each step uses sizeof(struct Record) , including any tail padding needed to align the next record. A pointer alone does not retain the number of elements. Keep count and capacity with the allocation, or use a container or span. When reading a file of fixed-size records, check both that the total byte count fits and that any required record-size divisibility holds. A leftover partial record is a format error, not an invitation to read beyond the buffer. For a one-dimensional array, address(a[i]) = base + i*sizeof(T) . This is a mathematical address model; source-level pointer arithmetic still requires i to identify an element or the permitted one-past position. To access an element, require i < count . Suppose the base is 0x2000 and each element is eight bytes. Element 5 begins at 0x2028 , because 5 × 8 = 40 = 0x28 . This simple calculation recurs in assembly scaled indexing, structure arrays, file offsets, and cache-line analysis. Always state whether the index counts elements or bytes. A built-in C or C++ array such as int a[3][4] is an array of three arrays, each containing four integers. Its rows are contiguous, and elements within a row are contiguous. With four-byte integers, the address of a[r][c] is modeled as base + (r*4 + c)*4 for valid indices. This is not the same representation as int** , which points to pointers and may describe separately allocated rows. Do not cast between them as a shortcut. For generic matrix interfaces, pass dimensions and strides explicitly or use a suitable multidimensional view. A stride describes layout; it does not itself establish ownership or bounds.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.004, SP06.005
+
+------------------------------------------------------------
+
+11. Structures
+Systems mechanisms and source lecture
+
+SAY
+Structures place members in an implementation-defined layout subject to language constraints. In ordinary C structures, members follow declaration order with possible padding. C++ standard-layout types provide the predictable subset needed for facilities such as offsetof ; inheritance, virtual functions, and other class features add additional rules. Use offsetof and sizeof when inspecting a supported type rather than guessing from field names. A debugger’s display can show logical members without exposing all padding. When interfacing with hardware or a file format, prefer an explicitly decoded representation over assuming that an ordinary structure matches the external bytes. A type’s alignment constrains the addresses at which its objects may be placed. If a four-byte-aligned member follows a one-byte member, the implementation may insert three padding bytes before it. The enclosing structure’s alignment generally accommodates its most demanding member on the reference ABI. Alignment is both a language validity requirement and an implementation consideration. An x86 instruction’s ability to load an unaligned address does not make an improperly aligned C++ T* access valid. Use byte copying to an aligned object when decoding data at arbitrary byte offsets. Internal padding lies between members; tail padding follows the final member so array elements begin at suitable alignments. Padding bytes do not necessarily have stable values. Comparing whole object representations with memcmp can therefore disagree with memberwise equality. Padding also matters at trust boundaries. Sending an uninitialized structure’s full storage can disclose residual bytes even when every named field has been assigned. Zeroing storage is not a substitute for a stable external format, but explicit field encoding avoids both the layout dependency and accidental padding disclosure.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.006, SP06.007
+
+------------------------------------------------------------
+
+12. Unions
+Systems mechanisms and source lecture
+
+SAY
+Union members overlap. Only enough storage for the largest and most aligned alternative is needed, subject to padding. A tagged union pairs that storage with a discriminator indicating which alternative is active. The discriminator and active object must agree at every interface boundary. Changing the tag without constructing or assigning the appropriate alternative can leave a logically impossible state. In C++, nontrivial member lifetimes make manual unions especially delicate. std::variant packages the tag and lifetime management when its cost and behavior fit the requirement. A union does not create several independent values in the same bytes. It supplies alternative interpretations subject to language rules. Reading a member different from the one most recently established is not a general portable way to reinterpret arbitrary C++ objects. For a representation copy between suitable trivially copyable types of equal size, C++20 provides std::bit_cast ; memcpy is also useful for byte transport. These operations still require valid representations for the intended use. No copying technique can turn arbitrary untrusted bits into a valid pointer or a well-formed complex object merely by avoiding an aliasing violation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.008, SP06.009
+
+------------------------------------------------------------
+
+13. Endianness
+Systems mechanisms and source lecture
+
+SAY
+In little-endian storage, the least significant byte of a multi-byte value is at the lowest address. A 32-bit value 0x12345678 appears in increasing addresses as 78 56 34 12 . The reference x86-64 platform uses this ordering for ordinary integer storage. The numeral 0x12345678 itself has not changed. Endianness describes the mapping between the value’s bytes and memory addresses, not the written order of digits in a debugger’s integer display. Inspect bytes explicitly when diagnosing a format mismatch. In big-endian storage, the most significant byte is at the lowest address. The same 32-bit value appears as 12 34 56 78 . Many network protocol fields use a specified big-endian order, often called network byte order. A format can also choose little endian or define fields byte by byte. The important property is agreement, not that one order is inherently more correct. Convert at the boundary and keep internal computation in the language’s ordinary value types whenever possible. A portable decoder assembles a value from explicitly ordered bytes. For a four-byte big-endian field, the value is (b0<<24) | (b1<<16) | (b2<<8) | b3 , with each byte converted to a sufficiently wide unsigned type before shifting. The widening is essential. A small byte can undergo signed integer promotion, and shifting into an unsuitable signed range can be invalid in some language modes. A clear decoder validates that four bytes are present, widens them, combines them, and then checks the resulting semantic value. That sequence keeps bounds, representation, and meaning separate.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.010, SP06.011
+
+------------------------------------------------------------
+
+14. Alignment
+Systems mechanisms and source lecture
+
+SAY
+“Natural alignment” usually refers to an alignment convenient for a type’s ordinary machine accesses, often related to its width. It is not one universal language rule saying every n -byte type must be aligned to n bytes. Query the implementation with _Alignof in C or alignof in C++. Over-aligned objects require allocation that honors their larger alignment. Ordinary raw byte buffers or a custom allocator may not suffice. A placement construction does not repair an unsuitable address. The storage provider and object constructor must agree on both size and alignment. To round an offset upward to alignment a , a general mathematical expression is ceil(offset/a)*a . For a power-of-two alignment, (offset + a - 1) & ~(a - 1) is a common bitwise form, but the addition must be checked for overflow and a must be nonzero and a power of two. An allocator must account for both the alignment gap and the payload size before returning storage. Rounding first and checking only the payload can miss an overflow or exceed the arena. Chapter 10 develops this as an allocator invariant rather than treating alignment as a cosmetic adjustment. Aligned accesses can reduce the chance of crossing cache-line or page boundaries and may be required by particular instructions. Unaligned accesses on x86-64 are often supported, but their cost depends on width, boundaries, cache state, and instruction choice. “Unaligned is always slow” is too broad, while “x86 allows it, so it is free” is equally misleading. Layout also affects useful bytes per cache line. Reordering members can reduce padding, but changing a public structure can break an ABI or file format. Measure the internal performance benefit and identify every external consumer before changing layout. Correctness and compatibility are constraints on optimization.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.012, SP06.013
+
+------------------------------------------------------------
+
+15. Accounting for every byte
+Systems mechanisms and source lecture
+
+SAY
+Consider a reference-platform structure containing a one-byte kind, a four-byte length aligned to four bytes, and a two-byte flags field aligned to two bytes. The kind begins at offset 0. Offsets 1 through 3 are padding. The length begins at 4 and occupies four bytes. Flags begins at 8 and occupies two bytes. Two tail-padding bytes make the total size 12 and keep an array’s next element four-byte aligned. Companion listing: ch06/layout.c On the stated reference layout, the output is size=12 align=4 and kind=0 length=4 flags=8 . The program reports actual implementation values rather than forcing those expectations on every C implementation. Reordering the fields as length, flags, kind commonly reduces the size to eight bytes on this ABI: four bytes, then two, then one, then one tail-padding byte. An array of one million records would then use about four million fewer bytes. That is a derived storage saving, not a measured speedup. The changed member offsets also mean the two structures are not binary-compatible layouts.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.014, SP06.015
+
+------------------------------------------------------------
+
+16. Computing an array address
+Systems mechanisms and source lecture
+
+SAY
+If an array of 32-bit integers begins at address 0x1000 , element 7 begins at 0x1000 + 7 × 4 = 0x101C . The multiplication by element size is implicit in C and C++ pointer arithmetic: &a[7] equals a + 7 . This scaling is why adding one to an int* advances by sizeof(int) , not one byte.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.016, SP06.017
+
+------------------------------------------------------------
+
+17. Predicting structure padding
+Systems mechanisms and source lecture
+
+SAY
+Consider fields char c; int x; char d; with 4-byte int alignment. c can occupy offset 0, followed by 3 padding bytes so x begins at offset 4. d occupies offset 8, and trailing padding may extend the structure to 12 bytes so array elements remain aligned. Reordering fields can reduce padding, but only after preserving required semantics and ABI constraints.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.018, SP06.019
+
+------------------------------------------------------------
+
+18. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 6. Implement a decoder for a seven-byte external record: one kind byte, four big-endian length bytes, and two big-endian flag bytes. Reject buffers shorter than seven bytes. Populate an ordinary structure without using a pointer cast to the input buffer. Review 1. For int a[3][4] with four-byte integers, what is the byte offset of a[2][1] ? Review 2. Why can two structures with equal member values have different raw bytes?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.020, SP06.021
+
+------------------------------------------------------------
+
+19. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is memory layout. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.022
+
+------------------------------------------------------------
+
+20. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Pointers and Address Arithmetic.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.023
+
+------------------------------------------------------------
+
+21. Alignment constrains valid objects, not just speed
+Reason about the implementation
+
+SAY
+An address may be readable by an x86 instruction yet unsuitable for an ordinary C++ object of a particular type. The language's alignment requirement still applies. Natural alignment is not a universal rule that every type aligns to its size; alignof tells us the implementation's requirement. When a protocol field begins at an arbitrary byte offset, casting that byte address to an int pointer is not a general safe decoder. Assemble the value from bytes or copy into an appropriately aligned object under valid representation rules. Performance questions come later: unaligned costs can depend on instruction width and cache or page boundaries, so neither always slow nor always free is a useful universal claim.
+
+DO
+Separate the language validity question from the machine performance question.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.012 / 6.5 Alignment
+
+------------------------------------------------------------
+
+22. A two-dimensional array is not a pointer-to-pointer graph
+Reason about the implementation
+
+SAY
+A built-in array with three rows of four integers contains three complete row arrays in sequence. Moving a pointer to one row advances by four integers. An int** instead points to pointer objects, often used to reach separately allocated rows. The two layouts are not interchangeable because one contains integers directly where the other expects addresses. A cast changes an access type but does not construct the missing pointer objects or establish valid rows. A flexible matrix interface can carry dimensions and strides explicitly. That makes the layout contract visible and allows a caller to represent contiguous or other supported arrangements without pretending incompatible storage has the same shape.
+
+DO
+Draw three row arrays and then a separate array of three row pointers.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.004 / 6.1 Arrays
+
+------------------------------------------------------------
+
+23. Overlapping storage needs a valid active alternative
+Reason about the implementation
+
+SAY
+A union saves space by allowing alternatives to overlap, but it does not give independent simultaneous values to all members. The program must know which member is active and respect its lifetime. A tagged union keeps a discriminator beside that storage; a mismatch between the tag and active object is an invalid state. std::variant manages that relationship for many C++ uses. For inspecting a representation, bit_cast or byte copying has a different purpose and specific restrictions. Neither technique turns arbitrary incoming bits into a valid pointer or a well-formed complex object. Choose the operation that matches the goal: alternative values, representation inspection, or validated external decoding.
+
+DO
+Ask learners to distinguish a tagged alternative from a byte decoder.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.008 / 6.3 Unions
+
+------------------------------------------------------------
+
+24. Validate bytes, decode values, then validate meaning
+Reason about the implementation
+
+SAY
+A four-octet field can be assembled by shifting each octet into its declared position and combining the pieces. Before that, four octets must actually be available. The octets should be converted to a sufficiently wide unsigned type before the shifts so promotions do not create an unintended narrow or signed operation. After assembly, the result may still violate the protocol's semantic rule, such as a length larger than the message allows. These are three separate checks: available representation, valid arithmetic construction, and accepted meaning. Keeping them in that order makes a parser easier to debug because each rejection names a different failed promise.
+
+DO
+Trace a four-byte length that is syntactically complete but exceeds a stated payload limit.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.010 / 6.4 Endianness
+
+------------------------------------------------------------
+
+25. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Three int objects form an array. Find the third element and the number of elements between its address and the first.
+
+Begin at element zero. first points at 10. An array expression converts to a pointer to its first element in this initialization.
+
+Advance by two. third points at 30. Pointer addition scales by sizeof(int); it is not a two-byte move.
+
+Subtract related pointers. third - first is 2. The difference counts elements and is defined here because both pointers refer into the same array.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch06/main.cpp
+
+------------------------------------------------------------
+
+26. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Begin at element zero. first points at 10. An array expression converts to a pointer to its first element in this initialization.
+
+Advance by two. third points at 30. Pointer addition scales by sizeof(int); it is not a two-byte move.
+
+Subtract related pointers. third - first is 2. The difference counts elements and is defined here because both pointers refer into the same array.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch06/main.cpp
+
+------------------------------------------------------------
+
+27. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The logical shape is part of the indexing contract; a flat allocation alone cannot prove coordinates are valid. Once the shape and coordinates are checked, row*cols+col selects the row-major element. Multiplication is bounded by data.size() before it is used. The vector owns the storage while the const reference only borrows it.
+
+Count complete rows before adding the position inside the selected row. Test a non-square grid so swapped dimensions do not hide the error.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch06/main.cpp:1-10
+
+------------------------------------------------------------
+
+28. Array addresses count elements, not raw bytes
+Code, diagrams, and debugging
+
+SAY
+Array addresses count elements, not raw bytes. const int* means a pointer through which the integers cannot be changed. The array expression supplies a pointer to its first element.
+
+Three int objects form an array. Find the third element and the number of elements between its address and the first.
+
+An array expression converts to a pointer to its first element in this initialization. Pointer addition scales by sizeof(int); it is not a two-byte move. The difference counts elements and is defined here because both pointers refer into the same array.
+
+const int* means a pointer through which the integers cannot be changed. The array expression supplies a pointer to its first element.
+
+Adding two advances by two int elements, not two bytes. third points at the live third element of the same array.
+
+Unary * reads the pointed-to integer. Subtracting pointers within this array counts elements, producing 2. The stream therefore prints 30 followed by 2.
+
+All pointer arithmetic and subtraction stay within this one live array or its one-past boundary. Dereferences refer to actual elements.
+
+Assuming sizeof(int) is always four confuses one common platform with the language rule. In the extended lab: Use row+col instead of row*cols+col. Coordinate (1,2) then reads 4 instead of 6.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch06/main.cpp:6-8
+
+------------------------------------------------------------
+
+29. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Use row+col instead of row*cols+col. Coordinate (1,2) then reads 4 instead of 6.
+
+Count complete rows before adding the position inside the selected row. Test a non-square grid so swapped dimensions do not hide the error.
+
+The reference solution makes the contract executable with assertions. The logical shape is part of the indexing contract; a flat allocation alone cannot prove coordinates are valid. Once the shape and coordinates are checked, row*cols+col selects the row-major element. Multiplication is bounded by data.size() before it is used. The vector owns the storage while the const reference only borrows it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.06
+
+------------------------------------------------------------
+
+30. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch06/starter.cpp. Implement the first acceptance case for compute a checked row-major index. State the function inputs and result before adding code. First case: The (1,2) element of a 2×3 array is 6.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.07
+
+------------------------------------------------------------
+
+31. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch06/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.08
+
+------------------------------------------------------------
+
+32. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Use row+col instead of row*cols+col. Coordinate (1,2) then reads 4 instead of 6. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.09
+
+------------------------------------------------------------
+
+33. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Can the same subtraction be used for two separately allocated int objects? Compare the selected design with this plausible alternative: Indexing values[2] is clearer when no pointer-based API is involved.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.10
+
+------------------------------------------------------------
+
+34. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch06/starter.cpp. Map a row and column into a flat vector with a known number of columns. Check dimensions and bounds before accessing the data. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch06/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.11
+
+------------------------------------------------------------
+
+35. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Compute a checked row-major index belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.12
+
+------------------------------------------------------------
+
+36. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Map a row and column into a flat vector with a known number of columns. Check dimensions and bounds before accessing the data.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch06/starter.cpp
+
+------------------------------------------------------------
+
+37. Review the extension solution
+Practice and extension
+
+SAY
+The logical shape is part of the indexing contract; a flat allocation alone cannot prove coordinates are valid. Once the shape and coordinates are checked, row*cols+col selects the row-major element. Multiplication is bounded by data.size() before it is used. The vector owns the storage while the const reference only borrows it. Repair principle: Count complete rows before adding the position inside the selected row. Test a non-square grid so swapped dimensions do not hide the error.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Count complete rows before adding the position inside the selected row. Test a non-square grid so swapped dimensions do not hide the error.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch06/solution.cpp
+
+------------------------------------------------------------
+
+38. Application case: Memory Layout
+Practice and extension
+
+SAY
+A structure’s sizeof exceeds the sum of its member sizes.
+
+What is a plausible reason?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.CASE
+
+------------------------------------------------------------
+
+39. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The logical shape is part of the indexing contract; a flat allocation alone cannot prove coordinates are valid. Once the shape and coordinates are checked, row*cols+col selects the row-major element. Multiplication is bounded by data.size() before it is used. The vector owns the storage while the const reference only borrows it.
+
+Choose a simpler approach when its narrower contract is enough. Indexing values[2] is clearer when no pointer-based API is involved.
+
+When this system changes, retain a check that exposes the known failure: Use row+col instead of row*cols+col. Coordinate (1,2) then reads 4 instead of 6. Count complete rows before adding the position inside the selected row. Test a non-square grid so swapped dimensions do not hide the error.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch6.json → SYS06.14
+
+------------------------------------------------------------
+
+40. Smaller storage can be useful and still break compatibility
+Recall and transfer
+
+SAY
+The layout model saved eight bytes per record. Across one million modeled records, that is eight million bytes under the same assumptions. It still does not tell us elapsed time or cache behavior on a real workload. More seriously, changing member order changes offsets that separately compiled code or a raw-file format may rely on. Internal types can sometimes be changed with coordinated rebuilding; public binary interfaces need an explicit compatibility plan. Review the consumers before optimizing layout. Then measure the property that motivated the change instead of claiming that fewer bytes automatically implies a fixed speed increase.
+
+DO
+Distinguish the eight-million-byte arithmetic estimate from a real timing claim.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.012 / 6.5 Alignment
+
+------------------------------------------------------------
+
+41. Carry units and ownership with the layout calculation
+Recall and transfer
+
+SAY
+A layout formula becomes easier to review when every number has a unit. Row times column count produces an element index. Multiplying by an element size produces a byte offset. A pointer operation scales in elements of its pointed-to type. Confusing these units can multiply a size twice or omit scaling entirely. A view that stores dimensions and strides still borrows a live owner; correct arithmetic does not extend its lifetime. In a real system, keep these contracts together in the interface and test both valid edges and rejected shapes. The goal is a representation that another maintainer can explain without guessing at hidden layout assumptions.
+
+DO
+Ask learners to annotate one matrix formula with units at each step.
+
+SOURCE
+content/systems-programming/ch6.json → SP06.022 / Chapter Synthesis

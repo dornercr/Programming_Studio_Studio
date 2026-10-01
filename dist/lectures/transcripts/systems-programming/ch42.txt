@@ -1,0 +1,742 @@
+Systems Programming and Machine Organization
+Chapter 42: Shell Architecture: from typed syntax to jobs
+Dr. Charles Dorner
+
+1. A shell converts syntax into a resource plan
+Problem and first experiment
+
+SAY
+A shell does more than split text at spaces. It interprets a small language, then builds a plan for programs, arguments, pipes, files, jobs, and waiting. For a command that writes to an output file, opening that file too early could truncate it even though a later quote is unfinished. Separate parsing from execution so invalid syntax can be rejected without touching external resources. An abstract command plan is data describing intended work, not the work itself. We can test that data with no children and no file changes. Only after the plan is valid should the executor acquire resources and launch the stages.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.001
+
+------------------------------------------------------------
+
+2. Word boundaries carry meaning after quotes disappear
+Problem and first experiment
+
+SAY
+Compare a quoted vertical bar with an unquoted vertical bar. Both may have the text | after quote characters are removed, but only the unquoted operator connects pipeline stages. The lexer must retain a token kind as well as text. Likewise, echo followed by two quotes contains an empty second argument; dropping an empty text field would change what the child receives. These rules explain why a simple string split cannot grow into a correct shell merely by adding more delimiters. Define the supported quoting and escaping language, preserve its structure, and reject unfinished forms before deciding which executable to launch.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.004
+
+------------------------------------------------------------
+
+3. Run a typed-token parser model
+Problem and first experiment
+
+SAY
+The demonstration starts after lexical analysis. Its input tokens represent print, a quoted pipe word, an actual pipe operator, and count. The parser groups Word tokens into argument lists and opens a new stage only for the Pipe kind. It prints stages=2, first arguments=2, and literal argument=|. Those lines prove that the quoted bar remained data instead of creating an extra stage. This is a parser model, not a complete lexer or shell. It intentionally performs no expansion, redirection, or execution. That narrow boundary lets us check syntax behavior without creating operating-system resources or accidentally executing teaching input.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch42.json → SP42.022
+
+------------------------------------------------------------
+
+4. Redirection order changes the descriptor graph
+Problem and first experiment
+
+SAY
+This second program is a descriptor-relationship model using names instead of real descriptors. First it redirects output to file and then duplicates output into error, so both names become file. The other order first duplicates the current terminal output into error, then changes output to file. Error remains terminal. It prints file/file and file/terminal respectively. The model does not open or truncate any file. It shows why the parser must retain the written redirection order rather than collect redirections in an unordered set. Real descriptor duplication shares the referenced open-file relationship at that moment; a later reassignment of one descriptor does not retroactively retarget the duplicate.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch42.json → SP42.010
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A tiny shell language accepts words separated by spaces and the pipe symbol |. Tokenize a pipeline before deciding how to launch it.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Parse a deliberately small grammar: word, pipe, word, separated by spaces. Reject missing stages, extra words, and multiple pipes. This parser has no quotes, expansions, or redirection.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Splitting every real shell line on spaces breaks quoted arguments and operators without surrounding spaces. This example deliberately does not implement a full shell grammar.
+
+A related failure in the generalized operation is concrete: Launch the first stage as soon as the first word is read. Later syntax failure then occurs after side effects have already begun.
+
+The repair changes the operation at the point where the rule can be enforced: Separate parsing from execution. Validate the complete structure and only then allocate pipes or launch children.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Parsing produces an execution plan before any process is launched. The result owns its stage names, so it survives destruction of the input stream. Rejecting unsupported forms makes the small grammar explicit; it would be incorrect to advertise this whitespace parser as a general shell parser.
+
+A plausible alternative: For a fixed external command, a direct argument-vector API is safer and simpler than invoking a shell parser.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.03
+
+------------------------------------------------------------
+
+8. Chapter 42 — Shell Architecture
+Systems mechanisms and source lecture
+
+SAY
+A shell is a process-control program with a language front end. It turns command syntax into a plan for programs, arguments, descriptors, process groups, and waiting. A small shell can demonstrate systems concepts, but a complete interactive shell also needs careful syntax, signal, terminal, and lifecycle handling. Separate parsing from execution. Parsing should produce a structured description without opening files or launching programs. Execution should consume that structure according to a documented policy. This separation makes malformed input testable without causing side effects.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.001, SP42.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+42.1 Parsing commands 42.2 Creating processes 42.3 Executing programs 42.4 Redirection ...plus 9 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.003
+
+------------------------------------------------------------
+
+10. Parsing commands
+Systems mechanisms and source lecture
+
+SAY
+Parsing begins with lexical rules for words, quoting, escapes, and operators. A space inside quotes is data, while an unquoted pipe character may be syntax. A quoted "|" must not become a pipeline operator merely because its final text is a vertical bar. Represent token kind separately from token text. Then build an abstract command structure containing argument vectors, ordered redirections, pipeline stages, and background status. Reject incomplete constructs before launch, including unterminated quotes and a redirection without a destination.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.004, SP42.005
+
+------------------------------------------------------------
+
+11. Creating processes
+Systems mechanisms and source lecture
+
+SAY
+The executor creates the required children and tracks each successful creation. Failure halfway through a pipeline requires cleanup of descriptors and already-created children. The plan must define what happens to partially started work. Built-in commands complicate the model. A command such as changing the shell’s current directory must affect the shell process itself in the appropriate context; executing it only in a child would leave the parent unchanged. Decide which operations are built-ins before applying a blanket fork-everything rule.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.006, SP42.007
+
+------------------------------------------------------------
+
+12. Executing programs
+Systems mechanisms and source lecture
+
+SAY
+Each child prepares descriptors, signal state, process-group membership, and other required context before exec. The argument vector should preserve parsed word boundaries. Exec failure must end the child branch with an appropriate status rather than return to the interactive shell loop. A secure launcher also defines executable lookup and environment handling. A general shell intentionally supports broad user-controlled behavior; an application that merely needs to run one helper should prefer direct argument-vector execution instead of implementing or invoking unnecessary shell syntax.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.008, SP42.009
+
+------------------------------------------------------------
+
+13. Redirection
+Systems mechanisms and source lecture
+
+SAY
+Redirection modifies a command’s descriptor relationships in the order specified by the language. Input files, output truncation, append mode, and descriptor duplication require distinct operations. Do not postpone error checking until after exec. If opening a required input fails, the command cannot run as requested. The shell should report the setup error and avoid silently falling back to its own input stream.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.010, SP42.011
+
+------------------------------------------------------------
+
+14. Pipelines
+Systems mechanisms and source lecture
+
+SAY
+A pipeline is a group of connected stages, not a sequence of complete programs run one after another. Its data flow requires overlap when bounded pipes connect producers and consumers. Track pipe-end ownership explicitly. For an N-stage pipeline, there are N−1 connecting pipes, but each child needs only its relevant input and output roles. Extra inherited ends must be closed so that EOF and broken-pipe behavior reflect the intended graph.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.012, SP42.013
+
+------------------------------------------------------------
+
+15. Foreground jobs
+Systems mechanisms and source lecture
+
+SAY
+A foreground job receives the terminal relationship intended for interactive input and terminal-generated signals. The shell normally waits for the job’s completion or stop state before resuming its prompt. Waiting for one PID is insufficient for a pipeline treated as one job. The shell must track all member processes and determine when the job as a whole is complete or stopped. Status reporting is therefore a job-level state machine.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.014, SP42.015
+
+------------------------------------------------------------
+
+16. Background jobs
+Systems mechanisms and source lecture
+
+SAY
+A background job allows the shell to continue accepting commands while the job runs. The shell still owns bookkeeping and must reap child statuses. “Do not wait immediately” is not the same as “forget the child forever.” Background terminal access has special behavior under job-control rules. A robust interactive shell must manage notifications, stopped jobs, and later foregrounding rather than assume every background process can freely read from the terminal.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.016, SP42.017
+
+------------------------------------------------------------
+
+17. Process groups
+Systems mechanisms and source lecture
+
+SAY
+A process group collects related processes, such as all stages of one pipeline, under a group identifier. It lets the shell and terminal mechanisms direct signals to the job as a unit. Group setup has races between parent and child execution. A carefully designed shell establishes membership on both relevant sides as appropriate and checks the documented errors. The exact implementation deserves dedicated testing; it is not replaced by storing several PIDs in a vector.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.018, SP42.019
+
+------------------------------------------------------------
+
+18. Job control
+Systems mechanisms and source lecture
+
+SAY
+Job control combines process groups, terminal foreground ownership, signal dispositions, and wait-status tracking. Interfaces such as setpgid and tcsetpgrp participate in the POSIX model. The shell must regain the terminal after a foreground job stops or finishes and restore the appropriate state. [ R51 , R52 ] The fixed pipeline from Chapter 40 is not a job-control shell. It has no interactive terminal handoff, stopped-job management, expansion language, or background-job table. Those omissions are intentional so that its descriptor and process behavior remain inspectable. [ R17 , R21 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.020, SP42.021
+
+------------------------------------------------------------
+
+19. A typed lexer for a small command language
+Systems mechanisms and source lecture
+
+SAY
+This lexer supports spaces, single and double quotes, simple backslash escaping, and the operators | , < , > , and & . Its double-quote escape rules are deliberately simpler than a full POSIX shell. It performs no expansion, substitution, execution, or redirection. Companion listing: ch42/lexer.py The explicit active flag preserves an empty quoted argument. Without it, echo "" could be reduced incorrectly to a one-word command. Typed tokens likewise preserve the difference between a quoted vertical bar and an actual pipeline operator. The next stage would validate token sequences and produce a command tree. Only after that validation should an executor allocate pipes or create children. This is an example of a broader systems principle: make invalid plans fail before acquiring external resources whenever practical.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.022, SP42.023
+
+------------------------------------------------------------
+
+20. Parsing before executing
+Systems mechanisms and source lecture
+
+SAY
+For cat input.txt | grep error > out.txt , the shell must identify two pipeline commands, one input argument, and one output redirection before spawning processes. Redirection operators are syntax for the shell; they are not passed as ordinary arguments to grep . Parsing establishes the execution graph that process creation later realizes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.024, SP42.025
+
+------------------------------------------------------------
+
+21. Foreground process group
+Systems mechanisms and source lecture
+
+SAY
+A pipeline can place all of its child processes into one process group and make that group the terminal’s foreground group. Terminal-generated signals such as an interactive interrupt can then target the whole job. The shell waits for or monitors the group rather than treating each pipeline process as an unrelated command.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.026, SP42.027
+
+------------------------------------------------------------
+
+22. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 42. Add parser tests for a leading pipe, trailing pipe, missing redirection target, and background marker in the middle of a pipeline. Specify which constructs your small language accepts before implementing execution. Keep the lexer tests independent of process creation. Review 1. Why must token kind survive quote removal? Review 2. Why does an interactive pipeline need a job abstraction rather than only one child PID?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.028, SP42.029
+
+------------------------------------------------------------
+
+23. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is shell architecture. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.030
+
+------------------------------------------------------------
+
+24. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Concurrent Execution.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.031
+
+------------------------------------------------------------
+
+25. A pipeline needs overlapping stages
+Reason about the implementation
+
+SAY
+Suppose a producer writes more bytes than a pipe can hold. If the shell waits for that producer to finish before starting its consumer, the producer blocks waiting for space and the shell waits for the blocked producer. A pipeline is therefore a connected set of overlapping activities, not a list of programs to run to completion one by one. Descriptor lifetime also matters. An extra open write end can prevent a reader from seeing end-of-file even after the intended producer exits. Draw each stage's input and output ownership, then close all unused ends in both parent and children as the execution plan is realized.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.012
+
+------------------------------------------------------------
+
+26. Some built-ins must change the shell itself
+Reason about the implementation
+
+SAY
+Imagine implementing every command by creating a child, running the requested operation, and waiting. That works for many external programs, but not for changing the interactive shell's current directory. A child can change its own directory and exit while the parent shell stays where it was. Built-ins therefore require an execution policy based on context, not a blanket fork-everything rule. A built-in used inside a pipeline may have different requirements from the same command entered alone. Keep that decision visible in the command plan and tests. The distinction concerns which process owns the state being changed; it is not merely a performance shortcut to avoid launching a program.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.006
+
+------------------------------------------------------------
+
+27. A job is more than one child identifier
+Reason about the implementation
+
+SAY
+A two-stage pipeline may finish its first child while the second is still writing. Reporting the job as complete when one PID exits would be wrong. An interactive shell tracks a job containing all its members, often organized as a process group. Terminal foreground ownership and terminal-generated signals then apply to the job relationship, not just one remembered child. The shell must regain the terminal after the foreground job finishes or stops. Background jobs still need status collection even though the shell accepts new commands immediately. Storing a vector of PIDs helps bookkeeping but does not itself establish process groups, terminal ownership, or safe launch ordering.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.020
+
+------------------------------------------------------------
+
+28. Partial launch failure still leaves real resources
+Reason about the implementation
+
+SAY
+A pipeline launch can fail after some resources already exist. Perhaps the first child was created and the second fork fails. The shell must close its remaining pipe ends and apply a documented policy to the already-started child, then collect its status. A child whose exec fails must report that failure and end the child branch; returning to the ordinary interactive loop could create an unintended extra shell. These cases show why parsing and execution should remain separate and why the executor needs explicit ownership records. Failure handling is part of the launch algorithm, not an afterthought after the successful diagram has been drawn.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.008
+
+------------------------------------------------------------
+
+29. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A tiny shell language accepts words separated by spaces and the pipe symbol |. Tokenize a pipeline before deciding how to launch it.
+
+Read input text. emit | count. The input is not yet a set of running processes.
+
+Tokenize under the stated grammar. emit, |, count. This intentionally tiny grammar requires spaces and has no quoting or expansion.
+
+Build the plan. left stage emit; right stage count. Validation must happen before allocating pipes and starting processes.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch42/main.cpp
+
+------------------------------------------------------------
+
+30. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Read input text. emit | count. The input is not yet a set of running processes.
+
+Tokenize under the stated grammar. emit, |, count. This intentionally tiny grammar requires spaces and has no quoting or expansion.
+
+Build the plan. left stage emit; right stage count. Validation must happen before allocating pipes and starting processes.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch42/main.cpp
+
+------------------------------------------------------------
+
+31. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Parsing produces an execution plan before any process is launched. The result owns its stage names, so it survives destruction of the input stream. Rejecting unsupported forms makes the small grammar explicit; it would be incorrect to advertise this whitespace parser as a general shell parser.
+
+Separate parsing from execution. Validate the complete structure and only then allocate pipes or launch children.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch42/main.cpp:1-14
+
+------------------------------------------------------------
+
+32. Parse before you execute
+Code, diagrams, and debugging
+
+SAY
+Parse before you execute. The for loop declares a reusable word, tests stream extraction as its condition, and has no separate increment expression. Each successful extraction appends one token.
+
+A tiny shell language accepts words separated by spaces and the pipe symbol |. Tokenize a pipeline before deciding how to launch it.
+
+The input is not yet a set of running processes. This intentionally tiny grammar requires spaces and has no quoting or expansion. Validation must happen before allocating pipes and starting processes.
+
+The for loop declares a reusable word, tests stream extraction as its condition, and has no separate increment expression. Each successful extraction appends one token.
+
+The fixture asserts exactly three tokens and a pipe token in the middle before indexing either side. Assertions are demonstration checks, not robust user-input validation.
+
+The output names emit and count as separate pipeline stages. The complete lab validates malformed input before any command could run.
+
+Both pipeline sides are accessed only after validating the fixture token count and separator. Real untrusted input needs checks that remain active in production.
+
+Splitting every real shell line on spaces breaks quoted arguments and operators without surrounding spaces. This example deliberately does not implement a full shell grammar. In the extended lab: Launch the first stage as soon as the first word is read. Later syntax failure then occurs after side effects have already begun.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch42/main.cpp:11-13
+
+------------------------------------------------------------
+
+33. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Launch the first stage as soon as the first word is read. Later syntax failure then occurs after side effects have already begun.
+
+Separate parsing from execution. Validate the complete structure and only then allocate pipes or launch children.
+
+The reference solution makes the contract executable with assertions. Parsing produces an execution plan before any process is launched. The result owns its stage names, so it survives destruction of the input stream. Rejecting unsupported forms makes the small grammar explicit; it would be incorrect to advertise this whitespace parser as a general shell parser.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.06
+
+------------------------------------------------------------
+
+34. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch42/starter.cpp. Implement the first acceptance case for reject an incomplete pipeline before launching it. State the function inputs and result before adding code. First case: emit | count returns the two stage names.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.07
+
+------------------------------------------------------------
+
+35. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch42/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.08
+
+------------------------------------------------------------
+
+36. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Launch the first stage as soon as the first word is read. Later syntax failure then occurs after side effects have already begun. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.09
+
+------------------------------------------------------------
+
+37. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+What should happen for the incomplete input emit | ? Compare the selected design with this plausible alternative: For a fixed external command, a direct argument-vector API is safer and simpler than invoking a shell parser.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.10
+
+------------------------------------------------------------
+
+38. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch42/starter.cpp. Parse a deliberately small grammar: word, pipe, word, separated by spaces. Reject missing stages, extra words, and multiple pipes. This parser has no quotes, expansions, or redirection. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch42/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.11
+
+------------------------------------------------------------
+
+39. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Reject an incomplete pipeline before launching it belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.12
+
+------------------------------------------------------------
+
+40. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Parse a deliberately small grammar: word, pipe, word, separated by spaces. Reject missing stages, extra words, and multiple pipes. This parser has no quotes, expansions, or redirection.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch42/starter.cpp
+
+------------------------------------------------------------
+
+41. Review the extension solution
+Practice and extension
+
+SAY
+Parsing produces an execution plan before any process is launched. The result owns its stage names, so it survives destruction of the input stream. Rejecting unsupported forms makes the small grammar explicit; it would be incorrect to advertise this whitespace parser as a general shell parser. Repair principle: Separate parsing from execution. Validate the complete structure and only then allocate pipes or launch children.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Separate parsing from execution. Validate the complete structure and only then allocate pipes or launch children.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch42/solution.cpp
+
+------------------------------------------------------------
+
+42. Application case: Shell Architecture
+Practice and extension
+
+SAY
+A shell implements cd by changing directory only inside a short-lived child.
+
+What is wrong?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.CASE
+
+------------------------------------------------------------
+
+43. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Parsing produces an execution plan before any process is launched. The result owns its stage names, so it survives destruction of the input stream. Rejecting unsupported forms makes the small grammar explicit; it would be incorrect to advertise this whitespace parser as a general shell parser.
+
+Choose a simpler approach when its narrower contract is enough. For a fixed external command, a direct argument-vector API is safer and simpler than invoking a shell parser.
+
+When this system changes, retain a check that exposes the known failure: Launch the first stage as soon as the first word is read. Later syntax failure then occurs after side effects have already begun. Separate parsing from execution. Validate the complete structure and only then allocate pipes or launch children.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch42.json → SYS42.14
+
+------------------------------------------------------------
+
+44. Choose a shell only when shell syntax is required
+Recall and transfer
+
+SAY
+An application that needs to run one fixed helper often does not need a general shell at all. Supplying an argument vector directly preserves one argument containing spaces without asking another language to interpret quotes, pipes, substitutions, or redirections. A shell is appropriate when the product intentionally offers that language and its process-control behavior. The choice affects both correctness and exposure to unwanted interpretation. Our typed-token example belongs to the shell side of that boundary; it teaches language structure. In application code, first ask whether users actually need operators or whether their input should remain plain data passed to a known executable.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.008
+
+------------------------------------------------------------
+
+45. Test plans before testing launched processes
+Recall and transfer
+
+SAY
+Build the test suite in layers. Lexer tests establish that an empty quoted argument survives and that a quoted bar remains a word. Parser tests reject a leading pipe, trailing pipe, missing redirection destination, or a background marker in an unsupported position. None of those tests should launch a child. Executor tests then check descriptor closure, redirection order, partial failure, and collection of every child. Finally, interactive job-control tests cover terminal handoff and stopped jobs. This progression keeps a syntax defect from being confused with a process-lifetime defect. A small supported language with explicit limits is easier to maintain than accidental behavior advertised as a complete shell.
+
+DO
+Ask for a prediction or explanation before revealing the answer.
+Trace the named state changes against the chapter contract.
+
+SOURCE
+content/systems-programming/ch42.json → SP42.028

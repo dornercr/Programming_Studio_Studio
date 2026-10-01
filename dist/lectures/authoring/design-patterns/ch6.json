@@ -1,0 +1,301 @@
+{
+  "chapter": 6,
+  "title": "Adapter",
+  "opening": [
+    {
+      "title": "A number is not yet a measurement",
+      "eyebrow": "ADAPTER / THE PROBLEM",
+      "kind": "concept",
+      "keyPoints": [
+        "The parcel rule accepts at most two grams.",
+        "The existing device returns integer milligrams.",
+        "A negative reading means failure, not a light parcel."
+      ],
+      "narration": "Imagine reviewing a parcel station after its supplier changes. The business rule still says that a sample may weigh at most two grams. The device supplies an integer, but that integer counts milligrams. A result of 1250 therefore means one and a quarter grams. The trouble is deeper than a different function name: a negative result means the device failed. Before drawing a class, write down the meaning of a successful value and the meaning of a failed call. Our job is to keep the parcel rule clear while honoring both parts of that contract. The device here is simulated; no hardware is contacted.",
+      "actions": [
+        "Ask whether -1 should be accepted as a very light parcel.",
+        "Write the input unit and output unit before discussing types."
+      ],
+      "sourceRef": "manuscript/ch06.json → The problem: one program, two meanings of weight",
+      "question": {
+        "prompt": "Why is renaming milligrams to grams insufficient?",
+        "answer": "It changes the spelling without converting the unit or translating the negative failure convention."
+      }
+    },
+    {
+      "title": "Begin with one honest conversion",
+      "eyebrow": "BASELINE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "Read one integer.",
+        "Reject the device error range.",
+        "Divide by 1000.0 to preserve the fraction."
+      ],
+      "narration": "For one caller, a small function solves this problem well. The input parameter is an integer value, so the function receives its own copy of that number. If the value is negative, throw stops the normal return path. Otherwise, the decimal point in 1000.0 makes the division use floating-point arithmetic. The result is a double, a type that can represent fractional values approximately. In this example, 1.25 is exactly representable. Notice what is absent: we do not need inheritance, an owning pointer, or a named pattern to explain this first version. Keep this version when every caller can simply use the function.",
+      "actions": [
+        "Predict the two output lines.",
+        "Run the program, then change 1250 to 2001."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch06.json → The problem: one program, two meanings of weight",
+      "question": {
+        "prompt": "Does the helper need an object to remember the device?",
+        "answer": "No. It receives one reading by value and has no stored connection or lifetime obligation."
+      },
+      "code": {
+        "filename": "dp_ch06_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n\ndouble grams_from(int milligrams) {\n    if (milligrams < 0) throw std::runtime_error(\"device failed\");\n    return milligrams / 1000.0; // A double divisor keeps the fraction.\n}\nint main() {\n    std::cout << \"grams=\" << grams_from(1250) << '\\n';\n    try { std::cout << grams_from(-1) << '\\n'; }\n    catch (const std::runtime_error&) { std::cout << \"reading rejected\\n\"; }\n}\n",
+        "expectedStdout": "grams=1.25\nreading rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "A cast after division repairs nothing",
+      "eyebrow": "CONTROLLED FAILURE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "1999 / 1000 is integer division.",
+        "Casting the result cannot restore lost digits.",
+        "A missing error check can approve failed hardware."
+      ],
+      "narration": "A type conversion can look careful while occurring too late. In bad_grams, the expression inside parentheses divides two integers first. That produces one for the reading 1999. The cast then turns that one into a double; the missing fraction is already gone. The second defect is different. Dividing a negative failure marker by a floating-point divisor preserves a negative value, and a comparison with two accepts it. Neither bug is a compiler error. Both expressions obey C++ rules while breaking the application contract. Our demonstration prints the wrong answers safely so that you can connect each symptom to its exact cause.",
+      "actions": [
+        "Pause before running and predict lost and failure accepted.",
+        "Identify which bug needs a type fix and which needs a validation fix."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch06.json → Units and errors are part of the contract",
+      "question": {
+        "prompt": "Why does static_cast<double>(1999 / 1000) produce 1 rather than 1.999?",
+        "answer": "Integer division happens first. The later cast converts the already-truncated integer result."
+      },
+      "code": {
+        "filename": "dp_ch06_boundary_failure.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n\ndouble bad_grams(int raw) {\n    return static_cast<double>(raw / 1000); // The fraction is already lost.\n}\nint main() {\n    const int measured = 1999;\n    const int failed = -1;\n    std::cout << \"lost=\" << bad_grams(measured) << '\\n';\n    std::cout << \"preserved=\" << measured / 1000.0 << '\\n';\n    // This deliberately wrong rule confuses failure with weight.\n    std::cout << std::boolalpha << \"failure accepted=\"\n              << (failed / 1000.0 <= 2.0) << '\\n';\n}\n",
+        "expectedStdout": "lost=1\npreserved=1.999\nfailure accepted=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Now the caller needs a Scale",
+      "eyebrow": "THE PRESSURE THAT JUSTIFIES ADAPTER",
+      "kind": "concept",
+      "keyPoints": [
+        "Existing rules accept const Scale&.",
+        "LegacyScale supplies milligrams(), not grams().",
+        "Translate once at the boundary."
+      ],
+      "narration": "Now add the requirement that makes the class useful. Several existing rules already accept a Scale reference. They expect a grams operation, and different devices may be chosen while the program runs. Our helper converts a number, but it does not make a LegacyScale usable through that object interface. An adapter is the small boundary object that fills this gap. ScaleAdapter presents the operation callers expect and uses the old service internally. We choose it to protect an existing agreement, not simply because a wrapper would be possible. Changing every caller would spread the device's units and errors throughout the application.",
+      "actions": [
+        "Name the target, old service, translator, and client.",
+        "Ask which code should change when a new device API arrives."
+      ],
+      "sourceRef": "manuscript/ch06.json → The failure that calls for a translator",
+      "question": {
+        "prompt": "Which code should know that negative milligrams means device failure?",
+        "answer": "The device integration boundary, here ScaleAdapter, should translate that convention before application rules receive a measurement."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Two different relationships in one object",
+      "eyebrow": "TYPE RELATIONSHIP AND BORROW",
+      "kind": "concept",
+      "keyPoints": [
+        "ScaleAdapter implements Scale.",
+        "device_ refers to a separate LegacyScale.",
+        "An inheritance arrow does not mean ownership."
+      ],
+      "narration": "Read the two relationships separately. Public inheritance says that a ScaleAdapter may serve as a Scale. Its grams operation must therefore keep the Scale promise. The device_ member says something else: this adapter remembers an existing LegacyScale. Because the member is a reference, it is a connection to that same object, not another device copy. The UML triangle points toward the interface being implemented. The dependency toward LegacyScale represents use and borrowing. Neither line claims that the adapter deletes the device. If these facts are mixed together, a reader may invent a destructor that destroys something the adapter never owned.",
+      "actions": [
+        "Trace the inheritance arrow and the dependency separately."
+      ],
+      "sourceRef": "manuscript/ch06.json → Composition and multiple inheritance",
+      "question": {
+        "prompt": "Who owns the LegacyScale in the chapter program?",
+        "answer": "main owns the local LegacyScale. The adapter borrows it and must not delete it."
+      },
+      "theory": {
+        "what": "One type promise plus one stored borrowed connection.",
+        "where": "ScaleAdapter derives from Scale and stores device_.",
+        "why": "The old instance already exists and must meet a new caller contract.",
+        "invariant": "A successful call returns grams, and the device remains alive.",
+        "risk": "Confusing borrowing with owning can cause invalid deletion or dangling access."
+      }
+    },
+    {
+      "title": "The compiler checks the call shape",
+      "eyebrow": "COMPILE TIME / RUNTIME",
+      "kind": "concept",
+      "keyPoints": [
+        "virtual selects an implementation at runtime.",
+        "override checks the complete promised signature.",
+        "const constrains access; it does not freeze a sensor."
+      ],
+      "narration": "The compiler knows that a const Scale reference supports grams. The pure virtual declaration ends in equals zero, which requires concrete implementations to provide that operation. ScaleAdapter writes override so the compiler checks that its spelling, parameters, and const qualification match. At runtime, the actual object selects ScaleAdapter's body even though the client speaks through Scale. The const after the function parameters says that this call does not modify the object through its ordinary members. It does not prove that a physical sensor is frozen or that repeated readings always agree. Our simulated device happens to store a fixed integer.",
+      "actions": [
+        "Compare the two grams signatures character by character.",
+        "Predict what removing const from the overriding signature would do."
+      ],
+      "sourceRef": "manuscript/ch06.json → What the C++ mechanism does",
+      "question": {
+        "prompt": "Can override prove that grams returns the correct physical unit?",
+        "answer": "No. It checks the virtual signature. Unit meaning remains a documented and tested contract."
+      },
+      "theory": {
+        "what": "A checked interface call selects the concrete implementation.",
+        "where": "Scale::grams, ScaleAdapter::grams, and light_enough.",
+        "why": "Clients remain independent of the particular device type.",
+        "invariant": "The override matches the interface and honors its meaning.",
+        "risk": "A perfectly matched signature can still return milligrams by mistake."
+      }
+    },
+    {
+      "title": "Read once, validate once, translate once",
+      "eyebrow": "CONTROL AND ERROR FLOW",
+      "kind": "concept",
+      "keyPoints": [
+        "Keep the raw reading in a local value.",
+        "Reject all negatives before conversion.",
+        "An exception prevents a parcel decision."
+      ],
+      "narration": "Follow one call from the client's point of view. It asks for grams. The adapter obtains one raw reading and stores it locally. That matters for a real sensor because two reads might produce different results. The adapter validates the exact value it later converts. If the value is negative, throwing transfers control to a matching handler; light_enough never gets a number to compare. If the value is valid, division changes the unit and returns a new value. This order forms a small transaction: either the caller gets a valid measurement or it gets a failure. Returning zero on error would break that agreement.",
+      "actions": [
+        "Trace 1250 and -20 through the same three operations."
+      ],
+      "sourceRef": "manuscript/ch06.json → Units and errors are part of the contract",
+      "question": {
+        "prompt": "Why is testing only raw == -1 weaker than raw < 0 here?",
+        "answer": "The stated device contract treats every negative reading as failure, including -20."
+      },
+      "theory": {
+        "what": "A boundary translates the success and failure meanings together.",
+        "where": "ScaleAdapter::grams before it returns to light_enough.",
+        "why": "A status marker must never become a successful measurement.",
+        "invariant": "The checked reading is the converted reading.",
+        "risk": "Reading again after validation can use an unchecked measurement."
+      }
+    },
+    {
+      "title": "A reference does not keep its source alive",
+      "eyebrow": "LIFETIME / DRAW THE SCOPES",
+      "kind": "concept",
+      "keyPoints": [
+        "Construct the device before the adapter.",
+        "Destroy the adapter before its device.",
+        "Choose an owning member only when ownership is required."
+      ],
+      "narration": "Borrowing is cheap because it does not create a new owner. That advantage comes with a rule: the borrowed device must still exist whenever the adapter uses it. In main, construction order is device and then adapter. Local destruction happens in reverse order, which fits the rule. Returning an adapter that refers to a function's local device would break it after that function returns. Do not run that invalid design to see what happens; access through the dead reference would have undefined behavior. If the adapter must control device lifetime, redesign construction to receive an owning value or unique_ptr instead of pretending a reference owns anything.",
+      "actions": [
+        "Draw overlapping lifetime bars for main, device, and adapter."
+      ],
+      "sourceRef": "manuscript/ch06.json → What the C++ mechanism does",
+      "question": {
+        "prompt": "Does a const reference member extend the lifetime of an arbitrary local device?",
+        "answer": "No. Its owner must keep that device alive for every later adapter call."
+      },
+      "theory": {
+        "what": "The adapter stores access without storing ownership.",
+        "where": "The device_ reference member and constructor initializer.",
+        "why": "The application already controls this device instance.",
+        "invariant": "No adapter use occurs after the device is destroyed.",
+        "risk": "A returned adapter can retain a reference to a dead local object."
+      }
+    },
+    {
+      "title": "Calibration is a separate design decision",
+      "eyebrow": "EXTENSION / PRESERVE THE BOUNDARY",
+      "kind": "concept",
+      "keyPoints": [
+        "The lab subtracts a finite nonnegative offset.",
+        "Reject a negative adjusted result.",
+        "A shared calibration wrapper may suit many scale types."
+      ],
+      "narration": "The extension adds calibration, which means adjusting a measurement using an agreed offset. The solution validates the offset once during construction and validates each adjusted reading during the call. These are different checks because configuration and device readings arrive at different times. Clamping a negative adjusted result to zero would hide a problem that the stated lab requires us to reject. There is also a design choice. If calibration belongs specifically to this device integration, storing it in the adapter is reasonable. If many unrelated scales need the same adjustable behavior, a separate Scale wrapper could reuse that policy. Explain the change boundary before selecting either design.",
+      "actions": [
+        "Compare device 1250 with offsets 0.25, 1.25, and 2.0."
+      ],
+      "sourceRef": "manuscript/ch06.json → Composition and multiple inheritance",
+      "question": {
+        "prompt": "Why validate that the offset is finite as well as nonnegative?",
+        "answer": "NaN and infinity do not represent usable finite calibration amounts; a sign check alone does not reject every such value."
+      },
+      "comparisons": [
+        {
+          "label": "Device-specific calibration",
+          "text": "Keep it in the adapter when it belongs to translating this device."
+        },
+        {
+          "label": "Shared scale feature",
+          "text": "A separate Scale wrapper can apply calibration to several scale implementations."
+        }
+      ]
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose the smallest truthful boundary",
+      "eyebrow": "DESIGN REVIEW",
+      "kind": "concept",
+      "keyPoints": [
+        "One call site can use a helper.",
+        "An existing object contract can justify Adapter.",
+        "Multiple inheritance wraps a base subobject, not an arbitrary instance."
+      ],
+      "narration": "Suppose a teammate asks whether every conversion deserves an adapter class. The answer depends on the caller. A script that reads one value can use our first helper. Existing code that requires a Scale needs an object that satisfies that contract. A class adapter using multiple inheritance is another option, but it changes the object arrangement: the legacy base is part of the adapter itself. It does not automatically wrap the already-existing device in main. These are meaningful alternatives, not levels of sophistication. Select the one whose interface and lifetime match the requirement, and write down the constraint that made it necessary.",
+      "actions": [
+        "Ask pairs to argue for a helper in a one-file script and an adapter in a device plugin."
+      ],
+      "sourceRef": "manuscript/ch06.json → Composition and multiple inheritance",
+      "question": {
+        "prompt": "What question distinguishes the helper solution from the adapter solution?",
+        "answer": "Must this service be usable through an existing Scale object interface, or does the caller only need a converted number?"
+      }
+    },
+    {
+      "title": "Diagnose the symptom before editing the class",
+      "eyebrow": "DEBUGGING CHECK",
+      "kind": "concept",
+      "keyPoints": [
+        "Wrong fractions: inspect operand types.",
+        "Failure accepted: inspect error translation.",
+        "Unstable crashes: inspect lifetime and ownership."
+      ],
+      "narration": "Three reports can look like one vague complaint that the adapter is broken. A result of one for 1999 points toward integer division. A failed device reported as light enough points toward missing validation. A crash after leaving a setup function points toward a stored reference whose source has died. These clues suggest different investigations. First reproduce the symptom with the smallest valid test, then follow the value or lifetime that can cause it. A useful repair keeps the original client rule unchanged and adds a targeted boundary test. Avoid rewriting the whole abstraction until the evidence identifies a structural problem.",
+      "actions": [
+        "Give each group one symptom and ask for the first two lines they would inspect."
+      ],
+      "sourceRef": "manuscript/ch06.json → Units and errors are part of the contract",
+      "question": {
+        "prompt": "Which regression cases catch unit loss and the parcel threshold together?",
+        "answer": "Test a fractional reading such as 1250, exactly 2000, and 2001, then separately test negative error readings."
+      }
+    },
+    {
+      "title": "Say Adapter without naming a class",
+      "eyebrow": "RETRIEVAL / TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "An existing service and caller disagree.",
+        "One boundary translates operations and meaning.",
+        "Preserve errors, units, and lifetime rules."
+      ],
+      "narration": "Close your source window and explain the pattern using only the parcel story. The caller speaks grams. The old service speaks milligrams and negative status values. A small object presents the caller's contract, makes the old call, and translates the answer without hiding failure. That is the full reasoning path from problem to mechanism. Now transfer it to a clock API that reports seconds while an application expects milliseconds. The arithmetic changes, but the questions remain: what are the units, what signals failure, who owns the underlying service, and what can the unchanged caller safely assume? Remembering those questions is more useful than memorizing a box diagram alone.",
+      "actions": [
+        "Have learners explain the clock variation in sixty seconds without reading notes."
+      ],
+      "sourceRef": "manuscript/ch06.json → The failure that calls for a translator",
+      "question": {
+        "prompt": "What must an adapter preserve beyond a compatible function name?",
+        "answer": "The required value meaning, failure behavior, and safe access to the adapted service."
+      }
+    }
+  ]
+}

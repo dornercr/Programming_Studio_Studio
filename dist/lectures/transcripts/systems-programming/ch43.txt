@@ -1,0 +1,716 @@
+Systems Programming and Machine Organization
+Chapter 43: Concurrent Execution: schedules, ownership, and stable results
+Dr. Charles Dorner
+
+1. Concurrent does not mean simultaneous
+Problem and first experiment
+
+SAY
+A server can begin one request, wait for data, and work on another request during that wait. Both requests are in progress even if one CPU core executes their instructions at different moments. That is concurrency. Parallelism means work actually runs at the same time on separate execution resources. The distinction matters because a concurrency bug does not need multiple cores. An unlucky interleaving on one core can expose a stale decision just as a multicore execution can. Describe which activities overlap and what they share before choosing threads. The requirement may instead fit processes, an event loop, or a task system.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.004
+
+------------------------------------------------------------
+
+2. Start with independent work and an explicit join point
+Problem and first experiment
+
+SAY
+The easiest concurrent design often avoids shared writes. Suppose two tasks count characters in two immutable strings. Each can return its own integer without changing a common counter. The caller waits for both results, then prints them in a chosen order. Completion order may vary, but the final report need not. This is a useful separation between scheduling and meaning: scheduling decides when tasks run, while the caller decides how results are combined. For such tiny inputs, thread overhead may outweigh any saved computation time. The example demonstrates a correctness structure, not a claim that two threads make counting ten characters faster.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.014
+
+------------------------------------------------------------
+
+3. Run two isolated tasks and combine their results
+Problem and first experiment
+
+SAY
+The first task returns the length of red, which is three. The second returns the length of blue, which is four. Each owns its captured string value, so neither depends on another task mutating shared text. A future is a handle for a result that may not be ready yet. Calling get waits as needed and retrieves that result. Main prints first=3 second=4 total=7 regardless of which task finishes first. std::launch::async requests asynchronous execution, but that does not prove simultaneous CPU execution. No timing measurement is made here, and the stable output comes from result ownership and collection, not from hoping the scheduler chooses a particular order.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch43.json → SP43.014
+
+------------------------------------------------------------
+
+4. Count schedules without running a race
+Problem and first experiment
+
+SAY
+This program enumerates order-preserving interleavings for three steps belonging to A and two belonging to B. It prints schedules=10, first=AAABB, and last=BBAAA. The repeated letters stand for the next step of that activity, so every sequence preserves its internal order. next_permutation visits each distinct ordering of these five labels once. This is a mathematical schedule model running in one thread. It does not claim that a real C++ statement is indivisible, nor does it execute unsafe shared accesses. Even this tiny model has ten possibilities; larger state spaces grow quickly. That growth motivates synchronization arguments instead of a test strategy that hopes to observe every timing arrangement.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch43.json → SP43.012
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Use a sequential model of two participants that both read a counter before either writes back its increment. The requirement is to count two events.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Enumerate every order of two read/write steps from A and two from B while preserving each participant’s read-before-write order. Count final values in this sequential model.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+This is a defined sequential model of interleaving. Running unsynchronized writes to an ordinary shared C++ int would have a data race and undefined behavior, not a guaranteed final value of 1.
+
+A related failure in the generalized operation is concrete: Run ordinary shared counter++ from two threads and claim the observed results enumerate all valid outcomes.
+
+The repair changes the operation at the point where the rule can be enforced: Use a defined model for interleaving reasoning, or synchronize the real program. Undefined behavior is not a scheduling model.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Each participant’s first event reads and its second writes. Permuting the actor labels enumerates only schedules that keep this internal order. The sequential simulator has defined behavior, so its outcomes can be counted and inspected. Those counts do not assign probabilities to a real scheduler and do not describe the full set of behaviors of a C++ data race.
+
+A plausible alternative: Keep state local to one participant when sharing is unnecessary; otherwise make the update contract explicit.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.03
+
+------------------------------------------------------------
+
+8. Chapter 43 — Concurrent Execution
+Systems mechanisms and source lecture
+
+SAY
+Concurrent execution means that multiple activities can be in progress over overlapping intervals. Parallel execution means that work actually proceeds simultaneously on multiple execution resources. A single-core system can run concurrent activities by interleaving them, while a multicore system can combine interleaving with true parallelism. Concurrency adds possible execution orders. Correctness must hold for every execution permitted by the program’s synchronization and platform model, not only for the order observed during one successful run. Timing-based confidence is not a replacement for a state and ownership argument. [ R22 , R34 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.001, SP43.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+43.1 Concurrency 43.2 Parallelism 43.3 Processes 43.4 Threads ...plus 7 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.003
+
+------------------------------------------------------------
+
+10. Concurrency
+Systems mechanisms and source lecture
+
+SAY
+Concurrency is useful when activities wait independently, respond to separate events, or need to overlap work. A server can handle another request while one request waits for data. A user interface can remain responsive while a background task computes. Concurrency also adds lifecycle obligations: cancellation, completion, resource ownership, and communication. Creating another thread is only one implementation choice. Processes, event loops, asynchronous operations, and task systems can provide different concurrency structures.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.004, SP43.005
+
+------------------------------------------------------------
+
+11. Parallelism
+Systems mechanisms and source lecture
+
+SAY
+Parallelism uses multiple execution resources at the same time. It can reduce elapsed time when work can be divided and shared bottlenecks do not dominate. Adding threads does not guarantee parallel execution or useful speedup. The available parallelism depends on dependencies. Four cores cannot execute the next step of a strictly dependent chain before the current step supplies its input. Parallel design often begins by changing task decomposition or data organization rather than increasing thread count.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.006, SP43.007
+
+------------------------------------------------------------
+
+12. Processes
+Systems mechanisms and source lecture
+
+SAY
+Processes provide separate address spaces and stronger default isolation than threads within one process. They communicate through explicit mechanisms such as pipes, sockets, or shared mappings. This can make failure containment and ownership clearer. Isolation has costs and exceptions. Communication may require copying or synchronization, and intentionally shared resources still need a protocol. A process boundary does not automatically make an unvalidated message safe or a shared file update atomic.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.008, SP43.009
+
+------------------------------------------------------------
+
+13. Threads
+Systems mechanisms and source lecture
+
+SAY
+Threads share an address space and many process resources while retaining their own execution state. Sharing makes communication convenient but permits accidental conflicting access to ordinary objects. The central design question is which thread owns each mutable object and when ownership changes. An immutable object safely published to readers has a simpler contract than an object that every thread may update at any time.
+
+In plain English: Imagine several people editing the same whiteboard. If they do not coordinate, the final answer can depend on who writes at exactly the wrong moment.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.010, SP43.011
+
+------------------------------------------------------------
+
+14. Interleavings
+Systems mechanisms and source lecture
+
+SAY
+An interleaving is one ordering of steps from several activities that preserves required within-activity order. Even a small example can have many interleavings. Source statements may correspond to several machine operations, so treating each line as an atomic step can hide failures. Use interleaving diagrams as models with explicitly defined atomic steps. They explain logical hazards but do not override language memory rules. An unsynchronized C++ data race is undefined behavior; it cannot be justified by saying that a particular hand-drawn interleaving seems harmless.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.012, SP43.013
+
+------------------------------------------------------------
+
+15. Nondeterminism
+Systems mechanisms and source lecture
+
+SAY
+Nondeterminism means that the same apparent inputs can lead to different permitted execution orders or timing. Output order, completion order, and which thread obtains a lock first may vary. A concurrent program can still have deterministic results when synchronization and algorithm design make those ordering differences irrelevant. For example, independent partial sums combined after all workers finish can produce a fixed integer result when the arithmetic and partitioning are defined.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.014, SP43.015
+
+------------------------------------------------------------
+
+16. Multicore execution
+Systems mechanisms and source lecture
+
+SAY
+Multicore hardware allows simultaneous instruction execution and maintains coherence for supported shared-memory accesses. Coherence does not make every multi-step operation atomic or provide all ordering needed by a language-level communication protocol. False sharing, cache-line movement, memory bandwidth, and scheduler placement can limit scaling. A correct design is the prerequisite; performance then depends on reducing unnecessary communication and contention while preserving the required synchronization.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.016, SP43.017
+
+------------------------------------------------------------
+
+17. Enumerating an abstract lost update
+Systems mechanisms and source lecture
+
+SAY
+Model each of two activities as three steps: read a shared counter into a private temporary, add one to that temporary, and write it back. The model treats each step as atomic and enumerates all order-preserving interleavings. It is a mathematical state machine, not an execution of racy C++ code. Companion listing: ch43/interleavings.py The final value can be 1 when both activities read zero before either writes. It can be 2 when one complete increment precedes the other’s read. The lost update occurs because the intended read-modify-write operation was divided into separate steps without a coordination rule. The number of schedules is 6 choose 3 = 20 . Enumerating this tiny state space is feasible; real programs have vastly larger spaces. The scalable response is to establish invariants and synchronization rather than hope to test every timing arrangement.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.018, SP43.019
+
+------------------------------------------------------------
+
+18. Enumerating interleavings
+Systems mechanisms and source lecture
+
+SAY
+Two threads each execute two operations: A1,A2 and B1,B2. Preserving each thread’s internal order yields six possible interleavings: A1 A2 B1 B2; A1 B1 A2 B2; A1 B1 B2 A2; B1 B2 A1 A2; B1 A1 B2 A2; and B1 A1 A2 B2. Concurrency introduces multiple legal orderings even before true simultaneous execution is considered.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.020, SP43.021
+
+------------------------------------------------------------
+
+19. Concurrency without parallelism
+Systems mechanisms and source lecture
+
+SAY
+A single-core system can run many threads concurrently by time-slicing: one runs, is preempted or blocks, then another runs. Their executions overlap in time conceptually but not physically at the same instant. Parallelism requires multiple execution resources; concurrency requires overlapping progress and interleavings.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.022, SP43.023
+
+------------------------------------------------------------
+
+20. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 43. Record one schedule producing 1 and one producing 2. Then replace each three-step increment with one atomic modeled step and enumerate the remaining schedules. Review 1. Can concurrency exist on one core? Review 2. Does cache coherence make a three-step increment indivisible?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.024, SP43.025
+
+------------------------------------------------------------
+
+21. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is concurrent execution. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.026
+
+------------------------------------------------------------
+
+22. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Threads.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.027
+
+------------------------------------------------------------
+
+23. Find the unit that must appear indivisible
+Reason about the implementation
+
+SAY
+Consider the intended operation count one completed task. Its implementation might read a counter, add one locally, then store the result. Two activities can both read zero and later both store one in a model whose steps are defined as indivisible. That explains the logical lost-update hazard. It does not define the behavior of two real threads racing on an ordinary C++ integer. Such a data race has undefined behavior. Use an atomic read-modify-write, a mutex-protected transaction, or private results with later reduction. Each repair establishes an actual language-level rule instead of treating a convenient source-line drawing as a guarantee.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.012
+
+------------------------------------------------------------
+
+24. Separate shared addressability from permission
+Reason about the implementation
+
+SAY
+Two threads can hold pointers to the same vector, but that only tells us they can name its storage. It does not grant permission to resize it while another thread reads an element. Resizing may move storage and end element lifetimes as well as change values. A cleaner protocol might construct an immutable vector before launch and keep it alive until all readers join. Another might transfer each mutable message to one worker. Process isolation can strengthen boundaries, but shared files and mappings still require protocols. Always ask who may change each object and when, rather than assuming that a shared address space is itself a communication agreement.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.010
+
+------------------------------------------------------------
+
+25. Dependencies limit useful parallelism
+Reason about the implementation
+
+SAY
+Suppose stage B needs the exact output of A, and C needs B's output. Giving all three separate threads does not remove those data dependencies. They still form a chain. In contrast, counting two independent documents offers separate work that can be combined later. Even then, thread launch, memory bandwidth, and a shared result lock can dominate the cost. A correctness proof says the answer is valid; a performance measurement says whether the arrangement helped for a defined workload. Keep those claims separate. Before adding more workers, identify the work graph and the resource that currently limits progress.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.006
+
+------------------------------------------------------------
+
+26. Cache coherence is not a transaction protocol
+Reason about the implementation
+
+SAY
+Hardware coherence helps processors maintain a consistent view of supported shared-memory locations, but it does not turn a read, add, and store into one indivisible business operation. The language still requires suitable atomic operations or synchronization. A different issue arises when two threads update distinct nearby values on the same cache line. Those accesses can be free of a language data race yet cause repeated cache-line movement, called false sharing. Diagnose correctness and performance separately. Our independent-result example gives a clear ownership argument; a larger write-heavy workload may still need measurements before changing layout or adding padding.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.016
+
+------------------------------------------------------------
+
+27. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Use a sequential model of two participants that both read a counter before either writes back its increment. The requirement is to count two events.
+
+A reads. A keeps 0. A has not written its new result yet.
+
+B reads. B also keeps 0. Both computations are now based on the same old state.
+
+A and B store. A stores 1; B stores 1. The final value counts only one event, even though two computations ran.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch43/main.cpp
+
+------------------------------------------------------------
+
+28. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+A reads. A keeps 0. A has not written its new result yet.
+
+B reads. B also keeps 0. Both computations are now based on the same old state.
+
+A and B store. A stores 1; B stores 1. The final value counts only one event, even though two computations ran.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch43/main.cpp
+
+------------------------------------------------------------
+
+29. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Each participant’s first event reads and its second writes. Permuting the actor labels enumerates only schedules that keep this internal order. The sequential simulator has defined behavior, so its outcomes can be counted and inspected. Those counts do not assign probabilities to a real scheduler and do not describe the full set of behaviors of a C++ data race.
+
+Use a defined model for interleaving reasoning, or synchronize the real program. Undefined behavior is not a scheduling model.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch43/main.cpp:1-12
+
+------------------------------------------------------------
+
+30. An interleaving can lose an update
+Code, diagrams, and debugging
+
+SAY
+An interleaving can lose an update. A takes a snapshot of counter while it is zero. This whole program is single-threaded so the illustrated interleaving is fully defined.
+
+Use a sequential model of two participants that both read a counter before either writes back its increment. The requirement is to count two events.
+
+A has not written its new result yet. Both computations are now based on the same old state. The final value counts only one event, even though two computations ran.
+
+A takes a snapshot of counter while it is zero. This whole program is single-threaded so the illustrated interleaving is fully defined.
+
+B takes its snapshot before either modeled write, also seeing zero.
+
+A writes its old snapshot plus one, giving counter 1.
+
+B writes its own old snapshot plus one, again 1. The second store replaces the first update. Real unsynchronized ordinary C++ thread writes would have undefined behavior, not a guaranteed result of 1.
+
+Each modeled participant reads before its corresponding write. The demonstration uses one thread so the interleaving has defined behavior.
+
+This is a defined sequential model of interleaving. Running unsynchronized writes to an ordinary shared C++ int would have a data race and undefined behavior, not a guaranteed final value of 1. In the extended lab: Run ordinary shared counter++ from two threads and claim the observed results enumerate all valid outcomes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch43/main.cpp:6-9
+
+------------------------------------------------------------
+
+31. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Run ordinary shared counter++ from two threads and claim the observed results enumerate all valid outcomes.
+
+Use a defined model for interleaving reasoning, or synchronize the real program. Undefined behavior is not a scheduling model.
+
+The reference solution makes the contract executable with assertions. Each participant’s first event reads and its second writes. Permuting the actor labels enumerates only schedules that keep this internal order. The sequential simulator has defined behavior, so its outcomes can be counted and inspected. Those counts do not assign probabilities to a real scheduler and do not describe the full set of behaviors of a C++ data race.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.06
+
+------------------------------------------------------------
+
+32. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch43/starter.cpp. Implement the first acceptance case for enumerate defined interleavings. State the function inputs and result before adding code. First case: There are six distinct schedules.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.07
+
+------------------------------------------------------------
+
+33. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch43/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.08
+
+------------------------------------------------------------
+
+34. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Run ordinary shared counter++ from two threads and claim the observed results enumerate all valid outcomes. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.09
+
+------------------------------------------------------------
+
+35. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Would putting the two participants on a single core automatically fix the design? Compare the selected design with this plausible alternative: Keep state local to one participant when sharing is unnecessary; otherwise make the update contract explicit.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.10
+
+------------------------------------------------------------
+
+36. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch43/starter.cpp. Enumerate every order of two read/write steps from A and two from B while preserving each participant’s read-before-write order. Count final values in this sequential model. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch43/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.11
+
+------------------------------------------------------------
+
+37. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Enumerate defined interleavings belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.12
+
+------------------------------------------------------------
+
+38. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Enumerate every order of two read/write steps from A and two from B while preserving each participant’s read-before-write order. Count final values in this sequential model.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch43/starter.cpp
+
+------------------------------------------------------------
+
+39. Review the extension solution
+Practice and extension
+
+SAY
+Each participant’s first event reads and its second writes. Permuting the actor labels enumerates only schedules that keep this internal order. The sequential simulator has defined behavior, so its outcomes can be counted and inspected. Those counts do not assign probabilities to a real scheduler and do not describe the full set of behaviors of a C++ data race. Repair principle: Use a defined model for interleaving reasoning, or synchronize the real program. Undefined behavior is not a scheduling model.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Use a defined model for interleaving reasoning, or synchronize the real program. Undefined behavior is not a scheduling model.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch43/solution.cpp
+
+------------------------------------------------------------
+
+40. Application case: Concurrent Execution
+Practice and extension
+
+SAY
+Two operations overlap in time.
+
+Does concurrency require simultaneous execution on two cores?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.CASE
+
+------------------------------------------------------------
+
+41. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Each participant’s first event reads and its second writes. Permuting the actor labels enumerates only schedules that keep this internal order. The sequential simulator has defined behavior, so its outcomes can be counted and inspected. Those counts do not assign probabilities to a real scheduler and do not describe the full set of behaviors of a C++ data race.
+
+Choose a simpler approach when its narrower contract is enough. Keep state local to one participant when sharing is unnecessary; otherwise make the update contract explicit.
+
+When this system changes, retain a check that exposes the known failure: Run ordinary shared counter++ from two threads and claim the observed results enumerate all valid outcomes. Use a defined model for interleaving reasoning, or synchronize the real program. Undefined behavior is not a scheduling model.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch43.json → SYS43.14
+
+------------------------------------------------------------
+
+42. Debug the protocol before changing timing
+Recall and transfer
+
+SAY
+A test that fails only under load often tempts a programmer to add a sleep before reading a result. That changes timing without stating what completion means. Instead, draw the smallest allowed schedule in which the reader runs too early or a shared update is split. Then add the required relationship: joining a worker, acquiring a protected state, or consuming a published message. Repeat the test after the repair, but also explain why the former schedule is no longer permitted. A stress run is useful evidence for observed behavior; it cannot rescue a protocol whose correctness still depends on one activity happening to be slower than another.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.014
+
+------------------------------------------------------------
+
+43. Choose an ownership story learners can retell
+Recall and transfer
+
+SAY
+To review a concurrent feature, ask for a short story: these tasks own these inputs, these fields are shared under this rule, and this operation tells the caller that work has finished. Include cancellation and failure rather than only the successful output. Private task results and a final combination phase often make the story much simpler than one shared counter touched everywhere. If the work mostly waits for I/O, an event loop may fit better than many threads. If fault isolation matters, processes may be worth their communication cost. Concurrency is an organization of overlapping work, so choose the mechanism after the ownership and progress requirements are clear.
+
+DO
+Ask learners to predict the specific result before revealing it.
+Trace the state and lifetime rule that supports the answer.
+
+SOURCE
+content/systems-programming/ch43.json → SP43.004

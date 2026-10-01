@@ -1,0 +1,223 @@
+{
+  "chapter": 22,
+  "title": "Virtual Address Spaces",
+  "opening": [
+    {
+      "title": "An address needs a context and a lifetime",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "concept",
+      "keyPoints": [
+        "The same number can mean different storage",
+        "Mappings can change while a process remains alive",
+        "A pointer is not a permanent object identity"
+      ],
+      "narration": "Think of apartment number twelve without a building name. The number alone does not identify a home. A virtual address similarly needs an address-space context. It also needs a time: a mapping can be removed and a later object can occupy the same range. This is why comparing numeric addresses across processes does not prove sharing, and why keeping a pointer after its object dies is unsafe even if the bytes remain mapped. The compiler checks pointer types, while the operating system checks mappings and permissions. Neither check alone proves the full lifetime contract a C++ program requires.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch22.json → SP22.004: 22.1 Virtual addresses",
+      "question": {
+        "prompt": "Does equal numeric address imply equal object identity?",
+        "answer": "No. Address-space context, mapping lifetime, and object lifetime all matter."
+      }
+    },
+    {
+      "title": "Use an offset when a shared region moves",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "code",
+      "keyPoints": [
+        "An offset names a position relative to a region",
+        "Each participant adds its own base",
+        "Validate the offset before forming an address"
+      ],
+      "narration": "This arithmetic model has two views of the same sixteen-byte region, one starting at one thousand and the other at five thousand. Both use offset twelve, so their numeric locations are one thousand twelve and five thousand twelve. The offset remains twelve in each view. Offset sixteen is rejected because it is just past the region, not a byte inside it. These integers are not actual pointers and the program performs no memory mapping. The model isolates the representation choice: sharing an offset can survive different virtual bases, while copying one participant’s raw address cannot. A real implementation must also check object alignment, size, and synchronization.",
+      "actions": [
+        "Predict every output line, run the program, then explain each value from the operations in main."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch22.json → SP22.012: 22.5 Shared memory",
+      "question": {
+        "prompt": "Why is offset sixteen rejected for a sixteen-byte region?",
+        "answer": "Valid byte offsets are zero through fifteen; sixteen names the position after the region."
+      },
+      "code": {
+        "filename": "sys_ch22_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <optional>\nstd::optional<unsigned> location(unsigned base, unsigned offset) {\n    if (offset >= 16) return std::nullopt;\n    return base + offset; // Fixed small bases make this addition safe.\n}\nint main() {\n    const auto a = location(1000, 12);\n    const auto b = location(5000, 12);\n    std::cout << \"A=\" << *a << \" B=\" << *b << \" offset=12\\n\";\n    std::cout << \"past-end=\" << (location(1000,16) ? \"accepted\" : \"rejected\") << '\\n';\n}\n",
+        "expectedStdout": "A=1012 B=5012 offset=12\npast-end=rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Integer model of region bases and offsets; these numbers are not pointers."
+      }
+    },
+    {
+      "title": "Private and shared describe permitted observations",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "concept",
+      "keyPoints": [
+        "Private modification must not change another private view",
+        "Shared storage deliberately permits communication",
+        "Physical duplication is an implementation detail"
+      ],
+      "narration": "A private mapping can initially share physical backing through copy-on-write. That does not mean one process is allowed to change another process’s logically private value. The operating system preserves private modification when a writer needs a separate view. A shared mapping has a different contract: changes to common storage may be visible through another mapping under the platform’s synchronization rules. Therefore, count neither physical copies nor pointer values as the definition of privacy. Ask which observations the program is allowed to make after a store. This distinction becomes important when reviewing memory use: shared backing may save storage without changing the private behavior visible to applications.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch22.json → SP22.010: 22.4 Memory isolation",
+      "question": {
+        "prompt": "Can two private mappings temporarily share physical storage?",
+        "answer": "Yes, provided the system preserves logically private modification, for example using copy-on-write."
+      }
+    },
+    {
+      "title": "Two real mappings can reach one backing byte",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "code",
+      "keyPoints": [
+        "Two mmap calls create separate views in one process",
+        "MAP_SHARED connects both to the same file byte",
+        "The demonstration prints equality of effects, not addresses"
+      ],
+      "narration": "This Linux/POSIX demonstration creates a temporary one-byte file, removes its directory name, and maps it twice with shared access. The two mapping addresses are distinct, but both refer to the same backing byte. Writing Q through the first view lets the second view read Q. The printed true reports distinct views, not two independent files. Both mappings are released and the descriptor is closed on the successful path. This is a real mapping demonstration within one process; it does not claim to create two processes or implement a cross-process synchronization protocol. A production wrapper should also release already acquired resources when an intermediate call fails.",
+      "actions": [
+        "Predict every output line, run the program, then explain each value from the operations in main."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch22.json → SP22.018: Worked example — Intentional shared mapping",
+      "question": {
+        "prompt": "What proves shared backing more directly than comparing pointer values?",
+        "answer": "A store through one permitted mapping is observed through the other mapping."
+      },
+      "code": {
+        "filename": "sys_ch22_shared_views.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstdlib>\n#include <iostream>\n#include <stdexcept>\n#include <sys/mman.h>\n#include <unistd.h>\nint main() {\n    char name[] = \"/tmp/studio-map-XXXXXX\";\n    const int fd = mkstemp(name);\n    if (fd < 0) throw std::runtime_error(\"mkstemp\");\n    if (unlink(name) != 0 || ftruncate(fd,1) != 0)\n        throw std::runtime_error(\"prepare file\");\n    void* first = mmap(nullptr,1,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);\n    if (first == MAP_FAILED) throw std::runtime_error(\"first mmap\");\n    void* second = mmap(nullptr,1,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);\n    if (second == MAP_FAILED) throw std::runtime_error(\"second mmap\");\n    auto* a = static_cast<char*>(first);\n    auto* b = static_cast<char*>(second);\n    *a = 'Q';\n    std::cout << \"distinct-views=\" << std::boolalpha << (a != b)\n              << \" shared-byte=\" << *b << '\\n';\n    if (munmap(first,1) != 0 || munmap(second,1) != 0 || close(fd) != 0)\n        throw std::runtime_error(\"cleanup\");\n}\n",
+        "expectedStdout": "distinct-views=true shared-byte=Q\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Translation preserves the position within a page",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "concept",
+      "keyPoints": [
+        "Split page number from page offset",
+        "Map the page; retain the offset",
+        "Adjacent virtual pages need not have adjacent frames"
+      ],
+      "narration": "With four-thousand-ninety-six-byte pages, address four thousand one hundred is page one with offset four. If page one maps to frame seven, translation selects frame seven’s base and keeps offset four. It does not independently choose a new physical location for every byte. The next byte in that same page keeps the same frame mapping, but crossing the page boundary may select a completely different frame. A contiguous C++ array can therefore span noncontiguous physical frames without changing its indexing behavior. Conversely, remaining inside one mapped page does not make an out-of-bounds array index legal in C++.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch22.json → SP22.008: 22.3 Address translation",
+      "question": {
+        "prompt": "Which part stays unchanged when a virtual page maps to an equal-sized frame?",
+        "answer": "The offset within the page remains unchanged."
+      }
+    },
+    {
+      "title": "A 64-bit pointer does not promise 64 implemented address bits",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "concept",
+      "keyPoints": [
+        "Representation width differs from implemented virtual width",
+        "Canonical rules depend on the platform",
+        "Use a stated model for bit calculations"
+      ],
+      "narration": "A pointer may occupy eight bytes while the machine implements a smaller virtual-address space with rules for the remaining bits. The chapter discusses particular x86-64 configurations rather than treating one address width as universal. For arithmetic exercises, write the assumed width explicitly: a thirty-two-bit model with four-kibibyte pages has twelve offset bits and twenty page-number bits. Changing either assumption changes the split. Do not derive the machine’s supported page-table layout from sizeof(void*) alone. In maintenance work, query or document the actual platform interface instead of turning a classroom diagram into an undocumented hardware dependency.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch22.json → SP22.004: 22.1 Virtual addresses",
+      "question": {
+        "prompt": "Can sizeof(void*) alone identify the number of page-table levels?",
+        "answer": "No. Pointer representation size does not establish the active address-width and translation configuration."
+      }
+    },
+    {
+      "title": "Physical addresses include more than installed DRAM",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "concept",
+      "keyPoints": [
+        "The physical map may contain device regions",
+        "Not every possible physical address names RAM",
+        "Applications normally request mappings rather than frames"
+      ],
+      "narration": "Physical means interpreted in the processor’s physical address map. It does not mean every possible numeric address corresponds to an installed DRAM byte. Some ranges refer to devices, and some may not be populated. Ordinary application code usually requests memory through an allocation or mapping interface; the kernel chooses and manages backing frames. That backing can change while the required visible behavior remains stable. A program that treats a virtual pointer as a physical device address has crossed an interface boundary without authorization from the platform. Device I/O needs its own mapping and access rules, including ordering rules that ordinary memory examples do not supply.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch22.json → SP22.006: 22.2 Physical addresses",
+      "question": {
+        "prompt": "Why is a virtual pointer not a suitable physical address for a device command?",
+        "answer": "Translation and device addressing have distinct contracts; the platform must establish the required physical or device-visible mapping."
+      }
+    },
+    {
+      "title": "Shared storage does not provide a message protocol",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "concept",
+      "keyPoints": [
+        "Define who writes each field",
+        "Publish initialized data with synchronization",
+        "Plan for stale data and participant failure"
+      ],
+      "narration": "Suppose two participants share a record containing length and payload. Sharing makes the bytes reachable, but it does not guarantee that a reader sees a complete update. A writer could publish a new length before finishing the payload, and a reader could act on inconsistent fields. The communication design must specify ownership of updates and synchronization that establishes when the record is ready. An offset-based representation solves different virtual bases, not this publication problem. It also does not recover automatically if a writer stops halfway through an update. Separate address interpretation, data consistency, and recovery instead of asking the word shared to promise all three.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch22.json → SP22.012: 22.5 Shared memory",
+      "question": {
+        "prompt": "Does replacing stored pointers with offsets make simultaneous unsynchronized updates safe?",
+        "answer": "No. Offsets solve address interpretation; synchronization and update protocols remain separate requirements."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Debug an access at both language and system boundaries",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "concept",
+      "keyPoints": [
+        "Mapped and writable is weaker than a valid C++ access",
+        "Object lifetime and bounds still apply",
+        "Unmapping ends the mapping, not every stale reference"
+      ],
+      "narration": "Imagine an array of four integers stored in a large writable page. Writing its fifth element can violate the language’s object bounds even though hardware permission checks allow the address. Now reverse the problem: a correctly typed pointer may refer to a region that was unmapped. The language-level type does not restore its mapping. Debugging needs both questions: does the object still exist with the required bounds, and does the environment permit this operation on its storage? Memory tools, checked boundaries, and clear ownership help answer different pieces. Do not treat the absence of a protection fault as proof that a C++ memory access was correct.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch22.json → SP22.010: 22.4 Memory isolation",
+      "question": {
+        "prompt": "Why might a buffer overrun produce no immediate page fault?",
+        "answer": "The invalid object access may still land inside a mapped writable page; page permissions do not encode all C++ bounds."
+      }
+    },
+    {
+      "title": "Choose the smallest communication boundary",
+      "eyebrow": "SYSTEMS / CHAPTER 22",
+      "kind": "concept",
+      "keyPoints": [
+        "Messages can simplify ownership",
+        "Shared memory can reduce copying",
+        "Representation and lifetime determine the real cost"
+      ],
+      "narration": "Shared memory is useful when repeated transfers would otherwise copy substantial data, but it introduces a shared-state protocol. A small occasional message may be easier to send through a pipe or socket, where ownership moves through a clearer boundary. Make the choice using required throughput, data size, update frequency, and failure handling. Our examples establish two facts: equal addresses do not imply equal storage, and unequal addresses do not prevent shared backing. Neither fact alone selects the best architecture. In a review, ask who initializes the region, who can remove it, how readers recognize a complete record, and how every offset is checked.",
+      "actions": [
+        "Predict the result and name the mapping or invariant that supports it before revealing the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch22.json → SP22.020: Guided lab and review",
+      "question": {
+        "prompt": "What information is missing from the claim that shared memory is always faster?",
+        "answer": "Transfer size, access pattern, synchronization, copying avoided, and the cost of maintaining a correct shared protocol."
+      }
+    }
+  ]
+}

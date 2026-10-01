@@ -1,0 +1,824 @@
+Design Patterns in C++
+Chapter 2: Abstract Factory: create products that agree
+Dr. Charles Dorner
+
+1. Two individually valid objects can be a bad pair
+Problem and first design
+
+SAY
+A sender and receiver can each look correct on their own and still fail together. Our teaching protocol has ten possible values, zero through nine. One family writes a bare digit such as 7. Another writes a framed digit such as [7]. The receiving object must understand the same family that the sending object used. We are not sending a real network message; the wire in this chapter is a string passed between functions. That small model lets us inspect every accepted value. The key problem is agreement between two products. It will lead us to select a whole family instead of making two unrelated choices.
+
+DO
+Ask learners to decode 7 and [7] under each proposed rule.
+Write the round-trip promise in words before introducing factory names.
+
+SOURCE
+manuscript/ch02.json → A writer and reader must agree
+
+------------------------------------------------------------
+
+2. Treat compatibility as an explicit requirement
+Problem and first design
+
+SAY
+An encoder turns a value into a representation. A decoder turns that representation back into a value. Those names tell us their jobs but do not prove they agree. Our requirements include positive cases and rejection cases: all ten digits must round-trip, an out-of-range integer must fail, and malformed text must fail. Framing also has two parts. The brackets must be right, and the middle character must be a decimal digit. A string like [x] has the right shape and the wrong content. Writing these checks before choosing the design helps us catch a family assembled from the wrong members later.
+
+DO
+Build a small accepted/rejected table for 0, 9, 10, [7], and [x].
+Ask which tests are about numeric range and which are about representation.
+
+SOURCE
+manuscript/ch02.json → The failure is a mismatched pair
+
+------------------------------------------------------------
+
+3. A single protocol starts with two functions
+Problem and first design
+
+SAY
+The simplest version uses two ordinary functions. The loop's colon means take each value from the list on the right and run the body with that value. Each iteration writes a digit, then reads it back. std::to_string produces text; it does not change the integer into a character by casting. In the reader, we first require exactly one decimal digit. Only then do we subtract the character '0'. Decimal digit characters are consecutive in C++, so this gives the numeric value after the range check. The three printed lines demonstrate normal behavior for the chosen inputs. They do not replace the exhaustive ten-value check in the chapter program.
+
+DO
+Predict the three output lines, then run.
+Point to the colon and describe one complete loop iteration.
+
+SOURCE
+Lecture demonstration for manuscript/ch02.json → A writer and reader must agree
+
+------------------------------------------------------------
+
+4. A mismatch can compile and still fail at the boundary
+Problem and first design
+
+SAY
+This sender produces [4], and the receiver expects exactly one character. There is no C++ type error: the sender returns std::string and the reader accepts a string reference. Execution rejects the three-character input. The final control call shows the reader can handle its own valid input, so blaming all decoding would be too broad. The defect is the pair selected during setup. This same problem occurs when a serializer and parser disagree about a version or when a user-interface family mixes incompatible parts. Abstract Factory will move family selection into one object. It reduces opportunities for mismatches, but we will still need behavioral tests.
+
+DO
+Predict whether the error is at build time or run time.
+Run and use the final control line to narrow the diagnosis.
+
+SOURCE
+Lecture demonstration for manuscript/ch02.json → The failure is a mismatched pair
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+Plain and framed digit codec families. CodecFactory groups two independent creation operations under one family choice. round_trip depends only on factory and product interfaces, and explicitly checks the compatibility invariant.
+
+Round-trip every digit from 0 through 9 in either family. Reject numbers outside the supported range and malformed wire strings. Create both products from one selected factory and own them locally.
+
+For each supported digit, read(write(value)) equals value within one family. Products returned by the supplied factories are non-null. Decoders check structure before indexing or extracting content. These are the rules that define a correct extension, even if it has the right C++ types. A single Codec type with write and read methods avoids pairing entirely if send and receive need not be separate objects. A simple function returning an owning pair is also sufficient for a small closed set of families.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json
+
+------------------------------------------------------------
+
+6. A writer and reader must agree
+Requirements and mechanism
+
+SAY
+A small teaching protocol transmits one decimal digit, from 0 through 9. A plain connection sends 7 as the string 7. A framed connection sends the same value as [7]. Each connection needs two objects: an encoder that writes a digit and a decoder that reads the resulting string. Every accepted digit must survive the trip unchanged. Invalid numbers and malformed strings must be rejected.
+
+Constructing a PlainEncoder and PlainDecoder directly is enough for the first version. They have separate jobs, and their relationship is easy to see. The excerpt is a complete sequence of statements inside a caller, assuming the two types are available. It does not need a factory for its own sake.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → A writer and reader must agree
+
+------------------------------------------------------------
+
+7. The failure is a mismatched pair
+Requirements and mechanism
+
+SAY
+When framed connections arrive, setup code selects both products independently. A copied branch can create FramedEncoder with PlainDecoder. Both objects implement the right C++ interfaces, so the compiler accepts the code. The encoder produces [7], but the plain decoder rejects its length. A more permissive decoder might silently misread the data instead. The problem is agreement between products, not merely selecting one product.
+
+A family is a set of objects meant to work together. The Abstract Factory pattern gives the caller one object that creates all needed members of the selected family. CodecFactory offers encoder and decoder. PlainFactory creates the plain pair; FramedFactory creates the framed pair. The client chooses one factory, then asks that factory for both products. This reduces the number of places where incompatible choices can enter.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → The failure is a mismatched pair
+
+------------------------------------------------------------
+
+8. Two product roles are not one inheritance tree
+Requirements and mechanism
+
+SAY
+Encoder and Decoder have different operations, so they remain different interfaces. PlainEncoder and FramedEncoder implement Encoder. PlainDecoder and FramedDecoder implement Decoder. Each concrete factory creates one of each. Abstract Factory does not require these two products to inherit from each other, share a common catch-all interface, or own one another. Their useful relationship is a protocol contract: decoder.read(encoder.write(value)) equals value for every valid value.
+
+The factory itself is borrowed as const CodecFactory&. The client does not delete it and does not save its address. Each returned unique_ptr owns a fresh product. The products contain no reference back to the factory, so this implementation does not require them to die before the factory. In round_trip they are local and are destroyed when the call ends. A different implementation with shared factory state would need a documented lifetime rule instead of assuming this one applies.
+
+The compiler checks product method signatures and factory overrides. During execution, the actual factory type chooses the concrete products. Calling through Encoder and Decoder then chooses their actual method implementations. The client contains no switch on wire format. It still knows the abstract protocol duties: one writer, one reader, a valid integer, and a round-trip invariant.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → Two product roles are not one inheritance tree
+
+------------------------------------------------------------
+
+9. Parsing is part of the contract
+Requirements and mechanism
+
+SAY
+PlainDecoder checks that wire has exactly one character before testing its content. The || operator stops as soon as an operand is true. This short-circuit rule skips unnecessary content tests after a bad length. FramedDecoder uses the same ordering for a stronger safety reason: front() and back() require a nonempty string. Its size check rejects empty input before either operation can run. C++17 permits reading string[string.size()] as a zero character, so PlainDecoder’s wire[0] on an empty string is not the same invalid-access case as front() or back().
+
+The character tests compare the input with '0' and '9'. C++ guarantees the decimal digit characters form a consecutive sequence, so subtracting '0' from a checked digit yields its numeric value. The framed reader first checks a three-character shape with opening and closing brackets. Only then does it take the one-character substring and reuse PlainDecoder. That reuse is a local parsing dependency, not membership in the plain factory family.
+
+The encoder checks numeric range before making a string. The framed decoder rejects [x] even though its outer brackets are correct. Structural validity and content validity are different rules. These deliberately tiny formats let the tests cover all ten accepted numeric values. They are teaching protocols, not general-purpose serialization formats with escaping, byte-order rules, versioning, or checksums.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → Parsing is part of the contract
+
+------------------------------------------------------------
+
+10. A factory encourages compatibility; it does not prove it
+Requirements and mechanism
+
+SAY
+Nothing in the return types prevents a faulty FramedFactory from returning PlainDecoder. The family rule is a design contract backed by tests. round_trip checks the value after decoding. That catches mismatches or broken decoding for the tested values. It cannot certify all future protocol extensions by itself. If a family has many configuration values, test representative boundaries and generated cases, and consider carrying a shared immutable configuration object into both products.
+
+A factory is most useful when clients need several related product roles and whole families change together. Adding a new family is local: provide its products and a factory implementing the existing creation operations. Adding a new product role is less local: a new creation method affects every factory and every family. This is the pattern’s main change-direction tradeoff. Choose it when new families are more likely than new roles.
+
+For one encoder-decoder pair with no planned variants, direct construction is clearer. A function returning a struct containing both owning handles can also preserve pairing with less inheritance. Compile-time family types or a single codec object can enforce stronger relationships when runtime variation is unnecessary. Do not split one naturally cohesive codec into separate products solely to make an Abstract Factory diagram. Here separate send and receive components are the stated need; the factory coordinates their creation.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → A factory encourages compatibility; it does not prove it
+
+------------------------------------------------------------
+
+11. Choose the family once, then ask for its members
+Mechanism in C++
+
+SAY
+A family is a set of objects intended to work together. CodecFactory declares two creation operations because the client needs two product roles: an encoder and a decoder. PlainFactory supplies the plain members, while FramedFactory supplies the framed members. round_trip receives one factory and asks that same factory for both products. It does not select an encoder from one source and a decoder from an unrelated source. This is the organizing idea of Abstract Factory. The client still knows what sending and receiving mean. It simply stops naming the concrete format classes. New family choices can then be made at setup without scattering those names through the protocol workflow.
+
+DO
+Trace both creation calls from the single factory parameter.
+Ask which concrete product names disappear from the client.
+
+SOURCE
+manuscript/ch02.json → The failure is a mismatched pair
+
+------------------------------------------------------------
+
+12. Separate product roles keep the interface honest
+Mechanism in C++
+
+SAY
+A decoder is not a special kind of encoder. Giving them a common do_everything interface would hide their different duties. In the chapter, each role has its own base class and virtual operation. The plain and framed encoders share Encoder; the plain and framed decoders share Decoder. Factories create across these two hierarchies. This distinction helps us read the UML: inheritance arrows stay within a role, while creation dependencies connect a factory to its concrete products. The compatibility rule sits across the pair: read after write returns the original allowed value. That rule is not an inheritance arrow and is not proved by making the products share a base class.
+
+DO
+Name the operation on each product interface.
+Explain why the pair contract belongs in tests as well as documentation.
+
+SOURCE
+manuscript/ch02.json → Two product roles are not one inheritance tree
+
+------------------------------------------------------------
+
+13. A borrowed factory can create owned products
+Mechanism in C++
+
+SAY
+The reference parameter lets round_trip use a factory that remains owned by its caller. const stops the client from calling non-const factory operations through that parameter. The products are different: each returned unique_ptr gives round_trip responsibility for one object's cleanup. If the second creation throws, the first local owner is still destroyed as the function exits through the exception. The concrete products here do not refer back to their factory, so their behavior does not require keeping the factory alive. That conclusion follows from this source code, not from the pattern name. A future factory that lends shared configuration to products would need an explicit lifetime rule.
+
+DO
+Mark the borrowed parameter and the two owning local variables.
+Ask how storing a factory reference inside a product would change the contract.
+
+SOURCE
+manuscript/ch02.json → Two product roles are not one inheritance tree
+
+------------------------------------------------------------
+
+14. Guard the shape before reading its parts
+Mechanism in C++
+
+SAY
+The framed reader checks for length three before calling front or back. The logical-or operator, written as two vertical bars, stops when one condition is already true. If the size is wrong, the later bracket checks do not run. This matters because front and back require a nonempty string. Once the three-character shape and brackets are confirmed, the reader extracts the middle character and reuses the plain digit reader. That is a local parsing dependency, not evidence that the framed decoder belongs to the plain factory family. A parser must reject both missing structure and invalid content. Testing only [7] would miss [x], an empty string, or extra trailing text.
+
+DO
+Trace the guard for an empty string and then for [x].
+Ask which layer rejects each input and why.
+
+SOURCE
+manuscript/ch02.json → Parsing is part of the contract
+
+------------------------------------------------------------
+
+15. The factory promises compatibility; tests check it
+Mechanism in C++
+
+SAY
+Suppose FramedFactory accidentally returns PlainDecoder from decoder. That return can satisfy unique_ptr<Decoder>, and the override can compile perfectly. The family contract is still broken. This is why the chapter's round_trip checks the decoded result, and why main exercises all ten valid values. A successful round-trip for one value may miss a reader that mishandles another digit. Rejection tests add different evidence: inputs from the wrong family and malformed strings must fail as promised. In a larger protocol, complete enumeration may be impossible, so boundary tests and generated cases matter. The pattern organizes responsibility; it does not turn behavioral promises into automatic mathematical proof.
+
+DO
+Propose the faulty factory change verbally and classify whether it compiles.
+Ask why all valid digits still matter after one mismatch test.
+
+SOURCE
+manuscript/ch02.json → A factory encourages compatibility; it does not prove it
+
+------------------------------------------------------------
+
+16. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Abstract factory → CodecFactory. Declares both product creation operations as one family-level choice.
+
+Concrete factories → PlainFactory; FramedFactory. Return the matching variants of both product roles.
+
+Abstract product A → Encoder. Defines the first product role independently of its family variant.
+
+Abstract product B → Decoder. Defines the second product role, which must cooperate with the first.
+
+Concrete product families → PlainEncoder with PlainDecoder; FramedEncoder with FramedDecoder. Provide the actual cooperating behavior for each family.
+
+Client → round_trip(const CodecFactory&, int). Creates and uses the selected pair without naming concrete classes.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → C02.07 concepts
+
+------------------------------------------------------------
+
+17. One family choice creates two product roles
+UML and source walkthrough
+
+SAY
+Inheritance points from FramedFactory to its interface. Dependencies describe calls and construction, not permanent ownership. round_trip locally owns the returned products; the factory is borrowed. The concrete product subclasses are shown in the complete source rather than crowded into this overview. The comments label teaching roles.
+
+CodecFactory groups two independent creation operations under one family choice. round_trip depends only on factory and product interfaces, and explicitly checks the compatibility invariant.
+
+Choose a family at the application boundary and pass that choice inward. New transport variants can then reuse the round-trip workflow and its checks instead of adding independent switches throughout the code.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch02/main.cpp:1-117; content/design-patterns-cpp/ch2.json → diagrams.2
+
+------------------------------------------------------------
+
+18. Abstract Factory — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+CodecFactory groups two independent creation operations under one family choice. round_trip depends only on factory and product interfaces, and explicitly checks the compatibility invariant.
+
+Choose a family at the application boundary and pass that choice inward. New transport variants can then reuse the round-trip workflow and its checks instead of adding independent switches throughout the code.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch02/main.cpp:1-117; content/design-patterns-cpp/ch2.json → diagrams.2
+
+------------------------------------------------------------
+
+19. State both required product roles in one contract
+UML and source walkthrough
+
+SAY
+This interface requires each family to supply both product roles. The public part of CodecFactory. One chosen object coordinates what would otherwise be separate setup decisions.
+
+The comment states the family-level promise. Declare an owning encoder return type. Require an encoder creation operation; const prevents ordinary factory mutation. Declare an owning decoder return type. Require the matching decoder creation operation.
+
+A concrete factory must implement both operations with compatible products. The compiler checks the operations but cannot infer wire compatibility.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch02/main.cpp:55-59
+
+------------------------------------------------------------
+
+20. Keep the family choice together in the client
+UML and source walkthrough
+
+SAY
+The client requests, uses, and releases one compatible pair. Inside round_trip, which receives a borrowed factory reference. The client can check round-trip behavior without naming concrete types.
+
+The comment distinguishes the factory’s borrowed lifetime from product ownership. Request the selected family’s encoder and own it locally. Request the same family’s decoder and own it locally. Reject an empty owning handle from either creation operation. Throw a logic error if the factory broke its contract. Encode the validated-by-product integer into an owned string. Decode with the paired reader and check exact equality. Return the encoded string value; local products are then released.
+
+Successful decoding must recover the original integer exactly. A broken factory can mix families despite the shared interface.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch02/main.cpp:84-91
+
+------------------------------------------------------------
+
+21. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. CodecFactory groups two independent creation operations under one family choice. round_trip depends only on factory and product interfaces, and explicitly checks the compatibility invariant.
+
+main tests both displayed forms and all ten valid digits for each family, rejects a mixed pair, rejects 10, and rejects [x]. The client checks non-null handles. Tests do not model transport loss, Unicode, large numbers, or a production serialization protocol.
+
+Choose a family at the application boundary and pass that choice inward. New transport variants can then reuse the round-trip workflow and its checks instead of adding independent switches throughout the code. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch02/main.cpp
+
+------------------------------------------------------------
+
+22. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. factory=FramedFactory; input=7. The application chooses a whole family.
+
+Step 2. encoder=FramedEncoder; decoder=FramedDecoder. Both creation calls use that factory.
+
+Step 3. wire="[7]". The writer validates the digit and adds its frame.
+
+Step 4. decoded=7; equality check passes. The reader checks brackets and enclosed digit before converting.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → trace
+
+------------------------------------------------------------
+
+23. Debug the promise: Pair the framed writer with the plain reader.
+Execute and debug
+
+SAY
+Pair the framed writer with the plain reader. Writing 7 produces [7], which the plain reader rejects. Matching interface types do not imply matching wire formats.
+
+main tests both displayed forms and all ten valid digits for each family, rejects a mixed pair, rejects 10, and rejects [x]. The client checks non-null handles. Tests do not model transport loss, Unicode, large numbers, or a production serialization protocol.
+
+Choose a family at the application boundary and pass that choice inward. New transport variants can then reuse the round-trip workflow and its checks instead of adding independent switches throughout the code.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → example.failures
+
+------------------------------------------------------------
+
+24. Debug the promise: Check only brackets in FramedDecoder.
+Execute and debug
+
+SAY
+Check only brackets in FramedDecoder. [x] passes the structural check and could produce a non-digit value. A correct frame does not prove that its enclosed character is valid.
+
+main tests both displayed forms and all ten valid digits for each family, rejects a mixed pair, rejects 10, and rejects [x]. The client checks non-null handles. Tests do not model transport loss, Unicode, large numbers, or a production serialization protocol.
+
+Choose a family at the application boundary and pass that choice inward. New transport variants can then reuse the round-trip workflow and its checks instead of adding independent switches throughout the code.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → example.failures
+
+------------------------------------------------------------
+
+25. Trace 1: Abstract Factory: Plain zero
+Trace experiments
+
+SAY
+Abstract Factory: Plain zero. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Plain products agree on the one-character format.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → dpx-c02-trace-1; companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+26. Trace 2: Abstract Factory: Framed endpoint
+Trace experiments
+
+SAY
+Abstract Factory: Framed endpoint. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The matching decoder removes the frame and returns nine.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → dpx-c02-trace-2; companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 3: Abstract Factory: Tagged middle
+Trace experiments
+
+SAY
+Abstract Factory: Tagged middle. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A tagged family preserves the same numeric value across encoding and decoding.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → dpx-c02-trace-3; companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 4: Abstract Factory: Tagged endpoint
+Trace experiments
+
+SAY
+Abstract Factory: Tagged endpoint. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Nine is valid; ten is not part of this digit protocol.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → dpx-c02-trace-4; companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 5: Abstract Factory: Cross-family input
+Trace experiments
+
+SAY
+Abstract Factory: Cross-family input. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A valid framed string is invalid for the plain decoder.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → dpx-c02-trace-5; companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 6: Abstract Factory: Bad tagged length
+Trace experiments
+
+SAY
+Abstract Factory: Bad tagged length. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The tag requires exactly one digit after d=.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → dpx-c02-trace-6; companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 7: Abstract Factory: Bad digit
+Trace experiments
+
+SAY
+Abstract Factory: Bad digit. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+A letter cannot represent the required digit.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → dpx-c02-trace-7; companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 8: Abstract Factory: Out of range
+Trace experiments
+
+SAY
+Abstract Factory: Out of range. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The family does not enlarge the domain merely by adding brackets.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → dpx-c02-trace-8; companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+33. Exercise 02.1: Guided modification
+Practice and extension
+
+SAY
+Change the demonstrated digit from 7 to 0. State the wire string for both families and the decoded value.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Zero is a valid boundary, not an empty value.
+
+After the discussion, compare the reasoning. Plain produces "0" and framed produces "[0]". Both decode to 0. Preserve the explicit length checks; an empty wire string must still fail.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch02.json → exercises.02.1
+
+------------------------------------------------------------
+
+34. Exercise 02.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+Evaluate these independent calls: PlainDecoder{}.read("9"), FramedDecoder{}.read("[2]"), and PlainDecoder{}.read("[2]"). Give values or exceptions.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Match each reader’s structure requirement first.
+
+After the discussion, compare the reasoning. The first returns 9. The second validates a frame and returns 2. The third throws invalid_argument because the plain reader requires length 1. No implicit conversion strips the brackets.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch02.json → exercises.02.2
+
+------------------------------------------------------------
+
+35. Exercise 02.3: Diagnose a bug
+Practice and extension
+
+SAY
+A FramedFactory accidentally returns make_unique<PlainDecoder>() from decoder. Does it compile, and what happens in round_trip(framed,7)?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: A PlainDecoder still implements Decoder.
+
+After the discussion, compare the reasoning. It compiles because the owning pointer converts to unique_ptr<Decoder>. The writer returns "[7]" and the plain reader throws before the equality check can finish. Repair the concrete product choice and rerun all valid-digit round trips.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch02.json → exercises.02.3
+
+------------------------------------------------------------
+
+36. Exercise 02.4: Choose a design
+Practice and extension
+
+SAY
+One application always sends and reads through the same object. Another hands separate writer and reader objects to independent components and supports several format families. Choose a single codec or Abstract Factory.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Look for a real need for separately created related objects.
+
+After the discussion, compare the reasoning. The first can use one Codec with write and read methods, eliminating pairing. The second can use Abstract Factory to create compatible separate roles from one choice. Both are sound when their object boundaries match the actual application.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch02.json → exercises.02.4
+
+------------------------------------------------------------
+
+37. Exercise 02.5: Extend without regressions
+Practice and extension
+
+SAY
+Add a tagged family whose wire form is d= followed by one digit. Reject plain, bracketed, nondigit, empty, and multi-digit inputs. Keep round_trip unchanged.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Reuse the checked one-character digit decoder after validating the tag.
+
+After the discussion, compare the reasoning. The solution adds TaggedEncoder, TaggedDecoder, and TaggedFactory. d=7 round-trips to 7. It checks all ten digits and rejects "7", "[7]", "d=x", "d=77", and the empty string while keeping old family tests.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch02.json → exercises.02.5
+
+------------------------------------------------------------
+
+38. Exercise 02.6: Justify a decision
+Practice and extension
+
+SAY
+The team will add ten new protocol families but expects encoder and decoder to remain the only roles. Explain why this change direction supports Abstract Factory, and what requirement would weaken that choice.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Count which interfaces change for a family versus a role.
+
+After the discussion, compare the reasoning. A new family implements the existing two methods and adds its own products, leaving callers stable. Frequently adding roles such as validator, compressor, and signer would force all factories to change, making a smaller family configuration object or another composition scheme worth considering. A strong answer ties the choice to expected change, not to the number of classes.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch02.json → exercises.02.6
+
+------------------------------------------------------------
+
+39. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Implement TaggedEncoder, TaggedDecoder, and TaggedFactory for the exact ASCII form d=0 through d=9. Do not change round_trip or existing families. Preserve all tests and append tagged=d=7 to the demonstration output.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: Every integer 0–9 survives the new family’s round trip. 7, [7], d=x, d=77, and empty input are rejected by TaggedDecoder. The encoded representation of 7 is exactly d=7. Existing plain and framed checks still pass.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch02/main.cpp
+
+------------------------------------------------------------
+
+40. Extension solution and design review
+Practice and extension
+
+SAY
+The tagged reader checks exact length and the two-character prefix before extracting one digit. It then delegates digit validation to PlainDecoder. This shares a small parsing rule without combining factory choices. A dedicated checked-digit helper would be another reasonable implementation.
+
+Choose a family at the application boundary and pass that choice inward. New transport variants can then reuse the round-trip workflow and its checks instead of adding independent switches throughout the code.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch02/main.cpp
+
+------------------------------------------------------------
+
+41. Application case 1: defend your choice
+Practice and extension
+
+SAY
+A document system needs matching encoders and decoders for several formats. One choice must determine both products. Which design best fits?
+
+Abstract Factory. A factory selects a compatible family of products through separate creation operations.
+
+Decorator. Wrapping an existing operation does not select a family.
+
+Singleton. One shared instance does not establish compatibility between products.
+
+Memento. No restoration of prior state is required.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → C02.21 scenario
+
+------------------------------------------------------------
+
+42. Application case 2: defend your choice
+Practice and extension
+
+SAY
+A framed factory accidentally returns a PlainDecoder. The result still has type unique_ptr<Decoder>. What exposes the defect?
+
+Testing only that the pointer is non-null.. Existence does not prove family compatibility.
+
+Renaming PlainDecoder to FramedDecoder.. Changing a name does not change decoding behavior.
+
+The return type necessarily fails compilation.. Both implementations satisfy the declared Decoder interface.
+
+A round-trip test using framed output such as [7].. The plain decoder rejects the framed writer’s representation.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch2.json → C02.22 scenario
+
+------------------------------------------------------------
+
+43. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Abstract Factory coordinates creation of related products. Product interfaces describe roles; family contracts describe compatibility. Use the same selected factory for all members of a family. Adding a family is easier than adding a new product role. Round-trip tests reveal agreement that C++ signatures cannot prove.
+
+Choose a family at the application boundary and pass that choice inward. New transport variants can then reuse the round-trip workflow and its checks instead of adding independent switches throughout the code.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch02.json → summary
+
+------------------------------------------------------------
+
+44. Expect cheap new families and expensive new roles
+Recall and transfer
+
+SAY
+Every abstraction favors some changes over others. Adding TaggedFactory is local because encoder and decoder are already the agreed roles. The new family supplies those two products while round_trip continues using the same interface. Adding a third role, such as a validator product, is a wider change if it becomes a required operation on CodecFactory. Every concrete factory must then decide what to return. This is a practical maintenance cost, not a flaw we can wish away. Before choosing Abstract Factory, ask whether you expect many new families of stable roles or frequent changes to the list of roles itself. A small bundle-returning function may be easier when the family set is fixed.
+
+DO
+Have students list the files affected by each proposed change.
+
+SOURCE
+manuscript/ch02.json → A factory encourages compatibility; it does not prove it
+
+------------------------------------------------------------
+
+45. Do not split a good codec merely to fit a diagram
+Recall and transfer
+
+SAY
+A design pattern should solve a real separation problem. If one object naturally owns both writing and reading, keeping a single codec may express the requirement more clearly. If separate objects are useful but no runtime family switching is needed, a function can return a struct containing a matched pair. When the family is known during compilation, distinct family types or templates can rule out some mismatches earlier. Abstract Factory is valuable here because separate send and receive products are required and clients select a family through a stable runtime interface. Choose deliberately. More interfaces do not automatically mean more safety; they can also create more places for a configuration mistake.
+
+DO
+Ask learners to defend one-object and two-object designs under different lifetimes.
+Distinguish runtime flexibility from compile-time constraints.
+
+SOURCE
+manuscript/ch02.json → A factory encourages compatibility; it does not prove it
+
+------------------------------------------------------------
+
+46. Recall the contract, then reconstruct the architecture
+Recall and transfer
+
+SAY
+Try rebuilding the idea from the failure rather than from a class diagram. Independently chosen senders and receivers can disagree about string format. We therefore choose one family object and request both roles from it. The client owns the returned products and checks the same round-trip promise through their interfaces. Now imagine supporting a new tagged format d=7. Describe the new encoder, decoder, and factory, then list the old tests that must continue to pass. Finally, explain what the pattern cannot guarantee: a badly written factory can still return the wrong member, and the compiler may accept it. This final boundary is part of understanding the pattern, not a reason to skip it.
+
+DO
+Close the diagrams and ask students to reconstruct the three roles for a tagged family.
+End by contrasting family compatibility with a single creation hook.
+
+SOURCE
+manuscript/ch02.json → A factory encourages compatibility; it does not prove it

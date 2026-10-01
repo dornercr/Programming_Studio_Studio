@@ -1,0 +1,794 @@
+Systems Programming and Machine Organization
+Chapter 17: Procedures and Calling Conventions
+Dr. Charles Dorner
+
+1. A call is an agreement between separately built pieces
+Problem and first experiment
+
+SAY
+Imagine compiling a caller and a library at different times with no shared view of their implementations. They still need to agree on how arguments arrive, where a result appears, which registers may be overwritten, and how the stack is positioned. That agreement is the application binary interface, or ABI. A C++ function declaration expresses part of the agreement, while the target platform supplies machine-level details. A routine can compute the right number yet still violate the ABI by corrupting a preserved register. Learning calling conventions means tracing both the intended result and the caller state that must remain usable afterward.
+
+DO
+Ask what the caller must know without reading the callee implementation.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.008
+
+------------------------------------------------------------
+
+2. Recursive calls have distinct logical local state
+Problem and first experiment
+
+SAY
+The trace enters calls with three, two, one, and zero. Zero returns directly. The waiting call for one then returns one; the waiting call for two returns three; and the waiting call for three returns six. Main prints the final six after the recursive work completes. Every invocation has its own n, even though the source contains one parameter name. This demonstration explains logical call state without promising one exact stack frame per source call in every optimized build. The small constant depth is deliberate. A correct base case does not make unbounded input depth safe for a real process stack.
+
+DO
+Predict the full entry-and-return order before running.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch17.json → SP17.024
+
+------------------------------------------------------------
+
+3. A correct return value can hide a preservation bug
+Problem and first experiment
+
+SAY
+This program models a tiny register bank as an ordinary struct. Both helpers return six, but bad_callee overwrites preserved with ninety-nine and never restores it. The first output therefore reveals a caller-state failure even though the result looks correct. Good_callee saves the incoming preserved value, performs its temporary work, and restores it before returning. Its output shows six and eleven. No actual hardware register is inspected or corrupted here. The model isolates an ABI obligation safely: a test that checks only the return value cannot catch every calling-convention defect, especially one that affects work performed after the call.
+
+DO
+Compare returned data with preserved caller state in both outputs.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch17.json → SP17.034
+
+------------------------------------------------------------
+
+4. CALL supplies a return address, not a complete frame
+Problem and first experiment
+
+SAY
+A near call in the reference machine transfers control and places an eight-byte return address on the stack. It does not automatically save every register or allocate every source local. The callee's prologue performs any additional work required by its implementation and ABI. A normal return then obtains the saved continuation from the expected stack location. If cleanup leaves the stack pointer at a local variable instead, return can interpret unrelated bits as a destination. This explains why frame setup and teardown must be reviewed with every control-flow path, including early failures. Correct arithmetic inside the body does not repair an incorrect return state.
+
+DO
+Separate the hardware return-address action from software prologue responsibilities.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.004
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A caller has a saved value of 10 and asks a helper to double 3. The final result must be 16 even if temporary registers are reused.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Write a helper that doubles a small integer and a caller that preserves a separate value across that call. Test positive, zero, and negative inputs.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Handwritten assembly cannot assume every register survives a call. Caller-saved and callee-saved duties depend on the target ABI.
+
+A related failure in the generalized operation is concrete: In handwritten assembly, keep saved only in a caller-saved register and assume a nested call preserves it.
+
+The repair changes the operation at the point where the rule can be enforced: Follow the actual ABI’s preservation duties or let ordinary C++ express the call. A source-variable name is not a register-preservation promise.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The caller relies on a returned value and its own preserved value. The C++ compiler chooses how to satisfy that rule under the target ABI, possibly by eliminating the machine call entirely. Studying callee-saved registers requires inspecting a concrete build; the source-level contract is still the same if the helper is inlined.
+
+A plausible alternative: Ordinary C++ functions let the compiler honor the platform ABI; assembly boundaries require explicit agreement.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.03
+
+------------------------------------------------------------
+
+8. Chapter 17 — Procedures and Calling Conventions
+Systems mechanisms and source lecture
+
+SAY
+A calling convention lets independently compiled functions exchange arguments, results, and control without knowing one another’s internal implementation. It specifies the state that must exist at a call boundary and what may change before return. Handwritten assembly must satisfy that contract just as compiler-generated code does.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.001, SP17.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+17.1 call 17.2 ret 17.3 Argument registers 17.4 Return registers ...plus 13 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.003
+
+------------------------------------------------------------
+
+10. call
+Systems mechanisms and source lecture
+
+SAY
+A near call transfers control to a target and places a return address on the stack. The return address identifies where execution should continue after the callee finishes. On the reference 64-bit convention, the pushed return address occupies eight bytes. The instruction itself does not allocate a complete source-level stack frame or save every register. Those are responsibilities handled by the caller and callee according to the ABI. A function can therefore be extremely small if it needs no local stack storage and changes no callee-saved register.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.004, SP17.005
+
+------------------------------------------------------------
+
+11. ret
+Systems mechanisms and source lecture
+
+SAY
+A normal ret obtains the return address from the stack and transfers control there, advancing the stack pointer accordingly. It assumes the stack state has been restored to the expected return-address position. A mismatched push/pop sequence or corrupted return address can send execution to the wrong location. Stack canaries and other mitigations can detect or constrain some corruption, but they do not make an incorrect frame layout safe. Verify the stack pointer at each return path, especially when a function has early exits.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.006, SP17.007
+
+------------------------------------------------------------
+
+12. Argument registers
+Systems mechanisms and source lecture
+
+SAY
+For ordinary integer and pointer arguments in the System V AMD64 ABI, the first six use %rdi , %rsi , %rdx , %rcx , %r8 , and %r9 . Additional arguments may use the stack. Floating-point and vector arguments use other rules and register classes, and aggregates require ABI classification. This simplified rule is enough for the scalar examples in this book. It is not sufficient for every structure return, variadic call, or C++ object interface. When interoperating with an unfamiliar signature, consult the full ABI and inspect a compiler-generated reference rather than guessing from the number of parameters. [ R4 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.008, SP17.009
+
+------------------------------------------------------------
+
+13. Return registers
+Systems mechanisms and source lecture
+
+SAY
+Ordinary scalar integer and pointer results commonly return in %rax . Some wider or aggregate results use multiple registers or caller-provided storage. Floating-point results commonly use vector registers such as %xmm0 under the applicable rules. The result type determines how the caller interprets the returned bits. Declaring an assembly function with the wrong C type can produce a mismatch even when the routine returns a sensible machine value. Keep the declaration and assembly contract together, including width, signedness, and any hidden storage assumptions.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.010, SP17.011
+
+------------------------------------------------------------
+
+14. Stack pointer
+Systems mechanisms and source lecture
+
+SAY
+The stack pointer tracks the active stack region used by calls and local storage. The callee must return with the caller’s expected stack position restored. Adjustments reserve or release space but do not initialize the bytes automatically. A stack allocation can be large enough numerically yet violate alignment or exceed the mapped stack. Dynamic-sized stack objects need careful bounds. Prefer heap or arena storage when input-controlled size could make stack use unbounded. A call chain’s total stack requirement includes every simultaneously active frame.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.012, SP17.013
+
+------------------------------------------------------------
+
+15. Stack frames
+Systems mechanisms and source lecture
+
+SAY
+A stack frame is the region and saved state associated with one active call. It may hold saved registers, spilled values, local objects, and outgoing arguments. Some leaf functions need no explicit frame allocation. Frame layout is a compiler and ABI matter, not a fixed translation of source declaration order. Optimization can reuse slots for nonoverlapping lifetimes or eliminate objects. Debugger displays reconstruct source concepts from machine state and metadata; an optimized-out variable is not necessarily missing from the computation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.014, SP17.015
+
+------------------------------------------------------------
+
+16. Stack alignment
+Systems mechanisms and source lecture
+
+SAY
+For the ordinary scalar calls used here, %rsp is 16-byte aligned immediately before call . The eight-byte return-address push means %rsp is eight modulo sixteen at callee entry, or equivalently %rsp + 8 is aligned. Additional alignment requirements can apply to particular stack-passed vector arguments. A callee that makes another call must account for its pushes and local allocation before doing so. One eight-byte push at entry changes the stack pointer from eight modulo sixteen to zero modulo sixteen, making it ready for a nested ordinary call. A second push would require another adjustment. Count bytes, not just source variables.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.016, SP17.017
+
+------------------------------------------------------------
+
+17. Caller-saved registers
+Systems mechanisms and source lecture
+
+SAY
+Caller-saved registers may be overwritten by a callee. If the caller needs one of their values after a call, it must save the value in a preserved register or memory, or recompute it. The choice depends on lifetime and cost. An assembly routine cannot promise preservation accidentally and expect every future implementation to keep doing so unless that stronger promise is part of its interface. Callers should rely on the ABI contract, not on what a current disassembly happens not to modify.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.018, SP17.019
+
+------------------------------------------------------------
+
+18. Callee-saved registers
+Systems mechanisms and source lecture
+
+SAY
+A callee using %rbx , %rbp , or %r12 through %r15 must restore their incoming values before return. Saving them on entry and restoring them on exit is common, but optimized code can save only on paths that need them if unwind information and control flow remain correct. The saved value belongs to the caller. It is not the callee’s previous invocation state. Recursive calls therefore need independent preservation at each active level. A missing restore can corrupt a caller long after the callee’s own result appears correct.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.020, SP17.021
+
+------------------------------------------------------------
+
+19. Local variables
+Systems mechanisms and source lecture
+
+SAY
+Local source objects may live in registers, stack slots, or no materialized storage at all. Address-taking can require an object to have addressable storage, but even then the compiler may optimize within the language’s observable behavior rules. A local array’s address must remain valid throughout every borrowed use. Passing it to a function that retains the pointer beyond return is unsafe. The calling convention transports the pointer correctly; it cannot extend the pointed-to object’s lifetime. ABI correctness and object-lifetime correctness are separate obligations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.022, SP17.023
+
+------------------------------------------------------------
+
+20. Recursive calls
+Systems mechanisms and source lecture
+
+SAY
+Each recursive invocation has its own logical parameters and local state. The machine commonly represents that state with repeated frames. If the recursion depth is d and each active frame requires roughly f bytes, stack use grows approximately with d*f , plus calling and alignment overhead. A base case is necessary but not sufficient for robustness. A valid but deeply nested input can still exceed the stack. Bound input depth, choose an iterative representation, or provide a resource-aware algorithm. Do not depend on tail-call optimization unless the implementation contract explicitly guarantees the needed behavior.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.024, SP17.025
+
+------------------------------------------------------------
+
+21. Function prologue
+Systems mechanisms and source lecture
+
+SAY
+A prologue establishes any required frame, saves preserved registers, and reserves local storage. A conventional sequence might push %rbp , copy %rsp into it, and subtract space. Many functions use a different or shorter sequence. Handwritten assembly intended to participate in debugging or unwinding should provide appropriate call-frame information directives. Those directives describe how to recover caller state; they are not executed instructions. A correct normal return path does not automatically imply correct exception or debugger unwinding through the routine.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.026, SP17.027
+
+------------------------------------------------------------
+
+22. Function epilogue
+Systems mechanisms and source lecture
+
+SAY
+An epilogue reverses the frame setup: release local space, restore preserved registers, and return. Every exit path must satisfy the same caller-visible contract. A function with an error return still owes the caller its saved registers and stack alignment state. The epilogue is a useful review boundary. List what the function acquired or changed, then verify that each relevant item has been restored or intentionally returned. This resembles resource cleanup in C and C++ because both problems are about preserving invariants across a boundary.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.028, SP17.029
+
+------------------------------------------------------------
+
+23. Preserving a value across a nested call
+Systems mechanisms and source lecture
+
+SAY
+The requirement is to compute mix(x, 5) + x , where mix(x, y) returns 3*x + y using unsigned arithmetic. The assembly caller must retain x across the call to mix . It uses the callee-saved %rbx , saving and restoring the caller’s original value. Companion listing: ch17/nested.S Companion listing: ch17/main.c At entry, %rsp is eight modulo sixteen. Pushing %rbx makes it zero modulo sixteen, satisfying the ordinary nested-call alignment. %rbx then holds 9 while mix is free to overwrite caller-saved registers. mix returns 32, the wrapper adds 9, and popping restores the original %rbx before returning 41.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.030, SP17.031
+
+------------------------------------------------------------
+
+24. Tracking a call frame
+Systems mechanisms and source lecture
+
+SAY
+Suppose a function needs 24 bytes of local storage but the ABI requires stack alignment at call boundaries. The compiler may round the stack adjustment upward, for example to 32 bytes, rather than allocate exactly 24. It also preserves any callee-saved registers it modifies. The frame therefore reflects ABI obligations as well as source locals.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.032, SP17.033
+
+------------------------------------------------------------
+
+25. Caller-saved versus callee-saved
+Systems mechanisms and source lecture
+
+SAY
+If a caller needs a value currently in a caller-saved register after invoking another function, it must arrange to preserve that value, perhaps by spilling it. A callee that modifies a callee-saved register must restore it before returning. This division lets callers and callees coordinate without knowing each other’s source code.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.034, SP17.035
+
+------------------------------------------------------------
+
+26. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 17. Write a compiler-generated C version of the same wrapper and compare its preservation strategy at low and high optimization levels. Explain whether inlining removes the call and why that changes the register problem. Review 1. Why does saving a register also affect stack alignment? Review 2. Why does a correct result not prove that an assembly callee respected the ABI?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.036, SP17.037
+
+------------------------------------------------------------
+
+27. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is procedures and calling conventions. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.038
+
+------------------------------------------------------------
+
+28. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Compiler Optimizations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.039
+
+------------------------------------------------------------
+
+29. Alignment is a byte-level equation
+Reason about the implementation
+
+SAY
+At a normal call boundary in this chapter's System V setting, the stack pointer is aligned to sixteen bytes. Call pushes eight bytes, so the callee enters with RSP eight modulo sixteen. One additional eight-byte push makes it aligned again for a nested ordinary call. A second push changes it back, so local allocation may need another adjustment. Count bytes through the actual sequence; a local storage requirement alone is not enough to derive the frame size. Particular vector arguments can add requirements beyond this simplified scalar case. When in doubt, compare against a compiler-generated function with the same signature and target options.
+
+DO
+Track RSP modulo sixteen across call, one push, and a nested call.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.016
+
+------------------------------------------------------------
+
+30. Preserve a value because it remains live
+Reason about the implementation
+
+SAY
+Suppose a wrapper computes mix of x and five, then adds the original x. The original x remains live across the call because the later addition needs it. If its register is caller-saved, the wrapper must move it to preserved storage, spill it, or arrange a safe recomputation. The chapter's assembly uses a preserved register and restores that register's own incoming value before returning. A compiler might inline mix and eliminate the boundary instead. Both strategies can be correct. Read the actual lifetime of the value rather than mechanically saving every argument or relying on today's helper not to overwrite a register.
+
+DO
+Mark the last use of x and the call between its definition and that use.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.018
+
+------------------------------------------------------------
+
+31. A pointer argument does not extend a local object’s life
+Reason about the implementation
+
+SAY
+A function can pass the address of its local array in exactly the correct argument register and still create a lifetime bug if the callee stores that address for later use. The transport obeys the ABI, but the local array ends when its owning scope ends. A future callback would then use a dangling pointer. This distinction is essential when integrating C libraries or asynchronous APIs. State whether an argument is borrowed only during the call or retained afterward. If retention is required, move ownership into an object with a suitable lifetime or copy the needed data. Correct register placement does not answer that ownership question.
+
+DO
+Contrast a synchronous print call with a callback that stores its buffer pointer.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.022
+
+------------------------------------------------------------
+
+32. Prologues and epilogues must support every exit
+Reason about the implementation
+
+SAY
+A function's error return owes its caller the same preserved registers and stack position as its successful return. Review an epilogue by listing the frame resources and saved state acquired on that path, then checking their restoration. Handwritten assembly may also need call-frame information so debuggers and exception machinery can recover caller state. Those directives describe layout changes; they are not instructions that perform the restoration themselves. A function can return normally in a test yet fail when a debugger unwinds through it or an exception crosses its frame. Decide which forms of interoperability the routine promises, and validate them explicitly.
+
+DO
+Compare the normal return path with an exception-unwind interpretation.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.028
+
+------------------------------------------------------------
+
+33. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A caller has a saved value of 10 and asks a helper to double 3. The final result must be 16 even if temporary registers are reused.
+
+Before the call. saved = 10; argument = 3. The compiler must preserve any value needed after the call.
+
+In the callee. return value = 6. A calling convention defines how arguments and return values are passed at a machine boundary.
+
+After the call. 10 + 6 = 16. The preservation may use a callee-saved register, a spill, or another valid optimization.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch17/main.cpp
+
+------------------------------------------------------------
+
+34. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Before the call. saved = 10; argument = 3. The compiler must preserve any value needed after the call.
+
+In the callee. return value = 6. A calling convention defines how arguments and return values are passed at a machine boundary.
+
+After the call. 10 + 6 = 16. The preservation may use a callee-saved register, a spill, or another valid optimization.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch17/main.cpp
+
+------------------------------------------------------------
+
+35. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The caller relies on a returned value and its own preserved value. The C++ compiler chooses how to satisfy that rule under the target ABI, possibly by eliminating the machine call entirely. Studying callee-saved registers requires inspecting a concrete build; the source-level contract is still the same if the helper is inlined.
+
+Follow the actual ABI’s preservation duties or let ordinary C++ express the call. A source-variable name is not a register-preservation promise.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch17/main.cpp:1-10
+
+------------------------------------------------------------
+
+36. Keep a needed value across a call
+Code, diagrams, and debugging
+
+SAY
+Keep a needed value across a call. [] introduces a lambda, an unnamed function object. Its empty capture list means it borrows no surrounding local variables. It accepts one int and returns twice that value.
+
+A caller has a saved value of 10 and asks a helper to double 3. The final result must be 16 even if temporary registers are reused.
+
+The compiler must preserve any value needed after the call. A calling convention defines how arguments and return values are passed at a machine boundary. The preservation may use a callee-saved register, a spill, or another valid optimization.
+
+[] introduces a lambda, an unnamed function object. Its empty capture list means it borrows no surrounding local variables. It accepts one int and returns twice that value.
+
+saved names a value the caller still needs after the helper operation. const forbids changing it through this name.
+
+Calling helper(3) yields 6. The compiler may inline the lambda or fold this calculation, so a C++ call expression does not prove that a machine call instruction exists.
+
+The caller still has saved after the helper operation. C++ observable behavior is preserved even if no machine call remains after optimization.
+
+Handwritten assembly cannot assume every register survives a call. Caller-saved and callee-saved duties depend on the target ABI. In the extended lab: In handwritten assembly, keep saved only in a caller-saved register and assume a nested call preserves it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch17/main.cpp:5-7
+
+------------------------------------------------------------
+
+37. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+In handwritten assembly, keep saved only in a caller-saved register and assume a nested call preserves it.
+
+Follow the actual ABI’s preservation duties or let ordinary C++ express the call. A source-variable name is not a register-preservation promise.
+
+The reference solution makes the contract executable with assertions. The caller relies on a returned value and its own preserved value. The C++ compiler chooses how to satisfy that rule under the target ABI, possibly by eliminating the machine call entirely. Studying callee-saved registers requires inspecting a concrete build; the source-level contract is still the same if the helper is inlined.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.06
+
+------------------------------------------------------------
+
+38. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch17/starter.cpp. Implement the first acceptance case for represent a call contract in c++. State the function inputs and result before adding code. First case: caller(10,3) is 16.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.07
+
+------------------------------------------------------------
+
+39. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch17/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.08
+
+------------------------------------------------------------
+
+40. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: In handwritten assembly, keep saved only in a caller-saved register and assume a nested call preserves it. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.09
+
+------------------------------------------------------------
+
+41. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Does this source guarantee that a stack frame or even a call instruction exists? Compare the selected design with this plausible alternative: Ordinary C++ functions let the compiler honor the platform ABI; assembly boundaries require explicit agreement.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.10
+
+------------------------------------------------------------
+
+42. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch17/starter.cpp. Write a helper that doubles a small integer and a caller that preserves a separate value across that call. Test positive, zero, and negative inputs. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch17/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.11
+
+------------------------------------------------------------
+
+43. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Represent a call contract in C++ belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.12
+
+------------------------------------------------------------
+
+44. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Write a helper that doubles a small integer and a caller that preserves a separate value across that call. Test positive, zero, and negative inputs.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch17/starter.cpp
+
+------------------------------------------------------------
+
+45. Review the extension solution
+Practice and extension
+
+SAY
+The caller relies on a returned value and its own preserved value. The C++ compiler chooses how to satisfy that rule under the target ABI, possibly by eliminating the machine call entirely. Studying callee-saved registers requires inspecting a concrete build; the source-level contract is still the same if the helper is inlined. Repair principle: Follow the actual ABI’s preservation duties or let ordinary C++ express the call. A source-variable name is not a register-preservation promise.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Follow the actual ABI’s preservation duties or let ordinary C++ express the call. A source-variable name is not a register-preservation promise.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch17/solution.cpp
+
+------------------------------------------------------------
+
+46. Application case: Procedures and Calling Conventions
+Practice and extension
+
+SAY
+A function overwrites a callee-saved register and returns without restoring it.
+
+What fails?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.CASE
+
+------------------------------------------------------------
+
+47. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The caller relies on a returned value and its own preserved value. The C++ compiler chooses how to satisfy that rule under the target ABI, possibly by eliminating the machine call entirely. Studying callee-saved registers requires inspecting a concrete build; the source-level contract is still the same if the helper is inlined.
+
+Choose a simpler approach when its narrower contract is enough. Ordinary C++ functions let the compiler honor the platform ABI; assembly boundaries require explicit agreement.
+
+When this system changes, retain a check that exposes the known failure: In handwritten assembly, keep saved only in a caller-saved register and assume a nested call preserves it. Follow the actual ABI’s preservation duties or let ordinary C++ express the call. A source-variable name is not a register-preservation promise.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch17.json → SYS17.14
+
+------------------------------------------------------------
+
+48. The six-register rule is a starting case
+Recall and transfer
+
+SAY
+For ordinary scalar examples, the first six integer or pointer arguments use RDI, RSI, RDX, RCX, R8, and R9. This helps you start reading the chapter's routines, but it is not a complete algorithm for every signature. Floating-point values use other register classes, aggregate returns can use hidden storage, and variadic interfaces have extra conventions. A C++ object call can include an implicit object argument. When writing a bridge to assembly, keep a correct declaration beside the implementation and inspect a compiler-generated reference for unfamiliar types. Guessing from the visible argument count can produce a routine that runs but reads the wrong inputs.
+
+DO
+Ask learners to identify when the simplified scalar table is sufficient.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.008
+
+------------------------------------------------------------
+
+49. Verify a boundary, not just one answer
+Recall and transfer
+
+SAY
+A good calling-convention review combines source and machine evidence. First verify the declaration's parameter and result types. Then follow arguments, return values, preserved state, and stack adjustments along every path. Finally check the lifetime of any addresses passed or retained. For recursion, a base case proves how intended inputs terminate but does not prove a safe stack bound for every accepted input depth. Do not assume tail-call optimization will rescue an unbounded algorithm unless the implementation contract actually guarantees it. The lesson transfers directly to plugins and foreign-function interfaces: a working sample call is only one piece of the boundary contract.
+
+DO
+Ask for one functional test and one boundary-invariant check.
+
+SOURCE
+content/systems-programming/ch17.json → SP17.036

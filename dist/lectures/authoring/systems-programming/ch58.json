@@ -1,0 +1,235 @@
+{
+  "chapter": 58,
+  "title": "Exploit Mitigations",
+  "opening": [
+    {
+      "title": "Mitigations add barriers after correctness has limits",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "concept",
+      "keyPoints": [
+        "Bounds and lifetime rules remain the primary contract",
+        "Different defenses cover different consequences",
+        "Evidence of enabled protection is not proof of no bugs"
+      ],
+      "narration": "The previous chapter prevents invalid accesses. This chapter asks how the compiler, loader, operating system, and process design can reduce some consequences when defects still exist. Stack canaries detect certain overwritten guards. Non-executable mappings restrict instruction fetch. Address randomization reduces predictability, and privilege separation limits authority. These are different barriers, so one cannot stand in for all the others. A build labeled hardened still needs correct parsing and ownership. Our small demos are explicitly policy models; the source hardening script and inspection steps provide separate evidence about an actual GNU/Linux executable.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.001: Chapter 58 \u2014 Exploit Mitigations",
+      "question": {
+        "prompt": "Does enabling several mitigations make an out-of-bounds write valid C++?",
+        "answer": "No. Mitigations can detect or limit some consequences, but the invalid access must still be repaired."
+      }
+    },
+    {
+      "title": "Separate writing data from executing code",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "code",
+      "keyPoints": [
+        "A writable data region need not be executable",
+        "An executable code region need not be writable",
+        "This model checks a policy, not hardware permissions"
+      ],
+      "narration": "This permission model uses three Boolean capabilities: read, write, and execute. A data region allows reading and writing but not execution. A code region allows reading and execution but not writing. A region requesting both writing and execution fails the chosen least-permission policy, so the output is data-ok one, code-ok one, and writable-code-ok zero. No mapping or processor permission is changed by this program. In a real system, page mappings and the operating system enforce permissions. The model helps state the intended policy before inspecting whether the built program and runtime actually request it.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.010: 58.4 Memory permissions",
+      "question": {
+        "prompt": "What does this program prove about the machine\u2019s real memory permissions?",
+        "answer": "Nothing directly. It verifies a Boolean policy model; real protection requires mapping and executable inspection or controlled platform tests."
+      },
+      "code": {
+        "filename": "sys_ch58_permission_policy.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nstruct Permissions { bool read; bool write; bool execute; };\nbool least_permission(const Permissions& p) {\n    return !(p.write && p.execute);\n}\nint main() {\n    const Permissions data{true, true, false};\n    const Permissions code{true, false, true};\n    const Permissions writable_code{true, true, true};\n    std::cout << \"data-ok=\" << least_permission(data) << '\\n';\n    std::cout << \"code-ok=\" << least_permission(code) << '\\n';\n    std::cout << \"writable-code-ok=\" << least_permission(writable_code) << '\\n';\n}\n",
+        "expectedStdout": "data-ok=1\ncode-ok=1\nwritable-code-ok=0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Portable capability-policy model; it does not call mmap or mprotect or enforce hardware permissions."
+      }
+    },
+    {
+      "title": "A process boundary helps only if authority is reduced",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "code",
+      "keyPoints": [
+        "The parser role may read but cannot delete",
+        "The trusted role has a narrow extra capability",
+        "Every requested action still needs validation"
+      ],
+      "narration": "Our model separates a parser role from a maintenance role. Both may read, but only maintenance may request deletion. The output shows parser read accepted, parser delete denied, and maintenance delete accepted. This is not real operating-system privilege separation; both roles are ordinary enum values in one process. Its purpose is to make the authority table explicit. A real split must give the parser fewer operating-system privileges and validate its messages at the trusted service boundary. Merely moving parsing to another process with the same unrestricted authority leaves much of the risk unchanged.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.012: 58.5 Privilege separation",
+      "question": {
+        "prompt": "Why is splitting one program into two equally privileged processes an incomplete defense?",
+        "answer": "The untrusted-input component may retain the same dangerous authority. The split must reduce capability and enforce a narrow validated interface."
+      },
+      "code": {
+        "filename": "sys_ch58_authority_boundary.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nenum class Role { parser, maintenance };\nenum class Action { read, erase };\nbool allowed(Role role, Action action) {\n    return action == Action::read || role == Role::maintenance;\n}\nint main() {\n    std::cout << \"parser read=\" << allowed(Role::parser, Action::read) << '\\n';\n    std::cout << \"parser delete=\" << allowed(Role::parser, Action::erase) << '\\n';\n    std::cout << \"maintenance delete=\" << allowed(Role::maintenance, Action::erase) << '\\n';\n}\n",
+        "expectedStdout": "parser read=1\nparser delete=0\nmaintenance delete=1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "In-process authorization table, not actual process isolation or OS privilege enforcement."
+      }
+    },
+    {
+      "title": "A canary answers one narrow question",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "concept",
+      "keyPoints": [
+        "A saved guard is compared before a protected return",
+        "Some overwrites change it and become detectable",
+        "Payload-only corruption can leave the guard intact"
+      ],
+      "narration": "A stack protector can arrange for a guard value to be saved and checked on selected function paths. If certain overwrites cross that guard, a mismatch can stop a normal return. But a guard comparison proves only whether the saved guard matches the expected value at the check. The source model changes ordinary payload data while leaving the guard intact, showing why intact does not mean semantically correct. Its assignments are legal C++, not an executed overflow. Coverage also depends on compiler options and generated code. Keep bounds validation even when a protected build detects some overwrite patterns.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.016: Worked example \u2014 What a stack canary checks",
+      "question": {
+        "prompt": "What does an intact canary fail to prove?",
+        "answer": "It does not prove that every object is uncorrupted, every access stayed in bounds, or the payload has valid application meaning."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Non-executable data closes one route, not every misuse",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "concept",
+      "keyPoints": [
+        "Instruction fetch can be forbidden on data pages",
+        "Data-only corruption can still change decisions",
+        "Existing code can still be reached incorrectly"
+      ],
+      "narration": "Preventing execution from a data mapping reduces one way invalid input could be turned into instructions. It does not stop an out-of-bounds write from changing a permission flag, a length, or another ordinary data value. Nor does it prove that every future control transfer reaches only an intended function. The useful claim is narrower: designated mappings cannot be used for instruction fetch under the enforced policy. That barrier belongs alongside memory-safe operations and authorization checks. Avoid describing it as a general proof that injected or corrupted input cannot harm the application; different failures cross different boundaries.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.006: 58.2 Non-executable memory",
+      "question": {
+        "prompt": "Can non-executable memory stop a bad write from changing an account\u2019s authorization flag?",
+        "answer": "No. That is data corruption rather than execution from a data page. The write and authorization contract still need protection."
+      }
+    },
+    {
+      "title": "Randomized placement depends on relocatable code and secrecy limits",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "concept",
+      "keyPoints": [
+        "ASLR varies mapping locations",
+        "PIE supports relocating the executable image",
+        "An address disclosure can reduce uncertainty"
+      ],
+      "narration": "Address-space layout randomization changes where relevant regions are mapped, making addresses less predictable. A position-independent executable supports relocating its code under the platform's loader model. Inspecting that the executable is position independent is useful evidence, but it is not the same as proving every runtime mapping is randomized effectively. The amount of uncertainty varies, and a separate information disclosure can reveal addresses. Do not make a faulty pointer program appear stable by disabling randomization; that hides an invalid assumption. Repair the address and lifetime logic while keeping the protection enabled where the deployment supports it.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.008: 58.3 Address-space randomization",
+      "question": {
+        "prompt": "Why does an address disclosure matter even when ASLR is enabled?",
+        "answer": "It can reveal locations the defense relies on being uncertain. Randomized placement is not confidentiality by itself."
+      }
+    },
+    {
+      "title": "Page permissions reinforce regions, not object boundaries",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "concept",
+      "keyPoints": [
+        "Read-only tables can reject accidental writes",
+        "Two objects may share one writable page",
+        "Permissions do not validate an array index"
+      ],
+      "narration": "Memory permissions act at mapping or page granularity. A read-only table can be protected against writes, and code can be kept nonwritable. But two small objects inside one writable page do not receive separate array bounds from that page permission. An incorrect index may cross from one into the other while the hardware still sees an allowed page access. That is why object-level bounds and lifetime rules remain necessary. A least-permission design asks which whole regions need reading, writing, or execution, then uses language and application contracts for finer-grained access within those regions.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.010: 58.4 Memory permissions",
+      "question": {
+        "prompt": "Why can a heap overflow remain invisible to ordinary page permissions?",
+        "answer": "It can cross an allocation boundary while staying inside a page that is legitimately writable for both allocations."
+      }
+    },
+    {
+      "title": "Inspect the artifact that was actually built",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "concept",
+      "keyPoints": [
+        "ELF metadata can show requested properties",
+        "Toolchain support determines which flags are available",
+        "Do not silently drop unsupported flags and keep the same claim"
+      ],
+      "narration": "The source hardening script compiles the safe parser with a representative GNU/Linux configuration, then inspects the result. Executable type and context can support a PIE claim. GNU_STACK should not request execution, and relocation metadata can support selected relocation-protection claims. These observations describe the actual artifact, not every path's effectiveness. Compiler and libc support vary; a failed hardening option should be reported and the supported configuration selected deliberately. Silently removing the option while retaining the same label makes the build record misleading. Keep sanitizer test builds separately documented because instrumentation serves a different testing purpose.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.014: Worked example \u2014 Build and inspect a hardened parser",
+      "question": {
+        "prompt": "What should happen if the required toolchain does not support a requested hardening option?",
+        "answer": "Report the failure or explicitly choose and document a supported configuration. Do not silently weaken flags while claiming the original configuration succeeded."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Privilege separation makes the message interface a trust boundary",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "concept",
+      "keyPoints": [
+        "Validate type, length, caller, and requested action",
+        "Avoid passing arbitrary authority through the helper",
+        "Define partial-operation and helper-failure behavior"
+      ],
+      "narration": "A small trusted helper can perform a narrow operation for a less-privileged worker. The helper must still validate what it receives: message type, size, identity, and requested action. An interface that accepts an arbitrary command or path with unrestricted authority can undo the intended separation. Recovery matters too. If the worker exits after the helper commits an operation but before receiving the reply, repeating the request may duplicate effects. Keep the helper's contract small enough to test and reason about, and use identifiers or reconciliation when the operation's retry meaning requires them.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.012: 58.5 Privilege separation",
+      "question": {
+        "prompt": "Why is \u201cthe request came from our parser process\u201d insufficient validation for a privileged helper?",
+        "answer": "That process handles untrusted input and may be defective or compromised. The helper must enforce its own narrow authority and message contract."
+      }
+    },
+    {
+      "title": "State exactly which layer supplied the evidence",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 58",
+      "kind": "concept",
+      "keyPoints": [
+        "Source checks establish bounds and lifetime rules",
+        "Build inspection establishes requested artifact properties",
+        "Runtime tests exercise selected behavior",
+        "No single layer proves the whole security claim"
+      ],
+      "narration": "A strong review distinguishes three kinds of evidence. Source-level validation can show that a copy uses a checked bound. Build inspection can show requested protections in the executable. Runtime tests can show how selected paths behave under the configured environment. Each is useful and incomplete. The guard and permission demos teach mechanisms through safe models, while the real hardening script checks the actual build. Keep the language proportional to that evidence. The maintenance goal is to preserve the original memory-access contract and the documented defense configuration together, rather than treating a successful hardened build as permission to ignore an unsafe parser.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch58.json \u2192 SP58.020: Guided lab and review",
+      "question": {
+        "prompt": "What is the correct interpretation of a hardened binary that still has a known out-of-bounds write?",
+        "answer": "The binary has some additional defenses, but the vulnerability remains and needs a source-level repair."
+      }
+    }
+  ]
+}

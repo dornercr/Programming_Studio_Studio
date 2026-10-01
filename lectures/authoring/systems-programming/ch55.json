@@ -1,0 +1,235 @@
+{
+  "chapter": 55,
+  "title": "Program Optimization",
+  "opening": [
+    {
+      "title": "Remove required work before polishing instructions",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "concept",
+      "keyPoints": [
+        "Measure the actual workload first",
+        "Compare preprocessing, queries, and updates together",
+        "Keep required output and numeric semantics unchanged"
+      ],
+      "narration": "Optimization begins with a correct reference and a workload. If a program repeatedly scans the same data, an index or precomputed summary can remove far more work than changing one instruction in the scan. But construction costs, update frequency, and memory use still count. A one-query dataset that changes constantly may favor the original scan. State which behavior must remain identical, including overflow rules and error handling, before comparing performance. This chapter separates algorithmic work counts from measured running time: fewer operations can be strong evidence for an idea, but hardware and the rest of the workload determine the actual improvement.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.004: 55.1 Algorithmic optimization",
+      "question": {
+        "prompt": "Why can an index be slower overall even though each lookup is faster?",
+        "answer": "Its construction, update, and memory costs may exceed the saved query work for the actual workload."
+      }
+    },
+    {
+      "title": "An index replaces repeated equality tests with maintained counts",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "code",
+      "keyPoints": [
+        "Six records answer three frequency queries",
+        "The direct method makes eighteen comparisons",
+        "The index is built once and queried three times"
+      ],
+      "narration": "The fixture contains two, four, two, seven, two, four. Counting each requested value with a fresh scan performs six comparisons three times, for eighteen. Building a map of counts visits the six records once; the three lookups then produce the same total of six matches. The program prints these operation counts and verifies the result. It does not measure elapsed time or claim that a map lookup costs one machine instruction. A small direct scan can still be faster because map nodes allocate memory and require pointer traversal. The useful lesson is how repeated work changes and which setup cost must be included.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.022: Worked example \u2014 Reducing algorithmic work",
+      "question": {
+        "prompt": "What makes this operation-count example different from a benchmark proving the map faster?",
+        "answer": "It counts selected source-level work but does not measure allocation, lookup comparisons, cache effects, or elapsed time."
+      },
+      "code": {
+        "filename": "sys_ch55_frequency_index.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <iostream>\n#include <map>\nint main() {\n    const std::array<int, 6> data{2, 4, 2, 7, 2, 4};\n    const std::array<int, 3> queries{2, 4, 7};\n    int comparisons = 0, direct = 0;\n    for (int key : queries) for (int value : data) {\n        ++comparisons;\n        direct += key == value;\n    }\n    std::map<int, int> counts;\n    for (int value : data) ++counts[value];\n    int indexed = 0;\n    for (int key : queries) indexed += counts.at(key);\n    if (indexed != direct) return 1;\n    std::cout << \"direct comparisons=\" << comparisons << '\\n';\n    std::cout << \"index visits=\" << data.size() << \" queries=\" << queries.size()\n              << \" matches=\" << indexed << '\\n';\n}\n",
+        "expectedStdout": "direct comparisons=18\nindex visits=6 queries=3 matches=6\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Counts source-level visits and comparisons; it is not a runtime measurement."
+      }
+    },
+    {
+      "title": "Batching changes call count while preserving item order",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "code",
+      "keyPoints": [
+        "Ten items are grouped into batches of at most four",
+        "Three calls replace ten per-item calls",
+        "The final partial batch must still be sent"
+      ],
+      "narration": "The baseline would send ten items with ten separate calls. Our model appends items into a batch of four, flushes each full batch, and finally flushes the remaining two. The sink receives the exact original string in order, while the number of modeled calls drops to three. The empty check in flush avoids an unnecessary fourth call. This is a batching mechanism demonstration, not a network speed measurement. A real service must also cap waiting time: if it waits forever for four items, the last two may never leave. Batch size and flush policy therefore belong to the observable latency and memory contract.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.014: 55.6 Batching",
+      "question": {
+        "prompt": "Why is the final flush required even though the loop already flushes full batches?",
+        "answer": "The total count may not be divisible by the batch size. Here the last two items would otherwise remain unsent."
+      },
+      "code": {
+        "filename": "sys_ch55_bounded_batches.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\nint main() {\n    const std::string input = \"0123456789\";\n    std::string batch, received;\n    int calls = 0;\n    const auto flush = [&] {\n        if (batch.empty()) return;\n        received += batch; // Model one sink call, preserving byte order.\n        ++calls;\n        batch.clear();\n    };\n    for (char item : input) {\n        batch += item;\n        if (batch.size() == 4) flush();\n    }\n    flush();\n    if (received != input) return 1;\n    std::cout << \"per-item calls=\" << input.size() << \" batched calls=\" << calls << '\\n';\n    std::cout << \"received=\" << received << '\\n';\n}\n",
+        "expectedStdout": "per-item calls=10 batched calls=3\nreceived=0123456789\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "An in-memory sink models batching; no syscall cost or speedup is measured."
+      }
+    },
+    {
+      "title": "Prefix summaries trade update cost for query cost",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "concept",
+      "keyPoints": [
+        "A leading zero makes half-open ranges uniform",
+        "prefix[right] \u2212 prefix[left] answers a range",
+        "Changing old data invalidates later prefix entries"
+      ],
+      "narration": "The source uses half-open ranges: left is included and right is excluded. A prefix vector begins with zero, so prefix at position k means the sum of elements before k. Subtracting prefix[left] from prefix[right] then handles ordinary, full, and empty ranges with one formula. This is useful when many queries reuse stable data. If one element changes, every later prefix can become stale; the old fast query is now quickly wrong. A maintained tree or a direct scan may fit a different update pattern. Numeric bounds must also ensure the stored sums and their subtraction stay representable.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SYS55.03: Mechanism, guarantees, and limits",
+      "question": {
+        "prompt": "What should a query over [2, 2) return, and why?",
+        "answer": "Zero. The half-open range contains no elements, and subtracting the same prefix value gives zero."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Compiler options are part of the experiment\u2019s contract",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "concept",
+      "keyPoints": [
+        "Ordinary optimization preserves permitted behavior",
+        "Some flags change floating-point or target assumptions",
+        "Record the exact build, not only \u201crelease\u201d"
+      ],
+      "narration": "A compiler can inline calls, combine operations, remove dead work, or vectorize a loop when the language rules permit it. The source loop need not look the same in assembly. But some options change assumptions, such as allowing less strict floating-point transformations or requiring instructions unavailable on older processors. An apparent improvement may therefore come with changed results or portability. Record the complete relevant build configuration and verify the required outputs under it. A release label alone does not identify the program being measured. Fix undefined behavior rather than treating one favorable optimized result as a guarantee.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.006: 55.2 Compiler optimization",
+      "question": {
+        "prompt": "Why might enabling a target-specific instruction option make a binary unsuitable for another machine?",
+        "answer": "The generated instructions may require CPU features absent on that target. Performance and deployment requirements must be evaluated together."
+      }
+    },
+    {
+      "title": "Layout should serve the fields a hot loop actually uses",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "concept",
+      "keyPoints": [
+        "A 32-byte record may contain one hot 8-byte field",
+        "A dense field array can reduce irrelevant traffic",
+        "Other operations may prefer complete records together"
+      ],
+      "narration": "The source layout model considers eight thousand one hundred ninety-two records of thirty-two bytes each, while a hot pass reads only one eight-byte field. The complete records occupy two hundred fifty-six kibibytes; the isolated field array occupies sixty-four. That is a footprint calculation, not a guaranteed fourfold speedup. The original data may already be cached, other fields may be needed by the next operation, and splitting records can complicate ownership and updates. Compare the full access pattern before changing layout. Useful bytes per transfer can explain a measurement, but does not replace the application's completion metric.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.016: 55.7 Data-layout optimization",
+      "question": {
+        "prompt": "Why does reducing a modeled footprint fourfold not imply a fourfold runtime improvement?",
+        "answer": "Other work, existing cache residency, reconstruction, synchronization, and memory behavior can limit or offset the benefit."
+      }
+    },
+    {
+      "title": "Allocation reduction creates new lifetime choices",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "concept",
+      "keyPoints": [
+        "reserve can avoid repeated growth",
+        "Reusable buffers can retain excessive capacity",
+        "An arena reclaims objects together"
+      ],
+      "narration": "Repeated small allocations can add overhead, but each replacement technique changes the lifetime model. Reserving a known vector capacity can reduce reallocations while still requiring a sensible upper bound. Reusing a buffer avoids acquisition work but may retain a huge capacity after one unusual request. A scoped arena makes many allocations cheap and reclaims them together, which fits only when their lifetimes can end together. Do not keep raw observers into storage that a later growth or arena reset invalidates. An optimization should make the required ownership clearer, not save allocation calls by introducing dangling references.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.012: 55.5 Reducing allocations",
+      "question": {
+        "prompt": "What new resource risk appears when a server reuses its largest-ever request buffer forever?",
+        "answer": "One unusually large request can cause long-lived memory retention. Reuse needs a capacity and shrink or eviction policy."
+      }
+    },
+    {
+      "title": "Branch removal can perform work that the branch avoided",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "concept",
+      "keyPoints": [
+        "Predictable branches can be inexpensive",
+        "Computing both outcomes may add work",
+        "Both candidate memory accesses must still be valid"
+      ],
+      "narration": "A branch that is almost always taken can be cheaper than calculating both possible results. For irregular input, a different arrangement may help the processor, but only measurement can establish that for the actual distribution. More seriously, rewriting a guarded load into two unconditional loads can access an invalid address even if a later selection discards its value. Source-level validity comes before branch-count reduction. Compare representative input patterns and inspect what the compiler generates rather than assuming a conditional expression is automatically branchless or faster. The cost belongs to the resulting dependency and memory behavior, not the spelling alone.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.018: 55.8 Branch behavior",
+      "question": {
+        "prompt": "Why can calculating both sides of a choice break correctness?",
+        "answer": "One side may contain an operation that is valid only when its condition holds, such as reading an optional buffer. Discarding its result does not undo the invalid access."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Optimization verification needs adversarial equivalence cases",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "concept",
+      "keyPoints": [
+        "Keep the independent reference implementation",
+        "Test empty, boundary, and invalid inputs",
+        "Include updates when cached summaries are maintained"
+      ],
+      "narration": "An optimized implementation should be compared with a straightforward reference across cases that expose different behavior. Empty ranges catch off-by-one assumptions. Large allowed values test arithmetic bounds. Invalid ranges test error contracts. If the optimization caches summaries, mutate the underlying data and verify the documented invalidation or update path. A performance run on one all-positive fixture can miss a wrong subtraction, stale index, or different rejection rule. Keep correctness checks separate from the timing interval when appropriate, but do not remove them from the experiment. Faster wrong answers do not satisfy the same workload.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.026: Guided lab and review",
+      "question": {
+        "prompt": "What test is essential after introducing a reusable cache or precomputed summary?",
+        "answer": "A change to its source data followed by another query, verifying the documented update or invalidation behavior."
+      }
+    },
+    {
+      "title": "Accept an optimization only with its full tradeoff",
+      "eyebrow": "SYSTEMS \u00b7 CHAPTER 55",
+      "kind": "concept",
+      "keyPoints": [
+        "What work disappears?",
+        "What memory or maintenance cost appears?",
+        "Which workload benefits?",
+        "What evidence preserves the old contract?"
+      ],
+      "narration": "A useful optimization review names the removed work and the new costs. The frequency index eliminates repeated scans but adds construction and storage. Batching reduces call count but changes waiting and buffering. A compact layout can reduce irrelevant memory traffic but complicate operations that need full records. These are concrete tradeoffs, not reasons to reject optimization. State the workload where the change helps, verify equivalence, measure the chosen boundary, and document any new invariants. If the input distribution or update frequency changes later, maintainers should know which assumption to re-evaluate before preserving an old optimization by habit.",
+      "actions": [
+        "Ask learners to predict the answer and state their assumptions.",
+        "Reveal the answer, then identify which program boundary establishes it."
+      ],
+      "sourceRef": "content/systems-programming/ch55.json \u2192 SP55.028: Chapter Synthesis",
+      "question": {
+        "prompt": "What should a maintainer know before keeping a prefix index after the workload changes to frequent updates?",
+        "answer": "Its query advantage depends on reuse between updates; rebuilding or maintaining prefixes may now dominate the workload."
+      }
+    }
+  ]
+}

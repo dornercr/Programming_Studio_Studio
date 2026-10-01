@@ -1,0 +1,1692 @@
+{
+  "schemaVersion": 1,
+  "courseId": "design-patterns-cpp",
+  "courseTitle": "Design Patterns in C++",
+  "chapter": 12,
+  "title": "Proxy",
+  "author": "Dr. Charles Dorner",
+  "sourceTopics": [
+    {
+      "id": "C12.01",
+      "title": "Pattern overview"
+    },
+    {
+      "id": "C12.02",
+      "title": "A cheap question can trigger expensive work"
+    },
+    {
+      "id": "C12.03",
+      "title": "Use the same interface with an access-controlling substitute"
+    },
+    {
+      "id": "C12.04",
+      "title": "Permission comes before the fast path"
+    },
+    {
+      "id": "C12.05",
+      "title": "Trace old data and explicit invalidation"
+    },
+    {
+      "id": "C12.06",
+      "title": "Object lifetime and failure state"
+    },
+    {
+      "id": "C12.07",
+      "title": "Distinguish the purpose of similar wrappers"
+    },
+    {
+      "id": "C12.08",
+      "title": "Roles in the implementation"
+    },
+    {
+      "id": "C12.09",
+      "title": "Worked example: contracts and alternatives"
+    },
+    {
+      "id": "C12.10",
+      "title": "Execution trace"
+    },
+    {
+      "id": "C12.11",
+      "title": "Failure cases and repairs"
+    },
+    {
+      "id": "C12.12",
+      "title": "Code focus: Protect every path to a result"
+    },
+    {
+      "id": "C12.13",
+      "title": "Code focus: Create once, fetch on misses"
+    },
+    {
+      "id": "C12.14",
+      "title": "Exercise 12.1: Guided modification"
+    },
+    {
+      "id": "C12.15",
+      "title": "Exercise 12.2: Trace unfamiliar code"
+    },
+    {
+      "id": "C12.16",
+      "title": "Exercise 12.3: Diagnose a bug"
+    },
+    {
+      "id": "C12.17",
+      "title": "Exercise 12.4: Choose a design"
+    },
+    {
+      "id": "C12.18",
+      "title": "Exercise 12.5: Extend without regressions"
+    },
+    {
+      "id": "C12.19",
+      "title": "Exercise 12.6: Justify a decision"
+    },
+    {
+      "id": "C12.20",
+      "title": "Implementation lab"
+    },
+    {
+      "id": "C12.21",
+      "title": "Chapter summary"
+    },
+    {
+      "id": "C12.22",
+      "title": "Application case 1"
+    },
+    {
+      "id": "C12.23",
+      "title": "Application case 2"
+    }
+  ],
+  "slides": [
+    {
+      "title": "A simple question can hide a service cost",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "cover",
+      "keyPoints": [
+        "Ask for an opening hour",
+        "Count real-service reads separately from answers",
+        "Add reuse and permission only when required"
+      ],
+      "narration": "A visitor screen asks what hour a building opens. The answer is one small integer, but obtaining it could require a remote request or an expensive setup. Our teaching source is deliberately an in-memory object. It performs no network I/O, and its reads counter lets us measure how often the real-service operation runs. Start with the simplest requirement: return the current source hour. Then add three pressures: construct the service only if used, reuse an answer until it is invalidated, and deny every read when permission is revoked. These pressures affect object lifetime, data freshness, and control order. A correct printed hour alone will not prove that all three were respected.",
+      "actions": [
+        "Ask learners which new requirement concerns lifetime, which concerns freshness, and which concerns access."
+      ],
+      "sourceRef": "manuscript/ch12.json → A cheap question can trigger expensive work",
+      "question": {
+        "prompt": "Why does the example need a reads counter when it already prints the hour?",
+        "answer": "The hour alone cannot show whether repeated requests avoided real-service work."
+      },
+      "section": "Problem and first design",
+      "topicIds": [
+        "C12.01"
+      ],
+      "id": "dp-ch12-01"
+    },
+    {
+      "title": "Direct calls give fresh values and repeated work",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "code",
+      "keyPoints": [
+        "Read the source every time",
+        "No cache states to maintain",
+        "A changed source appears on the next call"
+      ],
+      "narration": "This baseline has no interface hierarchy because there is only one operation and no substitute yet. The function borrows Source through a reference. A reference names the caller's existing object, so incrementing reads updates the same counter that main later prints. The first call returns eight. We change hour to nine, and the next call returns nine. Two answers required two real-service reads. That is a fine contract if the source is cheap or freshness dominates. A cache would intentionally change this behavior: the second answer might remain eight. Before optimizing, make sure callers agree to that weaker freshness promise and know how an old answer becomes unusable.",
+      "actions": [
+        "Predict the three lines and ask which one would change under caching."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch12.json → A cheap question can trigger expensive work",
+      "question": {
+        "prompt": "Is returning nine on the second call evidence that a cache is required?",
+        "answer": "No. It demonstrates fresh direct reads; caching is useful only when avoided work justifies its freshness and state costs."
+      },
+      "code": {
+        "filename": "dp_ch12_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nstruct Source { int hour = 8; int reads = 0; };\nint read_hour(Source& source) {\n    // Borrow the same object; this is a simulated service read.\n    ++source.reads;\n    return source.hour;\n}\nint main() {\n    Source source;\n    std::cout << \"first=\" << read_hour(source) << '\\n';\n    source.hour = 9;\n    std::cout << \"second=\" << read_hour(source) << '\\n';\n    std::cout << \"reads=\" << source.reads << '\\n';\n}\n",
+        "expectedStdout": "first=8\nsecond=9\nreads=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-02.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_baseline.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch12-02"
+    },
+    {
+      "title": "A fast return can bypass the access rule",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "code",
+      "keyPoints": [
+        "A warm cache still holds protected data",
+        "Permission must precede every result path",
+        "The buggy and repaired functions both compile"
+      ],
+      "narration": "The two functions here differ only in the order of two checks. The cache already contains eight and permission is false. The buggy function sees a present cached value and returns it before asking whether access is allowed. The repaired function rejects first, so the cache does not create a bypass. An optional stores either one value or no value. Testing it asks whether a value exists, and the asterisk reads that value after the test. This example is a local control-flow model, not a real authentication system. It proves an ordering rule inside this function. A deployed system must also prevent callers from reaching protected data through another entrance.",
+      "actions": [
+        "Run the demonstration after asking whether false permission alone is sufficient."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch12.json → Permission comes before the fast path",
+      "question": {
+        "prompt": "Why can a test that revokes permission only before the first read miss this bug?",
+        "answer": "An empty cache takes the permission-check path even in the buggy order. The test must revoke access after warming the cache."
+      },
+      "code": {
+        "filename": "dp_ch12_guard_order.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <optional>\n#include <stdexcept>\nint wrong(bool allowed, const std::optional<int>& cached) {\n    if (cached) return *cached; // Intentional bypass of revocation.\n    if (!allowed) throw std::runtime_error(\"denied\");\n    return 8;\n}\nint checked(bool allowed, const std::optional<int>& cached) {\n    if (!allowed) throw std::runtime_error(\"denied\");\n    if (cached) return *cached;\n    return 8;\n}\nint main() {\n    const std::optional<int> warm_cache{8};\n    std::cout << \"wrong=\" << wrong(false, warm_cache) << '\\n';\n    try {\n        const int answer = checked(false, warm_cache);\n        std::cout << \"checked=\" << answer << '\\n';\n    } catch (const std::runtime_error& error) {\n        std::cout << \"checked=\" << error.what() << '\\n';\n    }\n}\n",
+        "expectedStdout": "wrong=8\nchecked=denied\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-03.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_guard_order.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch12-03"
+    },
+    {
+      "title": "A substitute controls access through the same interface",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Hours defines opening()",
+        "RealHours performs the source read",
+        "HoursProxy decides whether and when to reach RealHours"
+      ],
+      "narration": "A proxy is an object that stands in for a service while controlling access to it. The client uses the same Hours interface whether the object is RealHours or HoursProxy. Virtual means a call through that interface selects the implementation of the actual object during execution. Override asks the compiler to check that our method really implements the intended virtual operation. This type relationship permits substitution, but types alone do not promise identical freshness. The proxy deliberately caches. The shared service contract must permit that policy or provide an explicit freshness operation. The pattern is not simply a class with a pointer inside; it is a substitute enforcing an access or lifecycle decision.",
+      "actions": [
+        "Ask learners to identify the common operation and the extra policy around it."
+      ],
+      "sourceRef": "manuscript/ch12.json → Use the same interface with an access-controlling substitute",
+      "question": {
+        "prompt": "Can identical method signatures prove that clients tolerate cached answers?",
+        "answer": "No. Freshness is a behavioral contract that must be documented and tested separately from the function type."
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch12-04"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json",
+      "title": "The contract we must preserve",
+      "keyPoints": [
+        "Do not create RealHours until the first permitted cache miss.",
+        "Reuse cached values until explicit invalidation.",
+        "Deny both cached and uncached reads when permission is false.",
+        "Treat hour zero as a real cached value."
+      ],
+      "narration": "A lazy cached opening-hour service. One proxy keeps permission, lazy ownership, and cache state beside the service access they control. optional distinguishes no result from a valid zero result.\n\nDo not create RealHours until the first permitted cache miss. Reuse cached values until explicit invalidation. Deny both cached and uncached reads when permission is false. Treat hour zero as a real cached value.\n\nDenied reads never reach the service or return cached data. An engaged cache contains a successful prior result. Invalidation removes the result but does not destroy the service. Source outlives the proxy and its real service. These are the rules that define a correct extension, even if it has the right C++ types. Direct service calls are simpler when freshness is always required or calls are cheap. A standalone caching function may fit one caller; a proxy fits interchangeable Hours users.",
+      "comparisons": [
+        {
+          "label": "Chosen design",
+          "text": "One proxy keeps permission, lazy ownership, and cache state beside the service access they control. optional distinguishes no result from a valid zero result."
+        },
+        {
+          "label": "A reasonable alternative",
+          "text": "Direct service calls are simpler when freshness is always required or calls are cheap. A standalone caching function may fit one caller; a proxy fits interchangeable Hours users."
+        }
+      ],
+      "question": {
+        "prompt": "Which promise would a new Proxy implementation be allowed to break?",
+        "answer": "None of the stated requirements. The implementation may change, but these rules remain: Denied reads never reach the service or return cached data. An engaged cache contains a successful prior result. Invalidation removes the result but does not destroy the service. Source outlives the proxy and its real service."
+      },
+      "topicIds": [
+        "C12.09"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch12-05"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → A cheap question can trigger expensive work",
+      "title": "A cheap question can trigger expensive work",
+      "keyPoints": [
+        "A visitor display asks for a building's opening hour.",
+        "The simplest caller invokes the real service every time."
+      ],
+      "narration": "A visitor display asks for a building's opening hour. In a real system that answer may require opening a connection or reading a remote schedule. This example uses a tiny in-memory Source so the behavior is deterministic. The source hour starts at eight, and a reads counter records real-service requests. The interface accepts hours already supplied by a trusted source; it does not validate a full calendar or time zone.\n\nThe simplest caller invokes the real service every time. That is appropriate when the service is cheap and fresh data matters more than reuse. The new requirements are to avoid creating the real service until needed, reuse the most recently fetched hour until told it is stale, and deny reads when local permission has been revoked. Repeating those rules at every caller would spread state management and make it easy to return a cached value after access was removed.",
+      "excerpt": {
+        "text": "int hour = service.opening();\nstd::cout << hour << \"\\n\";",
+        "filename": "Excerpt — simplest starting point",
+        "explain": []
+      },
+      "question": {
+        "prompt": "If a source changes from eight to nine, must an already cached answer immediately become nine?",
+        "answer": "Not under this example's contract. The cache may return eight until explicit invalidation. Freshness and access permission are separate rules that the design must state clearly."
+      },
+      "reading": [
+        "A visitor display asks for a building's opening hour. In a real system that answer may require opening a connection or reading a remote schedule. This example uses a tiny in-memory Source so the behavior is deterministic. The source hour starts at eight, and a reads counter records real-service requests. The interface accepts hours already supplied by a trusted source; it does not validate a full calendar or time zone.",
+        "The simplest caller invokes the real service every time. That is appropriate when the service is cheap and fresh data matters more than reuse. The new requirements are to avoid creating the real service until needed, reuse the most recently fetched hour until told it is stale, and deny reads when local permission has been revoked. Repeating those rules at every caller would spread state management and make it easy to return a cached value after access was removed."
+      ],
+      "topicIds": [
+        "C12.02"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch12-06"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → Use the same interface with an access-controlling substitute",
+      "title": "Use the same interface with an access-controlling substitute",
+      "keyPoints": [
+        "A proxy is a substitute object that controls access to another service while offering the same interface.",
+        "The proxy holds a Source reference and an optional unique_ptr<RealHours>.",
+        "Caching means retaining a result for later reuse."
+      ],
+      "narration": "A proxy is a substitute object that controls access to another service while offering the same interface. Hours defines opening(). RealHours reads Source and increments its reads counter. HoursProxy also implements opening, but it checks permission, checks its cache, creates RealHours if necessary, and calls it only when a fresh value is needed. Code written against Hours can use either object.\n\nThe proxy holds a Source reference and an optional unique_ptr<RealHours>. The pointer starts empty. Constructing the proxy therefore does not construct RealHours. Creating the real object only on first demand is called lazy initialization. Once created, the real service remains owned by the proxy even if cached data is invalidated. The two states answer different questions: is a service object present, and is there a remembered result?\n\nCaching means retaining a result for later reuse. std::optional<int> stores either no value or one integer. It is a better representation than using zero as an empty marker because midnight, hour zero, is valid. Testing cached_ asks whether a value exists; it does not ask whether the stored integer is nonzero. Dereferencing it with *cached_ reads that value only after the program knows it is present.",
+      "question": {
+        "prompt": "Explain the design choice in “Use the same interface with an access-controlling substitute” using this chapter's objects.",
+        "answer": "Caching means retaining a result for later reuse. std::optional<int> stores either no value or one integer. It is a better representation than using zero as an empty marker because midnight, hour zero, is valid. Testing cached_ asks whether a value exists; it does not ask whether the stored integer is nonzero. Dereferencing it with *cached_ reads that value only after the program knows it is present."
+      },
+      "reading": [
+        "A proxy is a substitute object that controls access to another service while offering the same interface. Hours defines opening(). RealHours reads Source and increments its reads counter. HoursProxy also implements opening, but it checks permission, checks its cache, creates RealHours if necessary, and calls it only when a fresh value is needed. Code written against Hours can use either object.",
+        "The proxy holds a Source reference and an optional unique_ptr<RealHours>. The pointer starts empty. Constructing the proxy therefore does not construct RealHours. Creating the real object only on first demand is called lazy initialization. Once created, the real service remains owned by the proxy even if cached data is invalidated. The two states answer different questions: is a service object present, and is there a remembered result?",
+        "Caching means retaining a result for later reuse. std::optional<int> stores either no value or one integer. It is a better representation than using zero as an empty marker because midnight, hour zero, is valid. Testing cached_ asks whether a value exists; it does not ask whether the stored integer is nonzero. Dereferencing it with *cached_ reads that value only after the program knows it is present."
+      ],
+      "topicIds": [
+        "C12.03"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch12-07"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → Permission comes before the fast path",
+      "title": "Permission comes before the fast path",
+      "keyPoints": [
+        "opening first checks allowed_.",
+        "This Boolean permission is a local teaching model, not an authentication system.",
+        "After permission succeeds, an engaged cache returns immediately without creating or reading a real service."
+      ],
+      "narration": "opening first checks allowed_. If false, it throws runtime_error immediately. It does this before consulting cached_. Revoking permission must stop both real-service reads and returns of data fetched earlier. A misplaced permission check after the cache hit would deny new reads but still expose old cached data. That is a precise ordering bug, not a reason to abandon caching.\n\nThis Boolean permission is a local teaching model, not an authentication system. There is no user identity, secret, network enforcement, or protection against a caller directly using RealHours. In a real application, access decisions need an authoritative policy and a boundary that unauthorized callers cannot bypass. The pattern explains where a check can sit; it does not make the check trustworthy by itself.\n\nAfter permission succeeds, an engaged cache returns immediately without creating or reading a real service. On a cache miss, the proxy creates RealHours only if real_ is still empty. Then it calls real_->opening, stores the returned integer in cached_, and returns it. The virtual interface is the same, but allowed caching deliberately changes freshness. That semantic difference must be part of the service contract a caller accepts.",
+      "question": {
+        "prompt": "Explain the design choice in “Permission comes before the fast path” using this chapter's objects.",
+        "answer": "After permission succeeds, an engaged cache returns immediately without creating or reading a real service. On a cache miss, the proxy creates RealHours only if real_ is still empty. Then it calls real_->opening, stores the returned integer in cached_, and returns it. The virtual interface is the same, but allowed caching deliberately changes freshness. That semantic difference must be part of the service contract a caller accepts."
+      },
+      "reading": [
+        "opening first checks allowed_. If false, it throws runtime_error immediately. It does this before consulting cached_. Revoking permission must stop both real-service reads and returns of data fetched earlier. A misplaced permission check after the cache hit would deny new reads but still expose old cached data. That is a precise ordering bug, not a reason to abandon caching.",
+        "This Boolean permission is a local teaching model, not an authentication system. There is no user identity, secret, network enforcement, or protection against a caller directly using RealHours. In a real application, access decisions need an authoritative policy and a boundary that unauthorized callers cannot bypass. The pattern explains where a check can sit; it does not make the check trustworthy by itself.",
+        "After permission succeeds, an engaged cache returns immediately without creating or reading a real service. On a cache miss, the proxy creates RealHours only if real_ is still empty. Then it calls real_->opening, stores the returned integer in cached_, and returns it. The virtual interface is the same, but allowed caching deliberately changes freshness. That semantic difference must be part of the service contract a caller accepts."
+      ],
+      "topicIds": [
+        "C12.04"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch12-08"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → Trace old data and explicit invalidation",
+      "title": "Trace old data and explicit invalidation",
+      "keyPoints": [
+        "The first opening call sees no cache and no real service.",
+        "invalidate calls cached_.reset(), which removes the stored result but leaves real_ alive.",
+        "An invalidation policy says when remembered data stops being usable."
+      ],
+      "narration": "The first opening call sees no cache and no real service. It creates RealHours, reads eight, stores eight, and leaves source.reads equal to one. main changes source.hour to nine. The next opening call still returns eight, and the read counter stays one. That stale value is expected under this cache policy. Stale means no longer known to match the current source.\n\ninvalidate calls cached_.reset(), which removes the stored result but leaves real_ alive. The next permitted opening call reuses the already-created service object, reads nine, stores it, and advances reads to two. main then denies access and confirms that even this warm cache cannot be read. After re-enabling access, it changes the source to zero, invalidates, and calls twice. Both calls return zero, but only the first reads the source, leaving the final counter at three.\n\nAn invalidation policy says when remembered data stops being usable. This program makes that decision explicit in main. It does not watch Source automatically. A production design might attach a revision number, receive a change notification, use a maximum age, or always fetch fresh data for critical operations. Each choice has a cost and a freshness promise. A cache without a stated invalidation policy is an unfinished design.",
+      "question": {
+        "prompt": "Explain the design choice in “Trace old data and explicit invalidation” using this chapter's objects.",
+        "answer": "An invalidation policy says when remembered data stops being usable. This program makes that decision explicit in main. It does not watch Source automatically. A production design might attach a revision number, receive a change notification, use a maximum age, or always fetch fresh data for critical operations. Each choice has a cost and a freshness promise. A cache without a stated invalidation policy is an unfinished design."
+      },
+      "reading": [
+        "The first opening call sees no cache and no real service. It creates RealHours, reads eight, stores eight, and leaves source.reads equal to one. main changes source.hour to nine. The next opening call still returns eight, and the read counter stays one. That stale value is expected under this cache policy. Stale means no longer known to match the current source.",
+        "invalidate calls cached_.reset(), which removes the stored result but leaves real_ alive. The next permitted opening call reuses the already-created service object, reads nine, stores it, and advances reads to two. main then denies access and confirms that even this warm cache cannot be read. After re-enabling access, it changes the source to zero, invalidates, and calls twice. Both calls return zero, but only the first reads the source, leaving the final counter at three.",
+        "An invalidation policy says when remembered data stops being usable. This program makes that decision explicit in main. It does not watch Source automatically. A production design might attach a revision number, receive a change notification, use a maximum age, or always fetch fresh data for critical operations. Each choice has a cost and a freshness promise. A cache without a stated invalidation policy is an unfinished design."
+      ],
+      "topicIds": [
+        "C12.05"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch12-09"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → Object lifetime and failure state",
+      "title": "Object lifetime and failure state",
+      "keyPoints": [
+        "main creates Source before HoursProxy, so the borrowed source outlives the proxy.",
+        "At compilation, override checks that both classes implement Hours::opening.",
+        "If allocation of RealHours fails, the owner remains empty and the cache remains empty.",
+        "The program is single-threaded.",
+        "Hours defaults construction but explicitly deletes copy and move operations."
+      ],
+      "narration": "main creates Source before HoursProxy, so the borrowed source outlives the proxy. The proxy owns its RealHours through unique_ptr. RealHours itself borrows the same Source. Destroying the proxy destroys the optional cache and the real-service owner, but it does not destroy Source. Local declaration order supplies the required lifetime arrangement without manual deletion.\n\nAt compilation, override checks that both classes implement Hours::opening. The method is not const because obtaining an answer may change the cache and the source's diagnostic counter. A logically read-only business operation can still mutate implementation state; the interface should state that honestly rather than adding mutable everywhere without discussing consequences.\n\nIf allocation of RealHours fails, the owner remains empty and the cache remains empty. If a future real-service call throws before returning an integer, assignment to cached_ is not reached, so a miss remains uncached. The example's real service does not throw, but placing assignment after a successful call naturally avoids remembering a fabricated success. The exact state of a real service after its own failure would still depend on that service's contract.\n\nThe program is single-threaded. Concurrent calls could race while creating real_, reading Source, or changing cached_. shared ownership or virtual functions would not fix those races. A concurrent version would need synchronization and a clear rule for the order of revocation, invalidation, and in-flight requests. We do not add those mechanisms without the requirement because they would obscure the state transitions being taught.\n\nHours defaults construction but explicitly deletes copy and move operations. The = delete declarations make service objects stable in place; callers transfer an owning unique_ptr handle when ownership must change. Without this rule, an implicit proxy move would transfer real_ while leaving copied scalar cache and permission state in the source, creating two surprising service identities. Preventing object moves keeps the lifecycle contract simpler. Static type-trait checks verify that HoursProxy is neither copy-constructible nor move-constructible.",
+      "question": {
+        "prompt": "Explain the design choice in “Object lifetime and failure state” using this chapter's objects.",
+        "answer": "Hours defaults construction but explicitly deletes copy and move operations. The = delete declarations make service objects stable in place; callers transfer an owning unique_ptr handle when ownership must change. Without this rule, an implicit proxy move would transfer real_ while leaving copied scalar cache and permission state in the source, creating two surprising service identities. Preventing object moves keeps the lifecycle contract simpler. Static type-trait checks verify that HoursProxy is neither copy-constructible nor move-constructible."
+      },
+      "reading": [
+        "main creates Source before HoursProxy, so the borrowed source outlives the proxy. The proxy owns its RealHours through unique_ptr. RealHours itself borrows the same Source. Destroying the proxy destroys the optional cache and the real-service owner, but it does not destroy Source. Local declaration order supplies the required lifetime arrangement without manual deletion.",
+        "At compilation, override checks that both classes implement Hours::opening. The method is not const because obtaining an answer may change the cache and the source's diagnostic counter. A logically read-only business operation can still mutate implementation state; the interface should state that honestly rather than adding mutable everywhere without discussing consequences.",
+        "If allocation of RealHours fails, the owner remains empty and the cache remains empty. If a future real-service call throws before returning an integer, assignment to cached_ is not reached, so a miss remains uncached. The example's real service does not throw, but placing assignment after a successful call naturally avoids remembering a fabricated success. The exact state of a real service after its own failure would still depend on that service's contract.",
+        "The program is single-threaded. Concurrent calls could race while creating real_, reading Source, or changing cached_. shared ownership or virtual functions would not fix those races. A concurrent version would need synchronization and a clear rule for the order of revocation, invalidation, and in-flight requests. We do not add those mechanisms without the requirement because they would obscure the state transitions being taught.",
+        "Hours defaults construction but explicitly deletes copy and move operations. The = delete declarations make service objects stable in place; callers transfer an owning unique_ptr handle when ownership must change. Without this rule, an implicit proxy move would transfer real_ while leaving copied scalar cache and permission state in the source, creating two surprising service identities. Preventing object moves keeps the lifecycle contract simpler. Static type-trait checks verify that HoursProxy is neither copy-constructible nor move-constructible."
+      ],
+      "topicIds": [
+        "C12.06"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch12-10"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → Distinguish the purpose of similar wrappers",
+      "title": "Distinguish the purpose of similar wrappers",
+      "keyPoints": [
+        "Proxy and Decorator can both implement an interface and contain another implementation.",
+        "For an inexpensive local value, directly reading Source may be simpler than either wrapper."
+      ],
+      "narration": "Proxy and Decorator can both implement an interface and contain another implementation. A decorator normally adds independently selectable behavior to a component. A proxy stands in for a service to control access, location, or lifecycle. Our proxy creates its own real service on demand and manages a freshness policy. A diagram alone cannot settle which intent best describes a design; the requirements explain it.\n\nFor an inexpensive local value, directly reading Source may be simpler than either wrapper. For a service used exactly once, caching may add memory and complexity without avoiding work. Measure actual request patterns before optimizing. When a proxy is useful, expose enough diagnostics to test the behavior. The reads counter and loaded query let the example verify avoided work rather than merely checking that the printed hour looks right.",
+      "question": {
+        "prompt": "What lifetime issue is not solved by owning RealHours?",
+        "answer": "Both the proxy and real service borrow Source. Owning the service does not extend the source's lifetime; the caller must keep Source alive."
+      },
+      "reading": [
+        "Proxy and Decorator can both implement an interface and contain another implementation. A decorator normally adds independently selectable behavior to a component. A proxy stands in for a service to control access, location, or lifecycle. Our proxy creates its own real service on demand and manages a freshness policy. A diagram alone cannot settle which intent best describes a design; the requirements explain it.",
+        "For an inexpensive local value, directly reading Source may be simpler than either wrapper. For a service used exactly once, caching may add memory and complexity without avoiding work. Measure actual request patterns before optimizing. When a proxy is useful, expose enough diagnostics to test the behavior. The reads counter and loaded query let the example verify avoided work rather than merely checking that the printed hour looks right."
+      ],
+      "topicIds": [
+        "C12.07"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch12-11"
+    },
+    {
+      "title": "Keep service existence separate from cached data",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "real_ answers whether a service object exists",
+        "cached_ answers whether a result is remembered",
+        "Invalidation removes the result, not the service"
+      ],
+      "narration": "The proxy has two different empty-or-present states. The unique pointer real_ owns the service after it has been constructed. The optional cached_ remembers an integer result after a successful read. Initially both are empty. A permitted cache miss creates the service, reads it, and fills the cache. Invalidation clears only the remembered integer. The next read therefore reuses the already-created service but fetches new data. Confusing these states can cause needless reconstruction or a stale answer after invalidation. The loaded query reports service existence, not freshness. A diagram of this code needs both facts; a single vague loaded flag would conceal an important distinction.",
+      "actions": [
+        "Trace the pair (service present, cache present) before read, after read, and after invalidate."
+      ],
+      "sourceRef": "manuscript/ch12.json → Use the same interface with an access-controlling substitute",
+      "question": {
+        "prompt": "What does loaded() return immediately after invalidating a previously used proxy?",
+        "answer": "True. The service object remains owned; only cached_ was reset."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch12-12"
+    },
+    {
+      "title": "Zero is a value, not the absence of a value",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Midnight is a valid hour zero",
+        "optional<int> separates presence from content",
+        "A warm zero cache must avoid another source read"
+      ],
+      "narration": "Using zero as an empty marker creates a hidden collision with midnight. If the cache variable starts at zero and a condition treats zero as missing, a valid zero result looks uncached forever. The chapter uses optional<int> so presence is stored separately from the integer. An engaged optional holding zero tests true as an optional. Dereferencing it yields zero, which is then returned normally. This is why the chapter performs two reads after caching midnight and checks that only the first reaches Source. The output value alone would not catch repeated unnecessary reads. When designing state, ask whether your chosen marker can also be a valid business value.",
+      "actions": [
+        "Ask learners to evaluate both bool(cached) and *cached when cached contains zero."
+      ],
+      "sourceRef": "manuscript/ch12.json → Use the same interface with an access-controlling substitute",
+      "question": {
+        "prompt": "Why is testing *cached != 0 the wrong test for whether a cache entry exists?",
+        "answer": "It tests the stored hour, not presence, and it also cannot safely dereference an empty optional."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch12-13"
+    },
+    {
+      "title": "Revocation and invalidation are different operations",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "allow(false) blocks cached and fresh results",
+        "invalidate() removes a stored result",
+        "Reallowing access can expose an old retained value"
+      ],
+      "narration": "Revocation answers who may obtain a result now. Invalidation answers whether the remembered result may be reused. The source implements them as separate operations. Denying access does not itself erase cached data, and changing Source does not automatically invalidate it. After we reallow access, the old cached answer may therefore remain until an explicit invalidation or refresh. This is not a bug if it is the stated policy. It would be a bug if the application promised that every permission change forces freshness. Write state-transition tests that distinguish these promises. A realistic service may use revisions, change notifications, or maximum age, but each choice needs a precise rule for when it takes effect.",
+      "actions": [
+        "Give the sequence warm, deny, source change, allow, opening and ask for the returned value."
+      ],
+      "sourceRef": "manuscript/ch12.json → Trace old data and explicit invalidation",
+      "question": {
+        "prompt": "Does modifying source.hour alone make the next proxy call fresh?",
+        "answer": "No. The proxy does not observe source changes automatically; its current cache remains usable until invalidated."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch12-14"
+    },
+    {
+      "title": "The proxy owns the service but borrows the source",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Source must outlive both service and proxy",
+        "unique_ptr gives one owner of RealHours",
+        "Move owning handles rather than stable service objects"
+      ],
+      "narration": "Ownership tells us who keeps an object alive and eventually destroys it. HoursProxy owns RealHours through unique_ptr, so destroying the proxy releases the service automatically. Both proxy and real service borrow Source through references. Neither reference extends Source's lifetime. Main therefore constructs Source first, then the proxy, so local destruction happens safely in the reverse order. Hours deletes copying and moving, keeping service objects stable in place. You may move a unique_ptr that owns one without moving the service object itself. The compiler checks these deleted operations and override signatures. It does not generally prove that an arbitrary borrowed source will outlive every user, so that remains a construction and review responsibility.",
+      "actions": [
+        "Have learners draw owner links separately from borrowed-reference links."
+      ],
+      "sourceRef": "manuscript/ch12.json → Object lifetime and failure state",
+      "question": {
+        "prompt": "Does replacing Source& with another reference syntax make it owned?",
+        "answer": "No. A reference is borrowing; ownership and lifetime must come from the surrounding object arrangement or an owning type."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch12-15"
+    },
+    {
+      "title": "Record success only after the real operation succeeds",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Allocation failure leaves real_ empty",
+        "A throwing read does not fill cached_",
+        "Single-threaded ordering is part of this example’s scope"
+      ],
+      "narration": "The miss path assigns to cached_ only after real_->opening returns a value. If a future real-service operation throws before returning, that assignment is not reached and no invented successful answer is stored. The service may still exist, so a retry can use it; what state it retains after failure depends on its own contract. Allocation failure before real_ is assigned leaves the owner empty. These are distinct failure states worth testing if the real service later gains failures. The current program is single-threaded. Two simultaneous misses, or a revocation racing a return, would require a synchronization policy. Virtual methods and smart pointers do not automatically make the shared state safe for concurrent access.",
+      "actions": [
+        "Ask which assignment commits the cache value and what happens if the call on its right throws."
+      ],
+      "sourceRef": "manuscript/ch12.json → Object lifetime and failure state",
+      "question": {
+        "prompt": "Does shared ownership alone make cache mutation thread-safe?",
+        "answer": "No. Ownership bookkeeping and synchronization of the pointed-to service or cache are separate concerns."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch12-16"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → C12.08 concepts",
+      "title": "Map the roles to the actual types",
+      "keyPoints": [
+        "Subject / Service interface → Hours::opening",
+        "Real Subject / Service → RealHours",
+        "Proxy → HoursProxy",
+        "Client → main calling the Hours contract",
+        "Backing data, outside the pattern roles → Source"
+      ],
+      "narration": "Subject / Service interface → Hours::opening. Declare the operation clients use for both the service and its stand-in.\n\nReal Subject / Service → RealHours. Perform the actual work when the proxy chooses to delegate.\n\nProxy → HoursProxy. Enforce access, creation, and caching policy around that work.\n\nClient → main calling the Hours contract. Request the service operation without repeating the proxy policy.\n\nBacking data, outside the pattern roles → Source. Supply a changing hour and read counter so delegation is observable.",
+      "comparisons": [
+        {
+          "label": "Subject / Service interface → Hours::opening",
+          "text": "Declare the operation clients use for both the service and its stand-in."
+        },
+        {
+          "label": "Real Subject / Service → RealHours",
+          "text": "Perform the actual work when the proxy chooses to delegate."
+        },
+        {
+          "label": "Proxy → HoursProxy",
+          "text": "Enforce access, creation, and caching policy around that work."
+        },
+        {
+          "label": "Client → main calling the Hours contract",
+          "text": "Request the service operation without repeating the proxy policy."
+        },
+        {
+          "label": "Backing data, outside the pattern roles → Source",
+          "text": "Supply a changing hour and read counter so delegation is observable."
+        }
+      ],
+      "question": {
+        "prompt": "In Proxy, which part plays Subject / Service interface and what does it do?",
+        "answer": "Hours::opening. Declare the operation clients use for both the service and its stand-in."
+      },
+      "topicIds": [
+        "C12.08"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch12-17"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch12/main.cpp:1-85; content/design-patterns-cpp/ch12.json → diagrams.12",
+      "title": "HoursProxy controls access to the Hours service",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "Denied reads never reach the service or return cached data.",
+        "An engaged cache contains a successful prior result."
+      ],
+      "narration": "The solid arrows show the miss path. The cache block returns directly on a hit, and the permission block throws directly on denial. The RealHours owner is created only if absent. invalidate clears cached_, sending the next permitted call back through the miss path; it leaves real_ intact.\n\nOne proxy keeps permission, lazy ownership, and cache state beside the service access they control. optional distinguishes no result from a valid zero result.\n\nA useful proxy must document freshness, access checks, and failure behavior as carefully as its interface. Test the work it avoids and the states it preserves.",
+      "diagram": {
+        "chapter": 12,
+        "view": "overview",
+        "index": -1
+      },
+      "theory": {
+        "what": "HoursProxy controls access to the Hours service",
+        "where": "companion/examples/ch12/main.cpp",
+        "why": "One proxy keeps permission, lazy ownership, and cache state beside the service access they control. optional distinguishes no result from a valid zero result.",
+        "invariant": "Denied reads never reach the service or return cached data. An engaged cache contains a successful prior result. Invalidation removes the result but does not destroy the service. Source outlives the proxy and its real service.",
+        "risk": "Use if (*cached_) to decide whether the cache contains data. Dereferencing an empty optional is invalid; zero is also incorrectly treated as a miss. Return cached data before checking allowed_. After revocation the caller still receives nine from the warm cache. Assume changing source.hour refreshes the proxy automatically. After changing eight to nine, the next call returns eight."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "The solid arrows show the miss path. The cache block returns directly on a hit, and the permission block throws directly on denial. The RealHours owner is created only if absent. invalidate clears cached_, sending the next permitted call back through the miss path; it leaves real_ intact."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch12-18"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch12/main.cpp:1-85; content/design-patterns-cpp/ch12.json → diagrams.12",
+      "title": "Proxy — chronological driver trace",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "Denied reads never reach the service or return cached data.",
+        "An engaged cache contains a successful prior result."
+      ],
+      "narration": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.\n\nOne proxy keeps permission, lazy ownership, and cache state beside the service access they control. optional distinguishes no result from a valid zero result.\n\nA useful proxy must document freshness, access checks, and failure behavior as carefully as its interface. Test the work it avoids and the states it preserves.",
+      "diagram": {
+        "chapter": 12,
+        "view": "extra",
+        "index": 0
+      },
+      "theory": {
+        "what": "Proxy — chronological driver trace",
+        "where": "companion/examples/ch12/main.cpp",
+        "why": "One proxy keeps permission, lazy ownership, and cache state beside the service access they control. optional distinguishes no result from a valid zero result.",
+        "invariant": "Denied reads never reach the service or return cached data. An engaged cache contains a successful prior result. Invalidation removes the result but does not destroy the service. Source outlives the proxy and its real service.",
+        "risk": "Use if (*cached_) to decide whether the cache contains data. Dereferencing an empty optional is invalid; zero is also incorrectly treated as a miss. Return cached data before checking allowed_. After revocation the caller still receives nine from the warm cache. Assume changing source.hour refreshes the proxy automatically. After changing eight to nine, the next call returns eight."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch12-19"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch12/main.cpp:41-46",
+      "title": "Protect every path to a result",
+      "keyPoints": [
+        "The proxy rejects denied access before returning even a remembered value.",
+        "A fast cache path must not bypass the permission contract.",
+        "Every returned result follows a successful permission check."
+      ],
+      "narration": "The proxy rejects denied access before returning even a remembered value. This block is the first part of opening. A fast cache path must not bypass the permission contract.\n\nThe comment states the ordering rule. Test whether access is currently denied. Begin throwing a runtime error. Give the denial message and complete the throw. Close the rejection branch. Return the stored integer only if an optional value exists.\n\nEvery returned result follows a successful permission check. Checking permission only on misses leaks cached data after revocation.",
+      "diagram": {
+        "chapter": 12,
+        "view": "focus",
+        "index": 0
+      },
+      "theory": {
+        "title": "Protect every path to a result",
+        "start": "// Check access before any result.",
+        "end": "if (cached_) return *cached_;",
+        "what": "The proxy rejects denied access before returning even a remembered value.",
+        "where": "This block is the first part of opening.",
+        "why": "A fast cache path must not bypass the permission contract.",
+        "invariant": "Every returned result follows a successful permission check.",
+        "risk": "Checking permission only on misses leaks cached data after revocation.",
+        "explain": [
+          "The comment states the ordering rule.",
+          "Test whether access is currently denied.",
+          "Begin throwing a runtime error.",
+          "Give the denial message and complete the throw.",
+          "Close the rejection branch.",
+          "Return the stored integer only if an optional value exists."
+        ],
+        "resolved_start": 41,
+        "resolved_end": 46,
+        "lineStart": 41,
+        "lineEnd": 46,
+        "code": "        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;",
+        "file": "examples/ch12/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Checking permission only on misses leaks cached data after revocation."
+      },
+      "topicIds": [
+        "C12.12"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch12-20"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch12/main.cpp:47-55",
+      "title": "Create once, fetch on misses",
+      "keyPoints": [
+        "A permitted miss creates the real service if needed, then stores a fetched result.",
+        "Lazy construction avoids unused service objects, while caching avoids repeated reads.",
+        "The cache is assigned only after the real call returns successfully."
+      ],
+      "narration": "A permitted miss creates the real service if needed, then stores a fetched result. This block runs only when permission succeeded and the cache was empty. Lazy construction avoids unused service objects, while caching avoids repeated reads.\n\nThe comment identifies lazy construction. Check whether the real-service owner is empty. Begin assigning a newly created owner. Construct a RealHours object with make_unique. Pass the borrowed source to its constructor. Close the creation branch; an existing object is reused. Fetch a value and engage the optional cache. Return the newly stored integer. Close the miss path and opening method.\n\nThe cache is assigned only after the real call returns successfully. Concurrent misses need synchronization; the current example is single-threaded.",
+      "diagram": {
+        "chapter": 12,
+        "view": "focus",
+        "index": 1
+      },
+      "theory": {
+        "title": "Create once, fetch on misses",
+        "start": "// Construct the service on demand.",
+        "end": "// End miss path.",
+        "what": "A permitted miss creates the real service if needed, then stores a fetched result.",
+        "where": "This block runs only when permission succeeded and the cache was empty.",
+        "why": "Lazy construction avoids unused service objects, while caching avoids repeated reads.",
+        "invariant": "The cache is assigned only after the real call returns successfully.",
+        "risk": "Concurrent misses need synchronization; the current example is single-threaded.",
+        "explain": [
+          "The comment identifies lazy construction.",
+          "Check whether the real-service owner is empty.",
+          "Begin assigning a newly created owner.",
+          "Construct a RealHours object with make_unique.",
+          "Pass the borrowed source to its constructor.",
+          "Close the creation branch; an existing object is reused.",
+          "Fetch a value and engage the optional cache.",
+          "Return the newly stored integer.",
+          "Close the miss path and opening method."
+        ],
+        "resolved_start": 47,
+        "resolved_end": 55,
+        "lineStart": 47,
+        "lineEnd": 55,
+        "code": "        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.",
+        "file": "examples/ch12/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Concurrent misses need synchronization; the current example is single-threaded."
+      },
+      "topicIds": [
+        "C12.13"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch12-21"
+    },
+    {
+      "eyebrow": "ORIGINAL CHECKED C++",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch12/main.cpp",
+      "title": "Run the complete chapter program",
+      "keyPoints": [
+        "A lazy cached opening-hour service",
+        "Checks verify initial unloaded state, first-read construction, reuse without extra reads, stale behavior, explicit refresh after invalidation, denial with a warm cache, and cached zero. They do not test network access, real authentication, or concurrent execution. Compile-time type traits also verify that HoursProxy object copying and moving are disabled."
+      ],
+      "narration": "We now join the small pieces into the complete working program. One proxy keeps permission, lazy ownership, and cache state beside the service access they control. optional distinguishes no result from a valid zero result.\n\nChecks verify initial unloaded state, first-read construction, reuse without extra reads, stale behavior, explicit refresh after invalidation, denial with a warm cache, and cached zero. They do not test network access, real authentication, or concurrent execution. Compile-time type traits also verify that HoursProxy object copying and moving are disabled.\n\nA useful proxy must document freshness, access checks, and failure behavior as carefully as its interface. Test the work it avoids and the states it preserves. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/examples/ch12/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\nint main() {\n    Source source;\n    HoursProxy proxy(source);\n    check(!proxy.loaded() && source.reads == 0);\n    check(proxy.opening() == 8);\n    check(proxy.loaded() && source.reads == 1);\n    source.hour = 9;\n    check(proxy.opening() == 8 && source.reads == 1);\n    std::cout << \"cached=\" << proxy.opening() << '\\n';\n    proxy.invalidate();\n    check(proxy.opening() == 9 && source.reads == 2);\n    std::cout << \"fresh=\" << proxy.opening() << '\\n';\n    proxy.allow(false);\n    bool denied = false;\n    try { static_cast<void>(proxy.opening()); }\n    catch (const std::runtime_error&) { denied = true; }\n    check(denied && source.reads == 2);\n    proxy.allow(true);\n    source.hour = 0;\n    proxy.invalidate();\n    check(proxy.opening() == 0);\n    check(proxy.opening() == 0 && source.reads == 3);\n    std::cout << \"midnight=\" << proxy.opening() << '\\n';\n    std::cout << \"reads=\" << source.reads << '\\n';\n    std::cout << \"cached access denied after revocation\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "cached=8\nfresh=9\nmidnight=0\nreads=3\ncached access denied after revocation\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-22.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "question": {
+        "prompt": "Does matching the demonstration output prove every promised behavior?",
+        "answer": "No. Checks verify initial unloaded state, first-read construction, reuse without extra reads, stale behavior, explicit refresh after invalidation, denial with a warm cache, and cached zero. They do not test network access, real authentication, or concurrent execution. Compile-time type traits also verify that HoursProxy object copying and moving are disabled. A printed result shows that run; the checks and stated limits explain what was actually verified."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch12-22"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → trace",
+      "title": "Follow one request through the objects",
+      "keyPoints": [
+        "unloaded, empty cache -> hour 8; reads=1",
+        "source=9, cache=8 -> hour 8; reads=1",
+        "invalidate -> hour 9; reads=2",
+        "permission=false -> exception",
+        "source=0, invalidate -> two zeros; reads=3"
+      ],
+      "narration": "Step 1. unloaded, empty cache -> hour 8; reads=1. The first permitted miss creates and calls RealHours.\n\nStep 2. source=9, cache=8 -> hour 8; reads=1. A hit follows the explicit cache policy.\n\nStep 3. invalidate -> hour 9; reads=2. The next miss fetches fresh source data.\n\nStep 4. permission=false -> exception. The warm cache does not bypass access control.\n\nStep 5. source=0, invalidate -> two zeros; reads=3. An engaged optional can hold zero without another fetch.",
+      "walkthrough": [
+        {
+          "label": "Step 1",
+          "text": "unloaded, empty cache -> hour 8; reads=1",
+          "reason": "The first permitted miss creates and calls RealHours."
+        },
+        {
+          "label": "Step 2",
+          "text": "source=9, cache=8 -> hour 8; reads=1",
+          "reason": "A hit follows the explicit cache policy."
+        },
+        {
+          "label": "Step 3",
+          "text": "invalidate -> hour 9; reads=2",
+          "reason": "The next miss fetches fresh source data."
+        },
+        {
+          "label": "Step 4",
+          "text": "permission=false -> exception",
+          "reason": "The warm cache does not bypass access control."
+        },
+        {
+          "label": "Step 5",
+          "text": "source=0, invalidate -> two zeros; reads=3",
+          "reason": "An engaged optional can hold zero without another fetch."
+        }
+      ],
+      "question": {
+        "prompt": "Which operation makes the next step possible?",
+        "answer": "unloaded, empty cache -> hour 8; reads=1 — The first permitted miss creates and calls RealHours.\nsource=9, cache=8 -> hour 8; reads=1 — A hit follows the explicit cache policy.\ninvalidate -> hour 9; reads=2 — The next miss fetches fresh source data.\npermission=false -> exception — The warm cache does not bypass access control.\nsource=0, invalidate -> two zeros; reads=3 — An engaged optional can hold zero without another fetch."
+      },
+      "topicIds": [
+        "C12.10"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch12-23"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → example.failures",
+      "title": "Debug the promise: Use if (*cached_) to decide whether the cache contains data.",
+      "keyPoints": [
+        "Use if (*cached_) to decide whether the cache contains data.",
+        "Dereferencing an empty optional is invalid; zero is also incorrectly treated as a miss."
+      ],
+      "narration": "Use if (*cached_) to decide whether the cache contains data. Dereferencing an empty optional is invalid; zero is also incorrectly treated as a miss. Value presence and numeric truth are different questions.\n\nChecks verify initial unloaded state, first-read construction, reuse without extra reads, stale behavior, explicit refresh after invalidation, denial with a warm cache, and cached zero. They do not test network access, real authentication, or concurrent execution. Compile-time type traits also verify that HoursProxy object copying and moving are disabled.\n\nA useful proxy must document freshness, access checks, and failure behavior as carefully as its interface. Test the work it avoids and the states it preserves.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "Dereferencing an empty optional is invalid; zero is also incorrectly treated as a miss."
+        },
+        {
+          "label": "Why it fails",
+          "text": "Value presence and numeric truth are different questions."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "Value presence and numeric truth are different questions. Dereferencing an empty optional is invalid; zero is also incorrectly treated as a miss."
+      },
+      "topicIds": [
+        "C12.11"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch12-24"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → example.failures",
+      "title": "Debug the promise: Return cached data before checking allowed_.",
+      "keyPoints": [
+        "Return cached data before checking allowed_.",
+        "After revocation the caller still receives nine from the warm cache."
+      ],
+      "narration": "Return cached data before checking allowed_. After revocation the caller still receives nine from the warm cache. The fast path bypasses the permission rule.\n\nChecks verify initial unloaded state, first-read construction, reuse without extra reads, stale behavior, explicit refresh after invalidation, denial with a warm cache, and cached zero. They do not test network access, real authentication, or concurrent execution. Compile-time type traits also verify that HoursProxy object copying and moving are disabled.\n\nA useful proxy must document freshness, access checks, and failure behavior as carefully as its interface. Test the work it avoids and the states it preserves.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "After revocation the caller still receives nine from the warm cache."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The fast path bypasses the permission rule."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The fast path bypasses the permission rule. After revocation the caller still receives nine from the warm cache."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch12-25"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → example.failures",
+      "title": "Debug the promise: Assume changing source.hour refreshes the proxy automatically.",
+      "keyPoints": [
+        "Assume changing source.hour refreshes the proxy automatically.",
+        "After changing eight to nine, the next call returns eight."
+      ],
+      "narration": "Assume changing source.hour refreshes the proxy automatically. After changing eight to nine, the next call returns eight. No observer or revision check connects the source change to cache invalidation.\n\nChecks verify initial unloaded state, first-read construction, reuse without extra reads, stale behavior, explicit refresh after invalidation, denial with a warm cache, and cached zero. They do not test network access, real authentication, or concurrent execution. Compile-time type traits also verify that HoursProxy object copying and moving are disabled.\n\nA useful proxy must document freshness, access checks, and failure behavior as carefully as its interface. Test the work it avoids and the states it preserves.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "After changing eight to nine, the next call returns eight."
+        },
+        {
+          "label": "Why it fails",
+          "text": "No observer or revision check connects the source change to cache invalidation."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "No observer or revision check connects the source change to cache invalidation. After changing eight to nine, the next call returns eight."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch12-26"
+    },
+    {
+      "title": "Trace 1: Proxy: Lazy construction",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Proxy: Lazy construction. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Proxy: Lazy construction. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nConstructing the proxy alone does not construct the real service.\n\nThe bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → dpx-c12-trace-1; companion/solutions/ch12/main.cpp",
+      "question": {
+        "prompt": "Proxy: Lazy construction. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "false. Constructing the proxy alone does not construct the real service."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  return p.loaded();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch12_trace_1.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  return p.loaded();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-27.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_trace_1.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-12-a",
+      "section": "Trace experiments",
+      "id": "dp-ch12-27"
+    },
+    {
+      "title": "Trace 2: Proxy: First read",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Proxy: First read. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Proxy: First read. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nA cache miss creates the service and reads once.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → dpx-c12-trace-2; companion/solutions/ch12/main.cpp",
+      "question": {
+        "prompt": "Proxy: First read. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "1. A cache miss creates the service and reads once."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  return s.reads;\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch12_trace_2.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  return s.reads;\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "1\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-28.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_trace_2.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-12-a",
+      "section": "Trace experiments",
+      "id": "dp-ch12-28"
+    },
+    {
+      "title": "Trace 3: Proxy: Stale cache retained",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Proxy: Stale cache retained. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Proxy: Stale cache retained. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nChanging the source does not silently invalidate the cache.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → dpx-c12-trace-3; companion/solutions/ch12/main.cpp",
+      "question": {
+        "prompt": "Proxy: Stale cache retained. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "8. Changing the source does not silently invalidate the cache."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  s.hour=14;\n  return p.opening();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch12_trace_3.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  s.hour=14;\n  return p.opening();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "8\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-29.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_trace_3.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-12-a",
+      "section": "Trace experiments",
+      "id": "dp-ch12-29"
+    },
+    {
+      "title": "Trace 4: Proxy: Invalidate then read",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Proxy: Invalidate then read. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Proxy: Invalidate then read. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe explicit invalidation makes the next opening a cache miss.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → dpx-c12-trace-4; companion/solutions/ch12/main.cpp",
+      "question": {
+        "prompt": "Proxy: Invalidate then read. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "14. The explicit invalidation makes the next opening a cache miss."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  s.hour=14;\n  p.invalidate();\n  return p.opening();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch12_trace_4.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  s.hour=14;\n  p.invalidate();\n  return p.opening();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "14\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-30.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_trace_4.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-12-a",
+      "section": "Trace experiments",
+      "id": "dp-ch12-30"
+    },
+    {
+      "title": "Trace 5: Proxy: Refresh updates",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Proxy: Refresh updates. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Proxy: Refresh updates. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nRefresh asks for a new reading even if a value is already cached.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → dpx-c12-trace-5; companion/solutions/ch12/main.cpp",
+      "question": {
+        "prompt": "Proxy: Refresh updates. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "15. Refresh asks for a new reading even if a value is already cached."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  s.hour=15;\n  return p.refresh();\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch12_trace_5.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  s.hour=15;\n  return p.refresh();\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "15\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-31.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_trace_5.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-12-a",
+      "section": "Trace experiments",
+      "id": "dp-ch12-31"
+    },
+    {
+      "title": "Trace 6: Proxy: Refresh read count",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Proxy: Refresh read count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Proxy: Refresh read count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nOne initial read and one explicit refresh produce two source reads.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → dpx-c12-trace-6; companion/solutions/ch12/main.cpp",
+      "question": {
+        "prompt": "Proxy: Refresh read count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "2. One initial read and one explicit refresh produce two source reads."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  p.refresh();\n  return s.reads;\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch12_trace_6.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  p.refresh();\n  return s.reads;\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-32.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_trace_6.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-12-a",
+      "section": "Trace experiments",
+      "id": "dp-ch12-32"
+    },
+    {
+      "title": "Trace 7: Proxy: Revoked cached access",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Proxy: Revoked cached access. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Proxy: Revoked cached access. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nPermission is checked before returning even a cached value.\n\n The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → dpx-c12-trace-7; companion/solutions/ch12/main.cpp",
+      "question": {
+        "prompt": "Proxy: Revoked cached access. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. Permission is checked before returning even a cached value."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  p.allow(false);\n  return dpx_rejects<std::runtime_error>([&]{\n    p.opening();\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch12_trace_7.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  p.allow(false);\n  return dpx_rejects<std::runtime_error>([&]{\n    p.opening();\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-33.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_trace_7.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-12-a",
+      "section": "Trace experiments",
+      "id": "dp-ch12-33"
+    },
+    {
+      "title": "Trace 8: Proxy: Denied refresh preserves cache",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Proxy: Denied refresh preserves cache. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Proxy: Denied refresh preserves cache. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nRejected refresh must not invalidate the previously valid cache or perform I/O.\n\n The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → dpx-c12-trace-8; companion/solutions/ch12/main.cpp",
+      "question": {
+        "prompt": "Proxy: Denied refresh preserves cache. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. Rejected refresh must not invalidate the previously valid cache or perform I/O."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  s.hour=15;\n  p.allow(false);\n  const bool bad=dpx_rejects<std::runtime_error>([&]{\n    p.refresh();\n  });\n  p.allow(true);\n  return bad && p.opening()==8 && s.reads==1;\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch12_trace_8.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Source s;\n  HoursProxy p(s);\n  p.opening();\n  s.hour=15;\n  p.allow(false);\n  const bool bad=dpx_rejects<std::runtime_error>([&]{\n    p.refresh();\n  });\n  p.allow(true);\n  return bad && p.opening()==8 && s.reads==1;\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-34.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch12_trace_8.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-12-a",
+      "section": "Trace experiments",
+      "id": "dp-ch12-34"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → exercises.12.1",
+      "title": "Exercise 12.1: Guided modification",
+      "keyPoints": [
+        "Set source.hour to seven before the first permitted opening call. What should the first result and read count be?"
+      ],
+      "narration": "Set source.hour to seven before the first permitted opening call. What should the first result and read count be?\n\nPause here and make a concrete prediction or sketch a change. The hint is: The proxy has not fetched a value at construction.\n\nAfter the discussion, compare the reasoning. The first result is seven and reads is one. Constructing the proxy stores a source reference but does not snapshot its value or create the service.",
+      "hint": "The proxy has not fetched a value at construction.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The first result is seven and reads is one. Constructing the proxy stores a source reference but does not snapshot its value or create the service."
+      },
+      "topicIds": [
+        "C12.14"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-35"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → exercises.12.2",
+      "title": "Exercise 12.2: Trace unfamiliar code",
+      "keyPoints": [
+        "Starting with a new Source and proxy, call opening twice, set source.hour=11, call opening, invalidate, then call opening. List the four results and final reads."
+      ],
+      "narration": "Starting with a new Source and proxy, call opening twice, set source.hour=11, call opening, invalidate, then call opening. List the four results and final reads.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Only cache misses reach RealHours.\n\nAfter the discussion, compare the reasoning. The results are 8, 8, 8, and 11. Final reads is two. The source update alone does not clear cached eight; explicit invalidation causes the second real read.",
+      "hint": "Only cache misses reach RealHours.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The results are 8, 8, 8, and 11. Final reads is two. The source update alone does not clear cached eight; explicit invalidation causes the second real read."
+      },
+      "topicIds": [
+        "C12.15"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-36"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → exercises.12.3",
+      "title": "Exercise 12.3: Diagnose a bug",
+      "keyPoints": [
+        "A developer uses an int cached_=0 and considers zero an empty cache. What happens when opening hour is midnight and the caller asks three times?"
+      ],
+      "narration": "A developer uses an int cached_=0 and considers zero an empty cache. What happens when opening hour is midnight and the caller asks three times?\n\nPause here and make a concrete prediction or sketch a change. The hint is: Midnight is a valid numeric result.\n\nAfter the discussion, compare the reasoning. All three calls are treated as misses and may trigger three source reads. The value cannot distinguish empty from midnight. Use optional<int> or a separate valid flag with a clear invariant.",
+      "hint": "Midnight is a valid numeric result.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "All three calls are treated as misses and may trigger three source reads. The value cannot distinguish empty from midnight. Use optional<int> or a separate valid flag with a clear invariant."
+      },
+      "topicIds": [
+        "C12.16"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-37"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → exercises.12.4",
+      "title": "Exercise 12.4: Choose a design",
+      "keyPoints": [
+        "A safety display requires the current source value on every request and the service is cheap. Should it use this cache policy?"
+      ],
+      "narration": "A safety display requires the current source value on every request and the service is cheap. Should it use this cache policy?\n\nPause here and make a concrete prediction or sketch a change. The hint is: Freshness is part of correctness.\n\nAfter the discussion, compare the reasoning. No. Use direct service calls or a proxy that checks permission but always fetches. Reusing an old value violates that display requirement, even if it improves speed. A maximum-age policy is appropriate only if the requirement permits that amount of staleness.",
+      "hint": "Freshness is part of correctness.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "No. Use direct service calls or a proxy that checks permission but always fetches. Reusing an old value violates that display requirement, even if it improves speed. A maximum-age policy is appropriate only if the requirement permits that amount of staleness."
+      },
+      "topicIds": [
+        "C12.17"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-38"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → exercises.12.5",
+      "title": "Exercise 12.5: Extend without regressions",
+      "keyPoints": [
+        "Add a test that denial before the first call leaves loaded() false and reads zero. Then allow and call again. State all expected observations."
+      ],
+      "narration": "Add a test that denial before the first call leaves loaded() false and reads zero. Then allow and call again. State all expected observations.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Denied access should stop before lazy construction.\n\nAfter the discussion, compare the reasoning. After allow(false), opening throws; loaded remains false and reads remains zero. After allow(true), opening returns eight, loaded becomes true, and reads becomes one. This catches construction performed unnecessarily before permission checking.",
+      "hint": "Denied access should stop before lazy construction.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "After allow(false), opening throws; loaded remains false and reads remains zero. After allow(true), opening returns eight, loaded becomes true, and reads becomes one. This catches construction performed unnecessarily before permission checking."
+      },
+      "topicIds": [
+        "C12.18"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-39"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → exercises.12.6",
+      "title": "Exercise 12.6: Justify a decision",
+      "keyPoints": [
+        "Explain to a teammate why invalidate does not destroy RealHours. Give a case where closing the real service as well could be reasonable."
+      ],
+      "narration": "Explain to a teammate why invalidate does not destroy RealHours. Give a case where closing the real service as well could be reasonable.\n\nPause here and make a concrete prediction or sketch a change. The hint is: A stale result and an unusable connection are different conditions.\n\nAfter the discussion, compare the reasoning. The cached hour may be old while the service object is still useful for another read. Keeping it avoids reconstructing the connection. If a failed or revoked session makes the real service unusable, an explicit reset operation may clear both owner and cache, with separate tests for reconnection.",
+      "hint": "A stale result and an unusable connection are different conditions.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The cached hour may be old while the service object is still useful for another read. Keeping it avoids reconstructing the connection. If a failed or revoked session makes the real service unusable, an explicit reset operation may clear both owner and cache, with separate tests for reconnection."
+      },
+      "topicIds": [
+        "C12.19"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-40"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/exercises/ch12/main.cpp",
+      "title": "Extend the program without losing its tests",
+      "keyPoints": [
+        "Add HoursProxy::refresh(), which forces a new successful read when access is allowed. A denied refresh must throw without clearing the current cache, creating a service, or reading Source. Keep every original behavior and test."
+      ],
+      "narration": "Add HoursProxy::refresh(), which forces a new successful read when access is allowed. A denied refresh must throw without clearing the current cache, creating a service, or reading Source. Keep every original behavior and test.\n\nKeep the original checks as a baseline. The new behavior must also satisfy these checks: After source changes to ten, refresh returns ten and increments reads once. A denied refresh throws and leaves reads unchanged. After denial, change source to eleven and re-allow access: opening still returns cached ten. An allowed refresh then returns eleven.\n\nThe starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/exercises/ch12/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "// LAB STARTER: see the chapter for extension requirements.\n#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\nint main() {\n    Source source;\n    HoursProxy proxy(source);\n    check(!proxy.loaded() && source.reads == 0);\n    check(proxy.opening() == 8);\n    check(proxy.loaded() && source.reads == 1);\n    source.hour = 9;\n    check(proxy.opening() == 8 && source.reads == 1);\n    std::cout << \"cached=\" << proxy.opening() << '\\n';\n    proxy.invalidate();\n    check(proxy.opening() == 9 && source.reads == 2);\n    std::cout << \"fresh=\" << proxy.opening() << '\\n';\n    proxy.allow(false);\n    bool denied = false;\n    try { static_cast<void>(proxy.opening()); }\n    catch (const std::runtime_error&) { denied = true; }\n    check(denied && source.reads == 2);\n    proxy.allow(true);\n    source.hour = 0;\n    proxy.invalidate();\n    check(proxy.opening() == 0);\n    check(proxy.opening() == 0 && source.reads == 3);\n    std::cout << \"midnight=\" << proxy.opening() << '\\n';\n    std::cout << \"reads=\" << source.reads << '\\n';\n    std::cout << \"cached access denied after revocation\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "cached=8\nfresh=9\nmidnight=0\nreads=3\ncached access denied after revocation\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-41.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "checks": [
+        {
+          "prompt": "After source changes to ten, refresh returns ten and increments reads once.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "A denied refresh throws and leaves reads unchanged.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "After denial, change source to eleven and re-allow access: opening still returns cached ten.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "An allowed refresh then returns eleven.",
+          "answer": "This is a required acceptance check for the extension."
+        }
+      ],
+      "question": {
+        "prompt": "What must the extension add?",
+        "answer": "Add HoursProxy::refresh(), which forces a new successful read when access is allowed. A denied refresh must throw without clearing the current cache, creating a service, or reading Source. Keep every original behavior and test."
+      },
+      "topicIds": [
+        "C12.20"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-41"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/solutions/ch12/main.cpp",
+      "title": "Extension solution and design review",
+      "keyPoints": [
+        "After source changes to ten, refresh returns ten and increments reads once.",
+        "A denied refresh throws and leaves reads unchanged.",
+        "After denial, change source to eleven and re-allow access: opening still returns cached ten.",
+        "An allowed refresh then returns eleven."
+      ],
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/solutions/ch12/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <optional>\n#include <stdexcept>\n#include <type_traits>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nstruct Source { int hour = 8; int reads = 0; };\nclass Hours {\npublic:\n    Hours() = default;\n    Hours(const Hours&) = delete;\n    Hours& operator=(const Hours&) = delete;\n    Hours(Hours&&) = delete;\n    Hours& operator=(Hours&&) = delete;\n    virtual ~Hours() = default;\n    virtual int opening() = 0;\n};\nclass RealHours final : public Hours {\n    Source& source_;\npublic:\n    explicit RealHours(Source& s) : source_(s) {}\n    int opening() override {\n        ++source_.reads;\n        return source_.hour;\n    }\n};\nclass HoursProxy final : public Hours {\n    Source& source_;\n    bool allowed_ = true;\n    std::unique_ptr<RealHours> real_;\n    std::optional<int> cached_;\npublic:\n    explicit HoursProxy(Source& s) : source_(s) {}\n    void allow(bool value) { allowed_ = value; }\n    void invalidate() { cached_.reset(); }\n    int refresh() {\n        if (!allowed_) throw std::runtime_error(\n                \"denied\");\n        invalidate();\n        return opening();\n    }\n    bool loaded() const { return static_cast<bool>(real_); }\n    int opening() override {\n        // Check access before any result.\n        if (!allowed_) {\n            throw std::runtime_error(\n                \"denied\");\n        }\n        if (cached_) return *cached_;\n        // Construct the service on demand.\n        if (!real_) {\n            real_ =\n                std::make_unique<RealHours>(\n                    source_);\n        }\n        cached_ = real_->opening();\n        return *cached_;\n    } // End miss path.\n};\n// Move owning handles, not service objects.\nstatic_assert(!std::is_move_constructible_v<HoursProxy>);\nstatic_assert(!std::is_copy_constructible_v<HoursProxy>);\nint main() {\n    Source source;\n    HoursProxy proxy(source);\n    check(!proxy.loaded() && source.reads == 0);\n    check(proxy.opening() == 8);\n    check(proxy.loaded() && source.reads == 1);\n    source.hour = 9;\n    check(proxy.opening() == 8 && source.reads == 1);\n    std::cout << \"cached=\" << proxy.opening() << '\\n';\n    proxy.invalidate();\n    check(proxy.opening() == 9 && source.reads == 2);\n    std::cout << \"fresh=\" << proxy.opening() << '\\n';\n    proxy.allow(false);\n    bool denied = false;\n    try { static_cast<void>(proxy.opening()); }\n    catch (const std::runtime_error&) { denied = true; }\n    check(denied && source.reads == 2);\n    proxy.allow(true);\n    source.hour = 0;\n    proxy.invalidate();\n    check(proxy.opening() == 0);\n    check(proxy.opening() == 0 && source.reads == 3);\n    source.hour = 10;\n    check(proxy.refresh() == 10 && source.reads == 4);\n    proxy.allow(false);\n    bool refresh_denied = false;\n    try { static_cast<void>(proxy.refresh()); }\n    catch (const std::runtime_error&) { refresh_denied = true; }\n    check(refresh_denied && source.reads == 4);\n    source.hour = 11;\n    proxy.allow(true);\n    check(proxy.opening() == 10 && source.reads == 4);\n    check(proxy.refresh() == 11 && source.reads == 5);\n    std::cout << \"refreshed=\" << proxy.opening() << '\\n';\n    source.hour = 0;\n    proxy.invalidate();\n    check(proxy.opening() == 0 && source.reads == 6);\n    std::cout << \"midnight=\" << proxy.opening() << '\\n';\n    std::cout << \"reads=\" << source.reads << '\\n';\n    std::cout << \"cached access denied after revocation\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "cached=8\nfresh=9\nrefreshed=11\nmidnight=0\nreads=6\ncached access denied after revocation\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch12/dp-ch12-42.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "narration": "The solution checks permission before invalidating, then calls opening to reuse the ordinary lazy-fetch path. Checking only inside opening after invalidation would erase valid cached state on a denied request, violating the lab requirement. Repeated permission checking is small and keeps the existing opening contract unchanged; a factored private permission helper is a reasonable cleanup.\n\nA useful proxy must document freshness, access checks, and failure behavior as carefully as its interface. Test the work it avoids and the states it preserves.",
+      "question": {
+        "prompt": "Why is this solution a reasonable extension, and could another design work?",
+        "answer": "The solution checks permission before invalidating, then calls opening to reuse the ordinary lazy-fetch path. Checking only inside opening after invalidation would erase valid cached state on a denied request, violating the lab requirement. Repeated permission checking is small and keeps the existing opening contract unchanged; a factored private permission helper is a reasonable cleanup."
+      },
+      "section": "Practice and extension",
+      "id": "dp-ch12-42"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → C12.22 scenario",
+      "title": "Application case 1: defend your choice",
+      "keyPoints": [
+        "A client uses a service interface, but access must check permission and create the expensive service only on first permitted use. What fits?"
+      ],
+      "scenario": {
+        "prompt": "A client uses a service interface, but access must check permission and create the expensive service only on first permitted use. What fits?",
+        "options": [
+          "Composite",
+          "Proxy",
+          "Memento",
+          "Iterator"
+        ],
+        "correctIndex": 1,
+        "explanation": "A stand-in governs access and can defer subject creation.",
+        "rationales": [
+          "There is no leaf/group tree operation.",
+          "A stand-in governs access and can defer subject creation.",
+          "Saving old state would not enforce permission.",
+          "The request is access to a service, not traversal."
+        ],
+        "id": "C12.22-s1"
+      },
+      "narration": "A client uses a service interface, but access must check permission and create the expensive service only on first permitted use. What fits?\n\nComposite. There is no leaf/group tree operation.\n\nProxy. A stand-in governs access and can defer subject creation.\n\nMemento. Saving old state would not enforce permission.\n\nIterator. The request is access to a service, not traversal.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Proxy. A stand-in governs access and can defer subject creation."
+      },
+      "topicIds": [
+        "C12.22"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-43"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch12.json → C12.23 scenario",
+      "title": "Application case 2: defend your choice",
+      "keyPoints": [
+        "HoursProxy has cached 9, then permission is revoked. Which operation order preserves the access rule?"
+      ],
+      "scenario": {
+        "prompt": "HoursProxy has cached 9, then permission is revoked. Which operation order preserves the access rule?",
+        "options": [
+          "Check permission before returning the cached value.",
+          "Treat every nonzero cache value as authorized",
+          "Return the cache first because it avoids the service",
+          "Check only during initial construction"
+        ],
+        "correctIndex": 0,
+        "explanation": "A warm cache must not bypass current authorization.",
+        "rationales": [
+          "A warm cache must not bypass current authorization.",
+          "The cached result does not encode permission.",
+          "The data is still restricted even without a fresh service call.",
+          "Permission can change after construction."
+        ],
+        "id": "C12.23-s1"
+      },
+      "narration": "HoursProxy has cached 9, then permission is revoked. Which operation order preserves the access rule?\n\nCheck permission before returning the cached value.. A warm cache must not bypass current authorization.\n\nTreat every nonzero cache value as authorized. The cached result does not encode permission.\n\nReturn the cache first because it avoids the service. The data is still restricted even without a fresh service call.\n\nCheck only during initial construction. Permission can change after construction.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Check permission before returning the cached value.. A warm cache must not bypass current authorization."
+      },
+      "topicIds": [
+        "C12.23"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch12-44"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 12",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch12.json → summary",
+      "title": "Keep these rules when the program grows",
+      "keyPoints": [
+        "A proxy keeps the service interface while controlling access or lifecycle.",
+        "Lazy construction and cached results are separate states.",
+        "Check permission before any cached return.",
+        "Use optional when zero is a valid result.",
+        "Freshness requires an explicit invalidation policy.",
+        "A single-threaded proxy does not imply concurrent safety."
+      ],
+      "narration": "A proxy keeps the service interface while controlling access or lifecycle. Lazy construction and cached results are separate states. Check permission before any cached return. Use optional when zero is a valid result. Freshness requires an explicit invalidation policy. A single-threaded proxy does not imply concurrent safety.\n\nA useful proxy must document freshness, access checks, and failure behavior as carefully as its interface. Test the work it avoids and the states it preserves.",
+      "question": {
+        "prompt": "Explain Proxy without reciting its class names.",
+        "answer": "One proxy keeps permission, lazy ownership, and cache state beside the service access they control. optional distinguishes no result from a valid zero result. Direct service calls are simpler when freshness is always required or calls are cheap. A standalone caching function may fit one caller; a proxy fits interchangeable Hours users."
+      },
+      "topicIds": [
+        "C12.21"
+      ],
+      "section": "Recall and transfer",
+      "id": "dp-ch12-45"
+    },
+    {
+      "title": "Refresh has a failure-ordering contract too",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Check permission before invalidating",
+        "Reuse opening() for the fetch path",
+        "A denied refresh preserves the earlier cache"
+      ],
+      "narration": "The lab adds refresh, which promises to fetch a new answer during this call rather than wait for a later one. It first checks permission, then invalidates, then calls opening. Why check permission before clearing the cache? Because a denied operation should not silently discard the old cached state in this design. The solution tests that distinction: deny refresh, change the source, reallow access, and observe that an ordinary opening still returns the retained old value until a successful refresh. Reusing opening keeps one implementation of lazy construction and read behavior. Notice that a permitted refresh whose future real read fails would leave the cache empty; that is a separate guarantee from denied-refresh behavior.",
+      "actions": [
+        "Contrast deny-then-clear with clear-then-deny using the lab’s retained-cache check."
+      ],
+      "sourceRef": "manuscript/ch12.json → Object lifetime and failure state",
+      "question": {
+        "prompt": "Why is checking only that denied refresh throws an incomplete test?",
+        "answer": "It could throw after accidentally clearing the cache; a later ordinary read reveals whether state was preserved."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch12-46"
+    },
+    {
+      "title": "Similar wrapper shapes can serve different purposes",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Proxy controls service access or lifecycle",
+        "Decorator adds selectable behavior around a component",
+        "Direct reads win when reuse has no value"
+      ],
+      "narration": "A class diagram may show both a Proxy and a Decorator implementing an interface while containing another implementation. That shape is not enough to choose the name. Ask why the wrapper exists. Here it stands in for a service, creates the real service on demand, and enforces an access and freshness policy. A decorator usually combines separately chosen added behavior around a component. These intents can coexist in a larger system, but naming the intent helps reviewers find the important tests. For an inexpensive local integer or a service called once, direct reads may be easier and equally fast in practice. Caching is a contract change as well as a possible optimization.",
+      "actions": [
+        "Ask whether a wrapper that adds a border around text has the same main responsibility as HoursProxy."
+      ],
+      "sourceRef": "manuscript/ch12.json → Distinguish the purpose of similar wrappers",
+      "question": {
+        "prompt": "What evidence justifies adding this proxy to a real service?",
+        "answer": "A real need for controlled access or lifecycle, plus a defined freshness policy and measurements or requirements that justify avoided work."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch12-47"
+    },
+    {
+      "title": "Audit every exit that returns an answer",
+      "eyebrow": "PROXY / CHAPTER 12",
+      "kind": "concept",
+      "keyPoints": [
+        "Permission precedes cache hits and misses",
+        "Cache presence is distinct from hour content",
+        "Counters and lifecycle queries verify hidden behavior"
+      ],
+      "narration": "When you review a proxy, start with every line that returns an answer. Can any route reach that line without the required access decision? Next inspect the state that makes a fast route possible. Is cached zero distinguished from an empty cache? What event removes a stale result? Finally inspect ownership: which object keeps the real service alive, and which borrowed source must outlive it? This three-part review catches mistakes that a correct-looking output cannot reveal. Explain Proxy as a controlled substitute, then prove its particular control rules. A pattern name does not validate permission logic, refresh behavior, or lifetime on its own.",
+      "actions": [
+        "Ask for three regression tests covering warm-cache revocation, midnight, and invalidation."
+      ],
+      "sourceRef": "manuscript/ch12.json → Permission comes before the fast path",
+      "question": {
+        "prompt": "Which test most directly proves that revocation applies to the fast path?",
+        "answer": "Warm the cache, revoke permission, call opening, and verify rejection with no additional real-service read."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch12-48"
+    }
+  ]
+}

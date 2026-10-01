@@ -1,0 +1,222 @@
+{
+  "chapter": 7,
+  "title": "Pointers and Address Arithmetic: valid ranges and invalidation",
+  "opening": [
+    {
+      "title": "A usable pointer needs more than a nonzero address",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "The target must be alive and in range",
+        "Alignment and access type must be valid",
+        "Conflicting accesses need synchronization"
+      ],
+      "narration": "A pointer can be non-null and still be unsafe to dereference. It may name an object whose lifetime ended, an out-of-range position, unsuitable alignment, or storage that does not contain the required kind of object. Concurrent conflicting access adds another condition. The operating system checking whether a page is mapped does not establish all these object-level facts. Two small arrays can occupy one writable page while writing past the first array remains invalid. This chapter treats pointer reasoning as object reasoning. Before following the arrow, name its target, owner, valid range, access type, and allowed interval of use.",
+      "actions": [
+        "List the checks that a null test does not perform."
+      ],
+      "sourceRef": "content/systems-programming/ch7.json → SP07.006 / 7.2 Dereferencing",
+      "question": {
+        "prompt": "Why does a mapped writable page not prove a particular array write is valid?",
+        "answer": "Page permissions operate at a larger region boundary. The access can still cross the array’s object bounds or violate its lifetime or type rules."
+      }
+    },
+    {
+      "title": "One-past is a stopping position, not a final element",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "A half-open range includes begin and excludes end",
+        "Pointer arithmetic scales by element size",
+        "Bounds must be checked before forming invalid positions"
+      ],
+      "narration": "For a three-element array, begin points to element zero and end may be formed as begin plus three. The end position is useful because a loop stops when its cursor reaches it. There is no fourth element to read there. This half-open range convention represents an empty range naturally when begin equals end. Pointer subtraction within the same array measures elements, not bytes, provided the difference is representable. Do not first compute a wildly out-of-range pointer and hope to validate it afterward. Check an index or remaining count before forming the pointer. The order of the check is part of keeping the program within defined behavior.",
+      "actions": [
+        "Trace a three-element range and stop before the first invalid dereference."
+      ],
+      "sourceRef": "content/systems-programming/ch7.json → SP07.008 / 7.3 Pointer arithmetic",
+      "question": {
+        "prompt": "Which operation is allowed at the one-past position: compare with end or read *end?",
+        "answer": "Comparing the permitted boundary position is allowed; dereferencing it as an element is not."
+      }
+    },
+    {
+      "title": "Two access paths can share one object without sharing every value",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "code",
+      "keyPoints": [
+        "Both pointers designate value",
+        "A dereference reads or writes the target",
+        "The integer snapshot is an independent copy"
+      ],
+      "narration": "The address-of operator gives both pointer variables access to the same live integer. Writing nine through first changes that object, so reading through second prints nine. Next we copy the integer into snapshot. Writing twelve through first still changes the shared target, but it does not revisit the old value already copied into snapshot. The remaining lines print nine and twelve. This is valid aliasing: two permitted access paths reach one object. The demonstration does not involve ownership transfer, pointer arithmetic, or concurrent access. It isolates why a copied pointer and a copied pointed-to value are different things when tracing a real function's effects.",
+      "actions": [
+        "Draw one target object, two pointer arrows, and one separate snapshot box before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch7.json → SP07.018 / 7.8 Aliasing",
+      "question": {
+        "prompt": "Why does snapshot remain 9 after *first becomes 12?",
+        "answer": "snapshot contains a separate copied integer value; it is not another access path to value."
+      },
+      "code": {
+        "filename": "sys_ch07_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint main() {\n    int value = 4;\n    int* first = &value;\n    int* second = &value;\n    *first = 9;\n    std::cout << \"through second=\" << *second << '\\n';\n    const int snapshot = *second;\n    *first = 12;\n    std::cout << \"copied snapshot=\" << snapshot << '\\n';\n    std::cout << \"current value=\" << *second << '\\n';\n}\n",
+        "expectedStdout": "through second=9\ncopied snapshot=9\ncurrent value=12\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Reacquire an element after a reallocating operation",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "code",
+      "keyPoints": [
+        "Increasing capacity invalidates prior element access",
+        "The saved value and index are ordinary values",
+        "A fresh pointer is taken after the mutation"
+      ],
+      "narration": "The vector begins with four and eight. We save index one and copy its current value, eight. reserve requests more than the present capacity, which requires reallocation if it succeeds. Any earlier pointers, references, or iterators to elements would be invalid afterward. This program deliberately uses none. It appends twelve, then obtains a fresh pointer through at using the saved index. Both the saved and reacquired values print eight, and the size prints three. An index survives this particular append-and-reserve sequence because earlier element positions keep their meaning. Erasing or inserting before the saved position would require a different identity policy.",
+      "actions": [
+        "Ask which operation invalidates old element pointers and where access is reacquired."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch7.json → SP07.012 / 7.5 Iterators",
+      "question": {
+        "prompt": "Would a saved index always identify the same logical item after arbitrary vector edits?",
+        "answer": "No. Insertion or erasure before it can change which item occupies that index. The repair is valid for the demonstrated growth and append operations."
+      },
+      "code": {
+        "filename": "sys_ch07_reacquire.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cstddef>\n#include <iostream>\n#include <vector>\nint main() {\n    std::vector<int> values{4, 8};\n    const std::size_t saved_index = 1;\n    const int snapshot = values[saved_index];\n    values.reserve(values.capacity() + 1); // Forces growth of capacity.\n    values.push_back(12);\n    // Reacquire access after growth; never use an old element pointer.\n    const int* current = &values.at(saved_index);\n    std::cout << \"saved value=\" << snapshot << '\\n';\n    std::cout << \"reacquired value=\" << *current << '\\n';\n    std::cout << \"elements=\" << values.size() << '\\n';\n}\n",
+        "expectedStdout": "saved value=8\nreacquired value=8\nelements=3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "A cursor should consume nothing when a field is incomplete",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "The cursor represents remaining input",
+        "Check full field availability first",
+        "Commit movement only after successful decoding"
+      ],
+      "narration": "A parser reading a two-byte field needs both bytes before it can promise success. If it advances after reading only the first byte and then discovers the second is missing, failure leaves the cursor half-consumed. That makes retry or higher-level error reporting harder. The chapter uses a remaining-range view so the operation can check size, decode the value, and only then replace the cursor with its suffix. Success consumes exactly two bytes; failure consumes none. This is a small transaction boundary. It separates temporary reasoning from committed state and gives callers a clear rule for composing several field readers.",
+      "actions": [
+        "Trace remaining lengths 3 and 1 through a two-byte reader without executing invalid indexing."
+      ],
+      "sourceRef": "content/systems-programming/ch7.json → SP07.020 / Worked example — A bounded cursor",
+      "question": {
+        "prompt": "Why is no consumption on failure useful when readers are composed?",
+        "answer": "A caller can report or recover from the failed field without guessing how much of that field was already consumed."
+      }
+    },
+    {
+      "title": "Ordering pointers does not put their allocations in one array",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Subtraction belongs to a shared array relationship",
+        "A container ordering is a separate facility",
+        "Numeric closeness does not establish adjacency"
+      ],
+      "narration": "Pointers into one array can be compared as positions and subtracted under the language's rules. Pointers to unrelated allocations do not gain that relationship just because their displayed addresses look close. When an ordered container needs an ordering over pointer keys, std::less supplies the relevant ordering facility. That ordering still does not say the objects are adjacent or permit subtraction across allocations. This distinction matters in allocators, where physical-neighbor metadata must be based on the managed region rather than an arbitrary sorted list of pointers. Keep the purpose of a comparison explicit: identity, range position, or key ordering are different questions.",
+      "actions": [
+        "Ask learners to classify equality, array distance, and map ordering as separate uses."
+      ],
+      "sourceRef": "content/systems-programming/ch7.json → SP07.014 / 7.6 Pointer comparisons",
+      "question": {
+        "prompt": "Does sorting pointer keys authorize subtracting neighboring keys as if they were one array?",
+        "answer": "No. Ordering keys does not establish shared array membership or legal pointer arithmetic between their objects."
+      }
+    },
+    {
+      "title": "Invalidation is an event in the owner’s history",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "The owner may remain alive while element pointers expire",
+        "Reallocation is one invalidating mutation",
+        "Nulling one alias does not update others"
+      ],
+      "narration": "A vector can remain a perfectly valid container while a capacity-changing operation invalidates all old element pointers. The owner's lifetime therefore supplies only part of the borrowing contract. The permitted mutation interval matters too. Similar rules apply to callbacks retaining context pointers and views into resizable buffers. Setting one local pointer to null after release does not rewrite other aliases stored elsewhere. A maintainable API should document whether a view remains valid across growth, removal, reset, or replacement. If long-lived identity is required, consider stable ownership or explicit handles rather than trying to make raw pointers survive operations that invalidate them.",
+      "actions": [
+        "Mark an invalidating mutation between creation and attempted use of a borrowed view."
+      ],
+      "sourceRef": "content/systems-programming/ch7.json → SP07.016 / 7.7 Pointer validity",
+      "question": {
+        "prompt": "Can a view become invalid while its container object is still alive?",
+        "answer": "Yes. Mutations such as vector reallocation can invalidate element views without destroying the container itself."
+      }
+    },
+    {
+      "title": "A cast changes the access expression, not the stored object",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Valid aliases preserve required effects",
+        "Unrelated typed access can violate language rules",
+        "Use representation tools for representation work"
+      ],
+      "narration": "Our first demonstration used two int pointers to the same int, so the aliasing was permitted and the later read had to observe the write. Casting an int pointer to a float pointer and reading through it is a different claim: it asks the language to treat the storage as an unrelated typed object without establishing that object. That is not a general conversion of the integer's numeric value or a portable inspection technique. Use ordinary numeric conversion for values, and suitable byte access or bit_cast under its constraints for representation tasks. Clear intent lets both maintainers and the optimizer rely on the same valid access rules.",
+      "actions": [
+        "Contrast numeric conversion with copying a representation and with invalid typed access."
+      ],
+      "sourceRef": "content/systems-programming/ch7.json → SP07.018 / 7.8 Aliasing",
+      "question": {
+        "prompt": "Which operation should convert an integer value numerically to floating point?",
+        "answer": "An ordinary numeric conversion, not reading the integer’s storage through a cast float pointer."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Test ranges at the boundary without crossing it",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Empty ranges must be handled before dereference",
+        "The last element is valid; one-past is not readable",
+        "Rejected access should preserve cursor state"
+      ],
+      "narration": "For a range algorithm, an empty case is not optional decoration. It tests whether the implementation dereferences before checking the stopping condition. A single-element range tests whether the final increment and termination agree. A parser should exercise every input length around the required field size and verify the remaining range after success and failure. The tests themselves must not inspect an invalid pointer to see what happens. Instead, verify the guard and the state it preserves. Tools can help catch mistakes during development, but a clean run is evidence for tested paths, not a proof that every possible borrow and mutation ordering is safe.",
+      "actions": [
+        "Specify expected cursor movement for lengths 0, 1, 2, and 3 when reading a two-byte field."
+      ],
+      "sourceRef": "content/systems-programming/ch7.json → SP07.026 / Guided lab and review",
+      "question": {
+        "prompt": "What does an empty-range test expose in a loop that nonempty tests can miss?",
+        "answer": "A premature dereference or incorrect assumption that begin always names an element."
+      }
+    },
+    {
+      "title": "Explain every pointer arrow with an owner and a time interval",
+      "eyebrow": "07 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Who keeps the target alive?",
+        "Which positions may be accessed?",
+        "Which operation ends the borrow’s validity?"
+      ],
+      "narration": "A useful pointer diagram contains more than addresses. Label the object or range, the owner responsible for lifetime, and the interval during which each borrower may use it. Add the operations that can invalidate access. In the growth demonstration, the saved index is not a pointer and fresh access is obtained after reallocation. In the alias demonstration, both pointers remain valid because the same automatic integer stays alive and no conflicting thread is present. These explanations connect syntax to a maintained invariant. When a program grows, keep those contracts at interfaces so a new caller does not unknowingly retain a pointer beyond its permitted lifetime or mutation boundary.",
+      "actions": [
+        "Ask learners to annotate the two demonstrations with ownership and invalidation facts."
+      ],
+      "sourceRef": "content/systems-programming/ch7.json → SP07.028 / Chapter Synthesis",
+      "question": {
+        "prompt": "What must accompany a returned borrowed pointer in a useful API contract?",
+        "answer": "Its valid extent, supporting owner or lifetime, permitted uses, and operations that invalidate it."
+      }
+    }
+  ]
+}

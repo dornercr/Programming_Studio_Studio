@@ -1,0 +1,729 @@
+Systems Programming and Machine Organization
+Chapter 59: System Robustness
+Dr. Charles Dorner
+
+1. A failure needs a postcondition, not only an error message
+Problem and first experiment
+
+SAY
+A function returning failure does not always mean that nothing happened. A write may have transferred a prefix. A renamed file may already be visible even if a later durability step fails. A remote operation may complete before its acknowledgment is lost. Robustness starts by defining the state left after each failure, then choosing a retry or recovery rule that fits it. This chapter connects return values, parsing, assertions, cleanup, and persistence. The goal is not to keep running at any cost, but to leave a known safe state and enough evidence to diagnose the failed boundary.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.006: 59.2 Error handling
+
+------------------------------------------------------------
+
+2. Parsing a valid numeric prefix is not validating the whole field
+Problem and first experiment
+
+SAY
+The string eighty followed by x begins with a valid integer, so from_chars stores eighty and stops before x. Its error code is clear because parsing the numeric prefix succeeded. The program then compares the returned pointer with the end of the input and prints complete equals zero. A configuration field requiring only an integer must reject this result, even though the value looks reasonable. This is a small original boundary demonstration related to the source version parser. Real validation also checks the accepted numeric range and grammar, such as whether leading signs or spaces are allowed, before committing any live setting.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+3. Scope owners clean up a partially completed operation
+Problem and first experiment
+
+SAY
+This Linux/POSIX program creates a local pipe and immediately places each descriptor in a noncopyable owner. It then deliberately throws before doing any I/O. Stack unwinding destroys both owners, each closes its own descriptor, and the outside counter records two successful closes. The output reports two closed descriptors and one caught failure; it does not depend on their assigned integer values. The counter outlives both owners, so their references remain valid. This illustrates leak prevention on a partial setup path. It does not claim that closing a descriptor confirms durable output or completes an application transaction.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.024: Worked example — Cleanup on partial failure
+
+------------------------------------------------------------
+
+4. Use the failure indicator that belongs to the interface
+Problem and first experiment
+
+SAY
+Different system interfaces have different failure conventions. A descriptor-returning call can use minus one. A mapping operation uses MAP_FAILED rather than a generic null test. Many POSIX thread interfaces return an error number directly instead of asking the caller to read errno. A wrapper that forces all of these into one guessed convention can report stale errors or treat failure as success. Read the documented result before inspecting any secondary status. Then preserve enough safe context to identify the operation and resource involved. Consistent application-level error types are useful only after the wrapper has respected the underlying interface.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.008: 59.3 Return values
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A settings update must preserve the old value if validation fails. Build the candidate separately, and replace the live state only after checking it.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Accept exactly version=N with decimal N in [1,99]. Parse into temporary state and change the live string only after complete validation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Writing half a new configuration directly over the live file can destroy the only good version before validation finishes.
+
+A related failure in the generalized operation is concrete: Accept version=2x because the numeric parser found an initial 2. The unconsumed suffix violates the format.
+
+The repair changes the operation at the point where the rule can be enforced: Require successful conversion and parsed.ptr==last, then enforce the range before committing.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+from_chars reports both an error and the point where parsing stopped, so accepting a numeric prefix alone is not enough. The candidate must fit the entire grammar and range. A separately built string provides a commit point through swap; invalid input leaves the old value untouched. This is process-local exception-safe state replacement, not a durable file transaction.
+
+A plausible alternative: A memory-only swap is sufficient for process-local state; durable external state requires a documented failure model.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.03
+
+------------------------------------------------------------
+
+8. Chapter 59 — System Robustness
+Systems mechanisms and source lecture
+
+SAY
+Robustness is the ability to behave predictably when inputs are invalid, resources are unavailable, operations make partial progress, or dependencies fail. It requires explicit failure contracts and cleanup paths. A robust system does not have to succeed at every request; it must avoid turning a failed request into corruption, leakage, or an unexplained hang. Correctness on the normal path is only the beginning. Examine each resource acquisition and each externally visible update: what can fail before it, what can fail after it, and what state remains when that happens?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.001, SP59.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+59.1 Defensive programming 59.2 Error handling 59.3 Return values 59.4 errno ...plus 8 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.003
+
+------------------------------------------------------------
+
+10. Defensive programming
+Systems mechanisms and source lecture
+
+SAY
+Defensive programming validates assumptions at trust boundaries and makes internal invariants explicit. Validate external lengths, indexes, versions, and resource requests before using them. Keep validated values in a representation that will not silently change during later conversion. Avoid indiscriminate checks that conceal programming errors or continue with fabricated defaults. A failed invariant inside a component may require stopping that operation rather than proceeding with a “best guess” pointer or size. The response should preserve safety and make diagnosis possible.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.004, SP59.005
+
+------------------------------------------------------------
+
+11. Error handling
+Systems mechanisms and source lecture
+
+SAY
+Error handling must define the operation’s postcondition after failure. Did nothing happen, did some bytes transfer, or did the update commit but its acknowledgment fail? These are different states with different retry rules. Design for idempotence where retries are expected. Repeating a read is different from repeating a money transfer or appending a record. An error does not necessarily mean that the remote side performed no work. Protocols need identifiers, transactions, or explicit reconciliation when duplicate effects would be harmful.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.006, SP59.007
+
+------------------------------------------------------------
+
+12. Return values
+Systems mechanisms and source lecture
+
+SAY
+Use each interface’s documented failure indicator. A negative descriptor result, a null allocation result, MAP_FAILED , a short element count, and a C++ exception are not interchangeable conventions. Some APIs return an error number directly rather than storing it in errno , notably many POSIX thread interfaces. Reading errno after such a call can report an unrelated value. Wrap interfaces only after preserving their distinct contracts.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.008, SP59.009
+
+------------------------------------------------------------
+
+13. errno
+Systems mechanisms and source lecture
+
+SAY
+errno is meaningful when an interface documents that its failure result sets it. A successful call need not clear an old error value. Inspecting errno after success can therefore diagnose a failure that never occurred. Save the error code before cleanup or logging that could change it. Report the failed operation and relevant safe context, not just an unexplained number. In multithreaded POSIX environments, errno access is thread-specific, but that does not make stale values meaningful. [ R54 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.010, SP59.011
+
+------------------------------------------------------------
+
+14. Assertions
+Systems mechanisms and source lecture
+
+SAY
+Assertions document and test internal invariants. They are not a substitute for validating untrusted input because ordinary C/C++ assertion checks can be disabled in builds defining NDEBUG . Do not place required side effects inside an assertion. assert(close(fd) == 0) can remove the close operation when assertions are disabled. Perform the operation explicitly, handle its result, and use assertions only for checks whose removal does not change required behavior.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.012, SP59.013
+
+------------------------------------------------------------
+
+15. Sanitizers
+Systems mechanisms and source lecture
+
+SAY
+AddressSanitizer, UndefinedBehaviorSanitizer, and ThreadSanitizer instrument different classes of behavior. Their availability, compatible combinations, and runtime requirements differ. Address and undefined-behavior checks are commonly combined; thread-race checking should normally use a separate build. [ R5 , R6 , R53 ] A clean run means that the enabled instrumentation reported no covered failure during that execution. It does not prove memory safety, race freedom, or correct recovery on unexecuted paths. Keep compiler warnings, static analysis, boundary tests, and design review alongside instrumentation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.014, SP59.015
+
+------------------------------------------------------------
+
+16. Resource cleanup
+Systems mechanisms and source lecture
+
+SAY
+Cleanup releases every owned resource exactly once: memory, descriptors, mappings, threads, temporary files, and permits. RAII in C++ and structured cleanup paths in C make the ownership visible during both normal returns and failures. Destructors should not casually throw during stack unwinding. Operations whose completion can fail meaningfully, such as flushing durable output, often need an explicit checked completion method before fallback destruction. Cleanup that merely prevents leaks is not the same as successful commit.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.016, SP59.017
+
+------------------------------------------------------------
+
+17. Failure recovery
+Systems mechanisms and source lecture
+
+SAY
+Recovery establishes a known consistent state after failure. Common techniques include constructing a new result before replacing the old one, writing temporary files before rename, logging transactions, and restarting isolated workers. Atomic visibility and durable persistence are different guarantees. A rename can make a new pathname visible atomically under filesystem rules, while durable recovery after power loss can require synchronizing the file and containing directory. The exact guarantee also depends on filesystem and hardware behavior. [ R33 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.018, SP59.019
+
+------------------------------------------------------------
+
+18. A checked snapshot protocol in a private temporary directory
+Systems mechanisms and source lecture
+
+SAY
+The program below creates its own temporary directory, writes a new snapshot, synchronizes it, closes it, renames it into place, and synchronizes the directory. It then verifies the bytes and removes only its own test artifacts. It does not operate on an existing user file. Companion listing: ch59/snapshot.c The expected output is snapshot checks passed on a filesystem supporting the requested synchronization. The test verifies successful API sequencing and byte contents. It does not simulate power loss, prove a storage device’s behavior, or establish crash consistency on every filesystem. The commit point also matters for real recovery. If rename succeeds but directory synchronization fails, the new file may already be visible even though the requested durability was not confirmed. A production API should report that distinction instead of promising that failure means “nothing changed.” This private test removes its own artifacts after either path, which is appropriate for a lab but not a replacement for an application’s recovery policy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.020, SP59.021
+
+------------------------------------------------------------
+
+19. errno handling
+Systems mechanisms and source lecture
+
+SAY
+A function such as open indicates failure through its documented return value. Only after detecting failure should code inspect errno , because unrelated successful library calls may leave old errno values unchanged. Save the error code if subsequent operations could overwrite it before reporting or cleanup.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.022, SP59.023
+
+------------------------------------------------------------
+
+20. Cleanup on partial failure
+Systems mechanisms and source lecture
+
+SAY
+Suppose initialization opens a file, allocates a buffer, then fails to create a thread. Recovery must release the buffer and close the file while avoiding cleanup for resources never acquired. RAII in C++ or structured cleanup paths in C make ownership states explicit so every exit path restores a valid resource state.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.024, SP59.025
+
+------------------------------------------------------------
+
+21. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 59. Write a failure-state table for each stage: before creation, after partial write, after file synchronization, after rename, and after directory synchronization. For each, state which names may exist and whether the new state is visible or durably confirmed under the assumed filesystem contract. Do not simulate device failure on a machine holding valuable data. Review 1. Why is errno after success unreliable? Review 2. Why should required cleanup never be placed only inside an assertion?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.026, SP59.027
+
+------------------------------------------------------------
+
+22. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is system robustness. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.028
+
+------------------------------------------------------------
+
+23. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: From Source Code to Running Program.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.029
+
+------------------------------------------------------------
+
+24. errno is evidence only after the documented failure result
+Reason about the implementation
+
+SAY
+Imagine that an earlier operation left an error value and a later open succeeds. Inspecting errno alone can falsely label the successful open a failure because success need not clear it. First test the interface's documented return value; only then, when specified, inspect errno. Save that value before cleanup or logging calls can overwrite it. In a multithreaded POSIX environment errno is thread-specific, but that does not make an old value meaningful. A diagnostic should identify what failed and relevant safe context, not simply print an unexplained integer that a maintainer must guess how to interpret.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.010: 59.4 errno
+
+------------------------------------------------------------
+
+25. Required work must not hide inside assert
+Reason about the implementation
+
+SAY
+An assertion is useful for an internal condition that should already be true, but ordinary C and C++ assertions can disappear when NDEBUG is defined. If assert contains close(fd), that build may remove the close itself and leak the descriptor. Likewise, untrusted lengths cannot be accepted merely because a debug assertion checked them during development. Perform required operations and boundary validation explicitly, handle their failure according to the contract, and use assertions for additional internal evidence. Tests should include the release configuration when changing error handling so behavior does not accidentally depend on debug-only evaluation.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.012: 59.5 Assertions
+
+------------------------------------------------------------
+
+26. A private candidate can preserve the old live value
+Reason about the implementation
+
+SAY
+The workshop version updater keeps its old string while it parses the proposed field, verifies complete consumption, and checks the range. It then constructs the canonical replacement separately and swaps only after preparation succeeds. Invalid input leaves the old live value unchanged. That is a process-local exception-safety guarantee, not a durable file transaction. The key proof is that possible failures occur before the commit step and affect only temporary state. If a future update sends a message or modifies a second subsystem during preparation, the guarantee must be reconsidered because those outside effects are not undone by a string swap.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+27. Atomic visibility and durable persistence are different claims
+Reason about the implementation
+
+SAY
+The source snapshot lab writes a new file in its own temporary directory, synchronizes it, closes it, renames it into place, and synchronizes the directory. That sequence distinguishes prepared contents from publication and requested durability. If rename succeeds but directory synchronization fails, the new name may already be visible even though durability was not confirmed. Reporting simply that nothing changed would be false. The private fixture checks API sequencing and bytes, not power-loss recovery on every filesystem or storage device. A production recovery contract must state which visible and durable states callers should expect after each failure point.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.020: Worked example — A checked snapshot protocol in a private temporary directory
+
+------------------------------------------------------------
+
+28. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A settings update must preserve the old value if validation fails. Build the candidate separately, and replace the live state only after checking it.
+
+Prepare invalid input. live remains version=1. Uncommitted work is kept separate from visible state.
+
+Reject invalid candidate. still version=1. A failed attempt preserves the previous usable value.
+
+Validate and commit the next candidate. live becomes version=2. The model has one explicit commit point; a real file protocol must separately address atomic replacement and durability.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch59/main.cpp
+
+------------------------------------------------------------
+
+29. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Prepare invalid input. live remains version=1. Uncommitted work is kept separate from visible state.
+
+Reject invalid candidate. still version=1. A failed attempt preserves the previous usable value.
+
+Validate and commit the next candidate. live becomes version=2. The model has one explicit commit point; a real file protocol must separately address atomic replacement and durability.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch59/main.cpp
+
+------------------------------------------------------------
+
+30. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+from_chars reports both an error and the point where parsing stopped, so accepting a numeric prefix alone is not enough. The candidate must fit the entire grammar and range. A separately built string provides a commit point through swap; invalid input leaves the old value untouched. This is process-local exception-safe state replacement, not a durable file transaction.
+
+Require successful conversion and parsed.ptr==last, then enforce the range before committing.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch59/main.cpp:1-14
+
+------------------------------------------------------------
+
+31. Prepare, validate, then commit
+Code, diagrams, and debugging
+
+SAY
+Prepare, validate, then commit. rfind with position zero checks whether version= occurs at the beginning. Only an accepted candidate is swapped into live. This baseline’s prefix-only validation is intentionally weaker than a full configuration parser.
+
+A settings update must preserve the old value if validation fails. Build the candidate separately, and replace the live state only after checking it.
+
+Uncommitted work is kept separate from visible state. A failed attempt preserves the previous usable value. The model has one explicit commit point; a real file protocol must separately address atomic replacement and durability.
+
+rfind with position zero checks whether version= occurs at the beginning. Only an accepted candidate is swapped into live. This baseline’s prefix-only validation is intentionally weaker than a full configuration parser.
+
+The rejected broken candidate leaves live equal to version=1, which is printed.
+
+Replace the temporary candidate with version=2 while leaving live untouched.
+
+The prefix test accepts this candidate and swap commits it. The lab strengthens validation to reject missing numbers and trailing junk.
+
+A rejected candidate leaves live state unchanged. Commit occurs only after the chosen validation succeeds; the lab strengthens the initially narrow validation rule.
+
+Writing half a new configuration directly over the live file can destroy the only good version before validation finishes. In the extended lab: Accept version=2x because the numeric parser found an initial 2. The unconsumed suffix violates the format.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch59/main.cpp:8-11
+
+------------------------------------------------------------
+
+32. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Accept version=2x because the numeric parser found an initial 2. The unconsumed suffix violates the format.
+
+Require successful conversion and parsed.ptr==last, then enforce the range before committing.
+
+The reference solution makes the contract executable with assertions. from_chars reports both an error and the point where parsing stopped, so accepting a numeric prefix alone is not enough. The candidate must fit the entire grammar and range. A separately built string provides a commit point through swap; invalid input leaves the old value untouched. This is process-local exception-safe state replacement, not a durable file transaction.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.06
+
+------------------------------------------------------------
+
+33. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch59/starter.cpp. Implement the first acceptance case for validate then commit a configuration update. State the function inputs and result before adding code. First case: version=2 replaces version=1.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.07
+
+------------------------------------------------------------
+
+34. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch59/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.08
+
+------------------------------------------------------------
+
+35. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Accept version=2x because the numeric parser found an initial 2. The unconsumed suffix violates the format. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.09
+
+------------------------------------------------------------
+
+36. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Does an atomic rename alone guarantee data survives a power failure? Compare the selected design with this plausible alternative: A memory-only swap is sufficient for process-local state; durable external state requires a documented failure model.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.10
+
+------------------------------------------------------------
+
+37. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch59/starter.cpp. Accept exactly version=N with decimal N in [1,99]. Parse into temporary state and change the live string only after complete validation. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch59/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.11
+
+------------------------------------------------------------
+
+38. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Validate then commit a configuration update belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.12
+
+------------------------------------------------------------
+
+39. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Accept exactly version=N with decimal N in [1,99]. Parse into temporary state and change the live string only after complete validation.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch59/starter.cpp
+
+------------------------------------------------------------
+
+40. Review the extension solution
+Practice and extension
+
+SAY
+from_chars reports both an error and the point where parsing stopped, so accepting a numeric prefix alone is not enough. The candidate must fit the entire grammar and range. A separately built string provides a commit point through swap; invalid input leaves the old value untouched. This is process-local exception-safe state replacement, not a durable file transaction. Repair principle: Require successful conversion and parsed.ptr==last, then enforce the range before committing.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Require successful conversion and parsed.ptr==last, then enforce the range before committing.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch59/solution.cpp
+
+------------------------------------------------------------
+
+41. Application case: System Robustness
+Practice and extension
+
+SAY
+A function acquires a resource, then a later operation fails.
+
+What must its error path preserve?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.CASE
+
+------------------------------------------------------------
+
+42. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+from_chars reports both an error and the point where parsing stopped, so accepting a numeric prefix alone is not enough. The candidate must fit the entire grammar and range. A separately built string provides a commit point through swap; invalid input leaves the old value untouched. This is process-local exception-safe state replacement, not a durable file transaction.
+
+Choose a simpler approach when its narrower contract is enough. A memory-only swap is sufficient for process-local state; durable external state requires a documented failure model.
+
+When this system changes, retain a check that exposes the known failure: Accept version=2x because the numeric parser found an initial 2. The unconsumed suffix violates the format. Require successful conversion and parsed.ptr==last, then enforce the range before committing.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch59.json → SYS59.14
+
+------------------------------------------------------------
+
+43. Sanitizers cover different failure classes and executed paths
+Recall and transfer
+
+SAY
+AddressSanitizer can expose certain memory-access and lifetime errors. UndefinedBehaviorSanitizer covers selected undefined operations. ThreadSanitizer targets data races through separate instrumentation with its own runtime requirements. These tools are not interchangeable and some combinations are inappropriate. A clean execution means the enabled checks reported no covered defect on the paths that ran; it does not prove every future input is safe or every failure path is correct. Retain warnings, boundary tests, invariant review, and controlled failure injection. If the environment cannot run a tool, report that limitation rather than silently treating the check as passed.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.014: 59.6 Sanitizers
+
+------------------------------------------------------------
+
+44. Recovery should leave a known state and a reviewable story
+Recall and transfer
+
+SAY
+A robust operation can be described as a sequence of ownership and state transitions. After acquiring a descriptor, who owns it? After allocating a buffer, which failure path releases it? Before commit, can the old state remain valid? After commit, what does a lost acknowledgment mean? Design tests that fail after each meaningful boundary and inspect both resources and user-visible state. Cleanup can prevent leaks without proving that output was flushed successfully. The goal is a clear postcondition, not merely a catch block. That clarity lets maintainers change implementation details without accidentally changing the meaning of failure.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch59.json → SP59.018: 59.8 Failure recovery

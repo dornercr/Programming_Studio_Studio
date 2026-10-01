@@ -1,0 +1,680 @@
+Systems Programming and Machine Organization
+Chapter 57: Memory-Safety Vulnerabilities
+Dr. Charles Dorner
+
+1. A valid address is not a valid object access
+Problem and first experiment
+
+SAY
+A pointer can designate a mapped writable page and still be invalid for the object or range a program intends to use. A large buffer may have capacity for one thousand bytes while only seven bytes were received. A freed object may leave plausible-looking bits at its former address. Neither situation authorizes reading or writing those bytes as live input. Memory safety requires the correct extent and lifetime at each access. This chapter studies those boundaries with safe demonstrations and checked arithmetic. We will not deliberately execute an overflow or use-after-free and then treat one observed outcome as a guarantee.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.008: 57.3 Heap corruption
+
+------------------------------------------------------------
+
+2. A narrowing conversion can hide an oversized request
+Problem and first experiment
+
+SAY
+This demonstration legally converts the number two hundred sixty to an eight-bit unsigned type, producing four modulo two hundred fifty-six. It does not allocate four bytes and copy two hundred fifty into them; that unsafe operation is deliberately absent. The printed wrapped total shows how a bad size pipeline could under-allocate. The checked decision compares the payload against maximum minus header before addition and rejects the request. Use one validated representation for both allocation and the later copy. Checking a narrowed size while retaining the original large copy length creates two conflicting meanings for the same request.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.012: 57.5 Integer errors
+
+------------------------------------------------------------
+
+3. A safe observer asks whether ownership still exists
+Problem and first experiment
+
+SAY
+The observer refers weakly to a string created inside a scope. While the strong owner exists, expired is false and the program prints alive equals one. When the scope ends, the only strong owner is destroyed and the object dies. The later lock cannot obtain an owner, so the program prints expired equals one and unavailable. No freed string is accessed. This is one possible lifetime design, not a command to use shared ownership everywhere. A shorter borrowed reference with a guaranteed enclosing owner can be simpler. Shared ownership also does not synchronize concurrent changes to the string itself.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.010: 57.4 Use-after-free
+
+------------------------------------------------------------
+
+4. Validate received bytes rather than allocated capacity
+Problem and first experiment
+
+SAY
+Suppose a receive buffer has capacity sixty-four bytes but the latest valid input extent is only five. A two-byte header claiming four payload bytes does not fit: only three payload bytes have arrived. Capacity cannot supply the missing fourth byte. The parser first proves the header exists, then enforces the application maximum, then compares the payload length with received minus header. Short-circuit evaluation makes that subtraction safe only after the header bound holds. This order also avoids an overflowing header-plus-payload expression. Once validation succeeds, use that same checked extent when constructing a view or copying data.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A packet model has an eight-byte header in a ten-byte buffer. It claims five payload bytes; reject the frame without an overflowing addition.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Return whether a header and claimed payload fit inside a received extent, with a separate maximum payload of eight. Check the header before subtracting.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Checking header_size + claimed_payload <= buffer_size can wrap if unchecked size_t inputs are large. Passing a wrapped check can lead to an undersized buffer.
+
+A related failure in the generalized operation is concrete: Compare against buffer capacity rather than the number of bytes actually received. Uninitialized or stale bytes can be mistaken for input.
+
+The repair changes the operation at the point where the rule can be enforced: Carry valid extent with the data and validate against it. Keep allocation capacity as a separate property.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+A parser needs both a received-extent check and an application resource limit. A large backing allocation does not imply that unread bytes are valid input, and a valid extent does not authorize an arbitrarily large message. Short-circuit evaluation ensures subtraction occurs only after the header is known to fit.
+
+A plausible alternative: A bounded view carrying pointer and length reduces mismatched arguments; it does not remove the need for correct validation.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.03
+
+------------------------------------------------------------
+
+8. Chapter 57 — Memory-Safety Vulnerabilities
+Systems mechanisms and source lecture
+
+SAY
+A memory-safety vulnerability arises when a program permits access outside the intended bounds, lifetime, type, or ownership of an object in a way that can affect security. The underlying mistake may begin as an ordinary correctness bug, but untrusted input can make its consequences repeatable and externally controllable. The defensive objective is to prevent invalid operations before they occur. Page permissions and hardening features are valuable secondary barriers, but they do not replace length validation, checked arithmetic, lifetime management, and synchronization. This chapter uses safe rejection tests rather than exploitation exercises. [ R5 , R8 , R34 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.001, SP57.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+57.1 Buffer overflows 57.2 Stack corruption 57.3 Heap corruption 57.4 Use-after-free ...plus 5 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.003
+
+------------------------------------------------------------
+
+10. Buffer overflows
+Systems mechanisms and source lecture
+
+SAY
+A buffer overflow writes beyond a buffer’s valid extent. The immediate cause can be an unchecked length, a missing terminator allowance, a wrong element-size calculation, or a parser that trusts a field before validating it. Tie every byte operation to an explicit extent. For a destination of capacity c and requested copy length n , prove n <= c before copying. For a string requiring a terminator, include that byte in the contract without computing an overflowing n + 1 . A length-aware interface helps, but its supplied lengths must still be correct.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.004, SP57.005
+
+------------------------------------------------------------
+
+11. Stack corruption
+Systems mechanisms and source lecture
+
+SAY
+Stack corruption damages automatic storage or implementation-managed call state. A write beyond a local array can affect nearby objects, saved registers, or other control information depending on layout and optimization. Do not rely on a particular stack arrangement to decide whether an overflow is harmless. Compilers can reorder, eliminate, or place objects differently. Prevent the out-of-bounds write itself; a test that happens to modify only padding on one build does not establish safety.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.006, SP57.007
+
+------------------------------------------------------------
+
+12. Heap corruption
+Systems mechanisms and source lecture
+
+SAY
+Heap corruption damages dynamically allocated objects or allocator bookkeeping. A write can remain inside a mapped writable page and still cross an allocation boundary. The operating system’s page checks may therefore permit the machine access while the language program has already violated its contract. Allocator crashes often occur later than the original bad write. A failure during allocation or deallocation may be a symptom of earlier corruption, not proof that the allocator is the root cause. Instrumented testing and minimizing the first invalid operation are more useful than patching the eventual crash site blindly.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.008, SP57.009
+
+------------------------------------------------------------
+
+13. Use-after-free
+Systems mechanisms and source lecture
+
+SAY
+Use-after-free accesses an object after its lifetime and ownership have ended. The address may still be mapped and may even contain plausible data. Reuse by another allocation can turn the stale access into corruption of an unrelated object. Ownership abstractions reduce the risk, but raw observers still need lifetime rules. A unique_ptr prevents duplicate ownership but does not make every raw pointer derived from it safe after reset. Shared ownership can extend lifetime, but it does not automatically synchronize mutable contents.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.010, SP57.011
+
+------------------------------------------------------------
+
+14. Integer errors
+Systems mechanisms and source lecture
+
+SAY
+Integer errors can create memory vulnerabilities indirectly. A negative length converted to an unsigned size can become very large. A wrapped multiplication can allocate too little storage for a later copy. A truncating conversion can make validation inspect a different value from the one subsequently used. Validate in a representation that can express the required range, then convert. For allocation size count * element_size , require count <= maximum / element_size when the element size is nonzero. Use the same validated value for the actual operation; re-parsing or recomputing with different types can reintroduce the defect.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.012, SP57.013
+
+------------------------------------------------------------
+
+15. Validate one complete bounded frame
+Systems mechanisms and source lecture
+
+SAY
+This parser accepts a two-byte big-endian length followed by exactly that many payload bytes, with a maximum payload of 16 bytes. It returns a borrowed view, so the input owner must remain alive while the result is used. No allocation depends on the untrusted length. Companion listing: ch57/parse_frame.cpp The validation order is deliberate. First prove that the prefix bytes exist. Then decode into a type wide enough for the field. Next enforce the application maximum. Finally compare the remaining input length without an unchecked addition. Only after all checks does the parser create the payload view. The strict equality rejects trailing bytes because this function parses exactly one complete frame. A streaming parser would instead retain unconsumed bytes and return a consumed-length result. Changing that contract requires a deliberate interface change, not silently ignoring extra data.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.014, SP57.015
+
+------------------------------------------------------------
+
+16. Length-field integer bug
+Systems mechanisms and source lecture
+
+SAY
+A protocol contains a 32-bit length. Code computes length + 4 in 32 bits before allocating. If length is near UINT32_MAX , the addition wraps to a small number, the allocation succeeds, and a later copy uses the large logical length. Validate the bound before addition or promote to a wider checked type so allocation and copy use the same safe size.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.016, SP57.017
+
+------------------------------------------------------------
+
+17. Stack overwrite boundary
+Systems mechanisms and source lecture
+
+SAY
+A local buffer of 32 bytes cannot safely receive 40 unchecked input bytes. The extra writes can corrupt adjacent stack data such as saved state or other locals. Mitigations may detect or complicate exploitation, but the primary fix is enforcing a correct length contract before writing.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.018, SP57.019
+
+------------------------------------------------------------
+
+18. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 57. Test payload lengths 0, 1, 15, 16, and 17, including exact, truncated, and extra-byte inputs. Verify that rejection does not mutate the input or produce a usable payload view. Keep the backing arrays alive through every accepted-view access. Review 1. Why can page-level protection miss a heap overflow? Review 2. Why is checking a truncated length different from checking the original input value?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.020, SP57.021
+
+------------------------------------------------------------
+
+19. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is memory-safety vulnerabilities. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.022
+
+------------------------------------------------------------
+
+20. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Exploit Mitigations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.023
+
+------------------------------------------------------------
+
+21. Exactly one frame and one frame from a stream are different APIs
+Reason about the implementation
+
+SAY
+The source complete-frame parser requires the two-byte length to match exactly the remaining input, so trailing bytes are rejected. That is appropriate when the caller promises one complete message. The earlier stream parser instead needs to accept one frame and retain the next frame's bytes, returning a consumed count. Both can be correct because they answer different questions. Silently changing equality to a less-than-or-equal check may hide accidental extra data in the first interface. Write the boundary in the function contract and test trailing input explicitly. Representation should follow the intended unit of validation, not whichever comparison seems convenient.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.014: Worked example — Validate one complete bounded frame
+
+------------------------------------------------------------
+
+22. Stack corruption has no harmless-layout promise
+Reason about the implementation
+
+SAY
+A local array of thirty-two bytes cannot safely receive forty unchecked bytes. On one build the extra writes might appear to touch unused padding; on another they may affect another variable or implementation-managed state. C++ does not make out-of-bounds access valid because an experiment seems harmless. Optimizations and stack layout can change what symptoms appear, and undefined behavior removes the reliable source-level reasoning we need. The repair is to prove the destination extent before writing, including terminator requirements where relevant. A canary or sanitizer can detect some failures, but neither changes the original bound.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.006: 57.2 Stack corruption
+
+------------------------------------------------------------
+
+23. A heap failure may be a delayed symptom
+Reason about the implementation
+
+SAY
+Heap corruption can surface far from its origin. One request writes past its buffer, damaging an adjacent object or allocator bookkeeping. A later unrelated allocation then fails or crashes. Patching the allocator call that finally reports trouble may leave the original write untouched. Reduce the failing case, enable suitable instrumentation, and trace the earliest invalid operation. Keep ownership and extents visible at interfaces so the defect can be narrowed to a specific promise. The operating system may permit the machine write because the surrounding page is writable, even while the language-level object access is already invalid.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.008: 57.3 Heap corruption
+
+------------------------------------------------------------
+
+24. Validate sign and multiplication before converting a size
+Reason about the implementation
+
+SAY
+An external count should be validated before converting it to an allocation size. If a signed negative count becomes size_t first, it may turn into a very large positive value. For multiplication, a nonzero element size lets us check count against maximum divided by element size before forming the product. The same validated count should then control construction and copying. Re-parsing the field or recomputing it in a narrower type can reintroduce disagreement. These checks belong at the trust boundary, while internal assertions can document the invariant once it has been established.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.012: 57.5 Integer errors
+
+------------------------------------------------------------
+
+25. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A packet model has an eight-byte header in a ten-byte buffer. It claims five payload bytes; reject the frame without an overflowing addition.
+
+Check the fixed header. 8 <= 10. Subtraction is only safe for the remaining size after this check.
+
+Compute remaining extent. 10 - 8 = 2. Only two payload bytes are available.
+
+Validate the claim. 5 <= 2 is false. Reject before copying, allocating from the claim, or interpreting nonexistent bytes.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch57/main.cpp
+
+------------------------------------------------------------
+
+26. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Check the fixed header. 8 <= 10. Subtraction is only safe for the remaining size after this check.
+
+Compute remaining extent. 10 - 8 = 2. Only two payload bytes are available.
+
+Validate the claim. 5 <= 2 is false. Reject before copying, allocating from the claim, or interpreting nonexistent bytes.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch57/main.cpp
+
+------------------------------------------------------------
+
+27. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+A parser needs both a received-extent check and an application resource limit. A large backing allocation does not imply that unread bytes are valid input, and a valid extent does not authorize an arbitrarily large message. Short-circuit evaluation ensures subtraction occurs only after the header is known to fit.
+
+Carry valid extent with the data and validate against it. Keep allocation capacity as a separate property.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch57/main.cpp:1-13
+
+------------------------------------------------------------
+
+28. Validate lengths before using them
+Code, diagrams, and debugging
+
+SAY
+Validate lengths before using them. Validate the header against the received extent before computing how much remains. The header fits here, leaving only two bytes.
+
+A packet model has an eight-byte header in a ten-byte buffer. It claims five payload bytes; reject the frame without an overflowing addition.
+
+Subtraction is only safe for the remaining size after this check. Only two payload bytes are available. Reject before copying, allocating from the claim, or interpreting nonexistent bytes.
+
+Validate the header against the received extent before computing how much remains. The header fits here, leaving only two bytes.
+
+&& short-circuits the subtraction when the first check fails. Claimed payload five exceeds the remaining two, so this input is rejected before accessing it.
+
+Validate the header before subtracting it from the received size. The payload must fit within the remaining valid bytes.
+
+Checking header_size + claimed_payload <= buffer_size can wrap if unchecked size_t inputs are large. Passing a wrapped check can lead to an undersized buffer. In the extended lab: Compare against buffer capacity rather than the number of bytes actually received. Uninitialized or stale bytes can be mistaken for input.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch57/main.cpp:9-10
+
+------------------------------------------------------------
+
+29. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Compare against buffer capacity rather than the number of bytes actually received. Uninitialized or stale bytes can be mistaken for input.
+
+Carry valid extent with the data and validate against it. Keep allocation capacity as a separate property.
+
+The reference solution makes the contract executable with assertions. A parser needs both a received-extent check and an application resource limit. A large backing allocation does not imply that unread bytes are valid input, and a valid extent does not authorize an arbitrarily large message. Short-circuit evaluation ensures subtraction occurs only after the header is known to fit.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.06
+
+------------------------------------------------------------
+
+30. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch57/starter.cpp. Implement the first acceptance case for validate a complete bounded frame extent. State the function inputs and result before adding code. First case: Header 2,payload 3,received 5 is valid.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.07
+
+------------------------------------------------------------
+
+31. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch57/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.08
+
+------------------------------------------------------------
+
+32. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Compare against buffer capacity rather than the number of bytes actually received. Uninitialized or stale bytes can be mistaken for input. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.09
+
+------------------------------------------------------------
+
+33. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Should a parser accept a frame merely because the backing buffer happens to contain extra allocated memory? Compare the selected design with this plausible alternative: A bounded view carrying pointer and length reduces mismatched arguments; it does not remove the need for correct validation.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.10
+
+------------------------------------------------------------
+
+34. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch57/starter.cpp. Return whether a header and claimed payload fit inside a received extent, with a separate maximum payload of eight. Check the header before subtracting. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch57/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.11
+
+------------------------------------------------------------
+
+35. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Validate a complete bounded frame extent belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.12
+
+------------------------------------------------------------
+
+36. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Return whether a header and claimed payload fit inside a received extent, with a separate maximum payload of eight. Check the header before subtracting.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch57/starter.cpp
+
+------------------------------------------------------------
+
+37. Review the extension solution
+Practice and extension
+
+SAY
+A parser needs both a received-extent check and an application resource limit. A large backing allocation does not imply that unread bytes are valid input, and a valid extent does not authorize an arbitrarily large message. Short-circuit evaluation ensures subtraction occurs only after the header is known to fit. Repair principle: Carry valid extent with the data and validate against it. Keep allocation capacity as a separate property.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Carry valid extent with the data and validate against it. Keep allocation capacity as a separate property.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch57/solution.cpp
+
+------------------------------------------------------------
+
+38. Application case: Memory-Safety Vulnerabilities
+Practice and extension
+
+SAY
+Untrusted input supplies a length used to copy into a fixed buffer.
+
+What boundary must be checked?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.CASE
+
+------------------------------------------------------------
+
+39. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+A parser needs both a received-extent check and an application resource limit. A large backing allocation does not imply that unread bytes are valid input, and a valid extent does not authorize an arbitrarily large message. Short-circuit evaluation ensures subtraction occurs only after the header is known to fit.
+
+Choose a simpler approach when its narrower contract is enough. A bounded view carrying pointer and length reduces mismatched arguments; it does not remove the need for correct validation.
+
+When this system changes, retain a check that exposes the known failure: Compare against buffer capacity rather than the number of bytes actually received. Uninitialized or stale bytes can be mistaken for input. Carry valid extent with the data and validate against it. Keep allocation capacity as a separate property.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch57.json → SYS57.14
+
+------------------------------------------------------------
+
+40. An owner cannot protect every observer automatically
+Recall and transfer
+
+SAY
+Owning abstractions make release responsibility clearer, but they do not repair every borrowed pointer. A raw pointer obtained from unique_ptr becomes invalid when its object is reset or destroyed. A string_view returned by a parser similarly depends on its input owner's lifetime and on changes that may invalidate storage. The complete-frame source deliberately returns a borrowed view, so its caller must keep the input alive while using it. If the result must outlive the input, return owned data or transfer an owner. Choose the least complicated lifetime model that actually supports the caller's use.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.014: Worked example — Validate one complete bounded frame
+
+------------------------------------------------------------
+
+41. Boundary tests should target the first proof obligation
+Recall and transfer
+
+SAY
+A useful parser test matrix follows the validation order. Supply fewer bytes than the header requires, a complete header with a short body, an exact maximum-size message, an oversized length, and trailing bytes when the API forbids them. Extreme integer values challenge addition and conversion assumptions. Lifetime tests should observe release or failed ownership acquisition safely, as the weak observer demonstration does, rather than run a freed-pointer access and expect one fixed symptom. Instrumented runs add evidence, but a clean run covers only executed paths. Preserve the explicit checks in ordinary release builds where untrusted input still reaches the program.
+
+DO
+Ask learners to predict the answer and state their assumptions.
+Reveal the answer, then identify which program boundary establishes it.
+
+SOURCE
+content/systems-programming/ch57.json → SP57.020: Guided lab and review

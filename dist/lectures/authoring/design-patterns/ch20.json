@@ -1,0 +1,291 @@
+{
+  "chapter": 20,
+  "title": "Strategy",
+  "opening": [
+    {
+      "title": "One batch, more than one useful answer",
+      "eyebrow": "STRATEGY / THE PROBLEM",
+      "kind": "concept",
+      "keyPoints": [
+        "The monitor keeps the same readings",
+        "Operators choose average or highest",
+        "Input validation belongs to every choice"
+      ],
+      "narration": "A room monitor stores a batch of readings. The everyday display needs an average. A review display needs the highest reading. The data and input rules do not change when the operator changes the display. Each batch contains between one and one thousand readings, and every reading is between zero and one thousand. Neither calculation may edit the batch. The immediate problem is choosing an answer, not building a class family. Start by identifying the stable work: checking the batch and presenting a result. Then name the changing work: the calculation that produces that result. Strategy becomes useful when those calculations need to vary independently.",
+      "actions": [
+        "Ask what should stay the same when the display switches.",
+        "Separate input rules from calculation choices."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 One screen, two useful readings",
+      "question": {
+        "prompt": "Which requirement must both Average and Highest obey?",
+        "answer": "They must work on the validated batch without changing its readings. The monitor must enforce the same input rules for both."
+      }
+    },
+    {
+      "title": "Give the number a precise meaning",
+      "eyebrow": "STRATEGY / REQUIREMENTS",
+      "kind": "concept",
+      "keyPoints": [
+        "Results are whole numbers",
+        "Average rounds down for accepted nonnegative data",
+        "Empty input is rejected, not called zero"
+      ],
+      "narration": "Before writing the algorithm, agree on what the result means. This monitor uses integer values. Integer division drops the fractional part, which rounds down because every accepted value is nonnegative. The average of one and two is therefore one, not one point five. Zero is a valid reading, so returning zero for a missing batch would confuse missing data with real data. The batch limit also bounds the sum at one million on the documented platform with a sufficiently wide int. These meaning-level rules form part of the contract. An interface returning int cannot tell the compiler whether a result is a maximum, a rounded average, or a made-up answer.",
+      "actions": [
+        "Predict average for {1, 2} and highest for {0}.",
+        "Ask why an empty batch differs from a batch containing zero."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 A contract larger than a function signature",
+      "question": {
+        "prompt": "Why is returning zero for an empty batch a poor default here?",
+        "answer": "It hides an invalid input behind a value that is also a valid measurement. The stated contract requires rejection."
+      }
+    },
+    {
+      "title": "Two choices can fit in an ordinary function",
+      "eyebrow": "STRATEGY / RUN THE BASELINE",
+      "kind": "code",
+      "keyPoints": [
+        "Validate once before the branch",
+        "Borrow input through const reference",
+        "A bool selects one of two calculations"
+      ],
+      "narration": "The baseline keeps validation and two calculations in one function. const std::vector<int>& means it borrows the caller's vector and cannot change elements through that reference. The ampersand avoids making a whole vector copy. A range-based for loop reads each sample; the colon means take each element from the container on its right. After validation, highest selects max_element, whose iterator points to the largest value. The star reads that value. Otherwise the function adds the samples and divides by their count. For two stable choices this is straightforward. Run it before redesigning, because a pattern should preserve known behavior while changing where responsibilities live.",
+      "actions": [
+        "Predict the two lines before running.",
+        "Identify which work is shared by both branches."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch20.json \u2192 One screen, two useful readings",
+      "question": {
+        "prompt": "Why can max_element\u2019s result be dereferenced safely in this function?",
+        "answer": "The function has already rejected an empty vector, so the range contains a largest element."
+      },
+      "code": {
+        "filename": "dp_ch20_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <iostream>\n#include <stdexcept>\n#include <vector>\nint summarize(const std::vector<int>& data, bool highest) {\n    if (data.empty() || data.size() > 1000)\n        throw std::invalid_argument(\"size\");\n    for (int sample : data)\n        if (sample < 0 || sample > 1000)\n            throw std::invalid_argument(\"sample\");\n    if (highest)\n        return *std::max_element(data.begin(), data.end());\n    int sum = 0;\n    for (int sample : data) sum += sample;\n    return sum / static_cast<int>(data.size());\n}\nint main() {\n    const std::vector<int> data{2, 4, 9};\n    std::cout << \"average=\" << summarize(data, false) << '\\n';\n    std::cout << \"highest=\" << summarize(data, true) << '\\n';\n}\n",
+        "expectedStdout": "average=5\nhighest=9\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "The right number can still break the caller",
+      "eyebrow": "STRATEGY / CONTROLLED FAILURE",
+      "kind": "code",
+      "keyPoints": [
+        "Middle requires an ordering decision",
+        "Sorting shared input changes observable state",
+        "Sorting a local copy preserves arrival order"
+      ],
+      "narration": "A new request asks for the middle reading. Sorting is an easy way to find it, but sorting the original vector changes the order that another screen may need. The first function here returns the right middle value while breaking the no-mutation rule. We give it valid odd-sized data so this demonstration isolates that one fault. The corrected function sorts a copy and leaves its caller's order alone. Both print four as the middle, but the first input order changes. This is why a result-only test is weak. As choices gain distinct settings and data needs, separating calculations behind a shared contract helps keep their obligations visible.",
+      "actions": [
+        "Predict both middle values and both post-call orders.",
+        "Ask which assertion catches the bug when the numeric result is correct."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch20.json \u2192 The specific limit: unrelated changes share one function",
+      "question": {
+        "prompt": "What extra test detects the defective median implementation?",
+        "answer": "Compare the input vector with its original order after the call. A correct returned median alone does not establish non-mutation."
+      },
+      "code": {
+        "filename": "dp_ch20_middle_mutation.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <iostream>\n#include <stdexcept>\n#include <vector>\nint changing_middle(std::vector<int>& data) {\n    if (data.empty() || data.size() % 2 == 0)\n        throw std::invalid_argument(\"positive odd size required\");\n    std::sort(data.begin(), data.end()); // Changes caller storage.\n    return data[data.size() / 2];\n}\nint preserving_middle(const std::vector<int>& data) {\n    auto copy = data; // This value owns a separate vector.\n    return changing_middle(copy);\n}\nvoid show(const std::vector<int>& data) {\n    for (int x : data) std::cout << x << ' ';\n    std::cout << '\\n';\n}\nint main() {\n    std::vector<int> changed{9, 1, 4};\n    const std::vector<int> kept{9, 1, 4};\n    std::cout << \"changing=\" << changing_middle(changed) << '\\n';\n    show(changed);\n    std::cout << \"preserving=\" << preserving_middle(kept) << '\\n';\n    show(kept);\n}\n",
+        "expectedStdout": "changing=4\n1 4 9 \npreserving=4\n9 1 4 \n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Keep the workflow; replace its calculation",
+      "eyebrow": "STRATEGY / RESPONSIBILITIES",
+      "kind": "concept",
+      "keyPoints": [
+        "Monitor validates the batch",
+        "Estimate names the calculation contract",
+        "The caller selects Average, Highest, or Middle"
+      ],
+      "narration": "The Strategy pattern gives the changing calculation its own object. Monitor is the context, the object that uses a selected rule. Estimate is the strategy interface, the common promise that each rule supplies value. Average and Highest are concrete strategies because they implement that promise with actual calculations. The caller chooses a strategy because it knows the operator's request. Monitor checks the input and delegates through Estimate instead of testing every algorithm name. Delegation means asking another object to do part of the work. The chapter's Middle extension can therefore add a calculation without editing the stable validation path in Monitor::read.",
+      "actions": [
+        "Map each responsibility to one source class.",
+        "Ask which file or class would change for a new calibrated estimate."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 The specific limit: unrelated changes share one function",
+      "question": {
+        "prompt": "Must Monitor::read gain a Middle branch when Middle is added?",
+        "answer": "No. It still validates and calls value through Estimate. The new calculation belongs in Middle and the caller selects it."
+      }
+    },
+    {
+      "title": "Two const promises protect different objects",
+      "eyebrow": "STRATEGY / READ THE SIGNATURE",
+      "kind": "concept",
+      "keyPoints": [
+        "const vector<int>& borrows read-only readings",
+        "The final const applies to the strategy object",
+        "The returned int is an independent value"
+      ],
+      "narration": "Read the signature from the inside out. The parameter const std::vector<int>& borrows the vector without giving the function permission to alter it through that reference. The const after the closing parenthesis is a different promise: value does not change ordinary members of the strategy object through this call. A result of type int is a copied number, not a reference into the vector. These language checks support the design, but they do not prove that the algorithm returns a correct estimate. They also do not supply input validation automatically. Average and Highest assume that the intended caller, Monitor, has already checked size and sample range.",
+      "actions": [
+        "Point separately to parameter const and trailing const.",
+        "Ask learners which object each const describes."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 A contract larger than a function signature",
+      "question": {
+        "prompt": "Does const on the vector parameter make the strategy object itself read-only?",
+        "answer": "No. The trailing const applies to the strategy object. The parameter const applies to access to the borrowed vector."
+      },
+      "theory": {
+        "what": "A strategy signature expresses borrowing and read-only access, plus a separately documented input contract.",
+        "where": "Estimate::value and each concrete override.",
+        "why": "Rules can use the same data without changing arrival order.",
+        "invariant": "Monitor supplies valid nonempty data before any selected rule executes.",
+        "risk": "Calling concrete rules directly with empty data bypasses that precondition and can cause invalid operations."
+      }
+    },
+    {
+      "title": "Selection changes an object, not the monitor code",
+      "eyebrow": "STRATEGY / OWNERSHIP AND DISPATCH",
+      "kind": "concept",
+      "keyPoints": [
+        "unique_ptr gives Monitor sole ownership",
+        "std::move enables transfer of that ownership",
+        "A virtual call uses the currently installed rule"
+      ],
+      "narration": "Monitor owns its rule with unique_ptr<Estimate>. A new Average is created, and its owning handle is transferred into the monitor. Later, selecting Highest transfers another handle into the same member and destroys the old Average. std::move enables the transfer; it does not calculate an answer or move the batch. During compilation, override checks that each concrete value function matches the interface. During execution, rule_->value calls the implementation belonging to the actual installed object. Estimate's virtual destructor makes destruction through the base owning pointer reach the complete concrete object. The monitor stays in place while one part of its behavior changes.",
+      "actions": [
+        "Trace the owner of Average before and after select.",
+        "Ask what happens to Average when Highest replaces it."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 What the compiler fixes and execution selects",
+      "question": {
+        "prompt": "Does selecting Highest copy the stored readings into Highest?",
+        "answer": "No. The selection transfers ownership of the rule object. Readings are borrowed only during read; this example does not store them in the strategy."
+      }
+    },
+    {
+      "title": "Guard the boundary before handing off work",
+      "eyebrow": "STRATEGY / FAILURE CONTRACT",
+      "kind": "concept",
+      "keyPoints": [
+        "Reject a null proposed rule before assignment",
+        "Reject the whole bad batch before value",
+        "The old selected rule survives a failed selection"
+      ],
+      "narration": "select first checks whether the proposed owner is empty. If it is, the function throws before touching the current rule. This ordering matters: rejecting a bad replacement should not destroy a working configuration. read likewise checks the size and every reading before asking the strategy to calculate. With these pure calculations, a failed validation cannot leave a half-completed external effect. But a future strategy that writes a file would need a stronger contract; the pattern does not supply rollback. Notice that error handling belongs to the stable workflow when every rule shares it. Duplicating validation in each strategy would invite inconsistent boundaries.",
+      "actions": [
+        "Locate the null check before move assignment.",
+        "Predict the reading after a rejected null replacement of Highest."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 Failure boundaries and a smaller alternative",
+      "question": {
+        "prompt": "After select(nullptr) throws on a monitor using Highest, what should a valid next read use?",
+        "answer": "Highest, because the proposed pointer is checked before replacing the current owner."
+      }
+    },
+    {
+      "title": "Arithmetic and mutation remain strategy obligations",
+      "eyebrow": "STRATEGY / SUBSTITUTION",
+      "kind": "concept",
+      "keyPoints": [
+        "Average needs bounded nonnegative input",
+        "Highest requires at least one element",
+        "Middle sorts its own copy and handles even size"
+      ],
+      "narration": "A strategy is interchangeable only if it keeps the whole contract, not merely the function name. Average relies on bounded input so its sum fits the selected integer type. Highest relies on a nonempty range before reading max_element's result. Middle copies the batch, sorts the copy, and uses the center value for odd sizes. For even sizes it averages the two central values using integer arithmetic. With the chapter's limits, adding those two values is bounded by two thousand. The original input order remains unchanged. These are testable obligations that differ inside each implementation while fitting the same public meaning of a valid whole-number estimate.",
+      "actions": [
+        "Trace Middle on {9, 1, 2, 4}; identify the two center values.",
+        "Ask which assertions apply to all strategies and which are strategy-specific."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 A contract larger than a function signature",
+      "question": {
+        "prompt": "What should Middle return for {9, 1, 2, 4}, and what order should the input retain?",
+        "answer": "It returns 3 from the two sorted center values 2 and 4. The caller\u2019s vector must remain {9, 1, 2, 4}."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose the smallest useful strategy form",
+      "eyebrow": "STRATEGY / DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "A function or lambda suits one simple operation",
+        "A template fits a rule fixed during compilation",
+        "An interface suits runtime rule objects with settings"
+      ],
+      "narration": "Replaceable behavior does not always require a virtual base class. A function pointer or callable can represent one small stateless calculation with less code. A template parameter can fix the rule during compilation and allow direct optimization. An owned interface becomes useful when callers select during execution, when a rule holds settings, or when several related operations belong to the rule. The chapter uses runtime replacement to make these responsibilities visible. It does not prove that an interface is fastest or shortest. When reviewing a real monitor, ask how often choices change, who owns their settings, and whether the extra indirection buys a clearer maintenance boundary.",
+      "actions": [
+        "Compare a fixed embedded average with an operator-selectable desktop display.",
+        "Require a stated change requirement before selecting a mechanism."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 Failure boundaries and a smaller alternative",
+      "question": {
+        "prompt": "When is a template a better fit than runtime strategy replacement?",
+        "answer": "When the rule is known at compilation and does not need to change in the same running context, especially when direct optimization matters."
+      },
+      "comparisons": [
+        {
+          "label": "Callable",
+          "text": "One replaceable calculation; little or no shared protocol."
+        },
+        {
+          "label": "Template policy",
+          "text": "Algorithm selected when compiling the context type."
+        },
+        {
+          "label": "Owned virtual strategy",
+          "text": "Runtime replacement, settings, or a related group of operations."
+        }
+      ]
+    },
+    {
+      "title": "A smart pointer does not synchronize a monitor",
+      "eyebrow": "STRATEGY / DIAGNOSIS",
+      "kind": "concept",
+      "keyPoints": [
+        "Ownership and concurrency are separate questions",
+        "read and select share the rule_ member",
+        "Specify one-thread, locking, or snapshot policy"
+      ],
+      "narration": "The chapter's monitor is single-threaded. Suppose one thread reads while another replaces the strategy. Both touch the same owning member, and the old strategy may be destroyed while another call expects to use it. A smart pointer handles object ownership; it does not make unsynchronized access to that member safe. We should not run a racing demonstration, because its behavior is undefined. Diagnose the shared access first, then choose a policy such as one event-loop thread, a mutex, or an immutable shared snapshot with a defined handoff. Also remember that the concrete rule may have its own state. Thread safety must cover the whole interaction, not only the pointer type.",
+      "actions": [
+        "Ask learners to distinguish sole ownership from safe concurrent access.",
+        "Have them propose a policy without changing the chapter\u2019s single-threaded claim."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 Failure boundaries and a smaller alternative",
+      "question": {
+        "prompt": "Why does changing raw ownership to unique_ptr not automatically make concurrent read and select safe?",
+        "answer": "Both operations still access the same mutable owner without synchronization, and replacement can end the strategy object\u2019s lifetime during another use."
+      }
+    },
+    {
+      "title": "Explain Strategy as a maintenance boundary",
+      "eyebrow": "STRATEGY / TRANSFER AND RECALL",
+      "kind": "concept",
+      "keyPoints": [
+        "Stable: validate, delegate, return",
+        "Variable: the chosen calculation",
+        "Verify errors, results, and untouched input"
+      ],
+      "narration": "To explain Strategy without reciting a class diagram, begin with the changing request: one monitor needs several ways to summarize the same validated readings. Keep shared rules in Monitor. Put each calculation behind Estimate. Let the caller select the rule, and state clearly who owns it. Then verify more than one sample output. Include empty and out-of-range batches, a rejected null selection, odd and even Middle inputs, and unchanged input order. For a new calibration rule, decide whether its settings are construction data or mutable state and whether its result still satisfies the shared contract. A new class earns its place only when it preserves that boundary while making change easier.",
+      "actions": [
+        "Ask for a one-minute explanation using no pattern vocabulary until the final sentence.",
+        "Have learners propose one contract test for a future calibrated strategy."
+      ],
+      "sourceRef": "manuscript/ch20.json \u2192 The specific limit: unrelated changes share one function",
+      "question": {
+        "prompt": "What makes a new rule a valid replacement beyond compiling as an Estimate?",
+        "answer": "It must accept the documented validated inputs, return the promised kind of result, preserve the borrowed batch, and obey the stated error and side-effect policy."
+      }
+    }
+  ]
+}

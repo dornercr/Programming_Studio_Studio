@@ -1,0 +1,233 @@
+{
+  "chapter": 43,
+  "title": "Concurrent Execution: schedules, ownership, and stable results",
+  "opening": [
+    {
+      "title": "Concurrent does not mean simultaneous",
+      "eyebrow": "CONCURRENT DOES NOT MEAN SIMULTANEOUS",
+      "kind": "concept",
+      "keyPoints": [
+        "Activities can overlap on one core",
+        "Parallel execution needs simultaneous resources",
+        "Correctness must tolerate allowed schedules"
+      ],
+      "narration": "A server can begin one request, wait for data, and work on another request during that wait. Both requests are in progress even if one CPU core executes their instructions at different moments. That is concurrency. Parallelism means work actually runs at the same time on separate execution resources. The distinction matters because a concurrency bug does not need multiple cores. An unlucky interleaving on one core can expose a stale decision just as a multicore execution can. Describe which activities overlap and what they share before choosing threads. The requirement may instead fit processes, an event loop, or a task system.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch43.json \u2192 SP43.004",
+      "question": {
+        "prompt": "Can a one-core program have a concurrency bug?",
+        "answer": "Yes. Interleaved activities can violate a timing-sensitive protocol even without simultaneous execution."
+      }
+    },
+    {
+      "title": "Start with independent work and an explicit join point",
+      "eyebrow": "START WITH INDEPENDENT WORK AND AN EXPLICIT JOIN POINT",
+      "kind": "concept",
+      "keyPoints": [
+        "Give each task its own result",
+        "Read results only after completion",
+        "Output order can be chosen separately"
+      ],
+      "narration": "The easiest concurrent design often avoids shared writes. Suppose two tasks count characters in two immutable strings. Each can return its own integer without changing a common counter. The caller waits for both results, then prints them in a chosen order. Completion order may vary, but the final report need not. This is a useful separation between scheduling and meaning: scheduling decides when tasks run, while the caller decides how results are combined. For such tiny inputs, thread overhead may outweigh any saved computation time. The example demonstrates a correctness structure, not a claim that two threads make counting ten characters faster.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch43.json \u2192 SP43.014",
+      "question": {
+        "prompt": "Why can the printed order stay fixed while completion order varies?",
+        "answer": "The caller collects each named result and prints in its own fixed order after the required completion operations."
+      }
+    },
+    {
+      "title": "Run two isolated tasks and combine their results",
+      "eyebrow": "RUN TWO ISOLATED TASKS AND COMBINE THEIR RESULTS",
+      "kind": "code",
+      "keyPoints": [
+        "async returns a future for each task",
+        "get obtains completion and the value",
+        "The parent prints in a stable order"
+      ],
+      "narration": "The first task returns the length of red, which is three. The second returns the length of blue, which is four. Each owns its captured string value, so neither depends on another task mutating shared text. A future is a handle for a result that may not be ready yet. Calling get waits as needed and retrieves that result. Main prints first=3 second=4 total=7 regardless of which task finishes first. std::launch::async requests asynchronous execution, but that does not prove simultaneous CPU execution. No timing measurement is made here, and the stable output comes from result ownership and collection, not from hoping the scheduler chooses a particular order.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch43.json \u2192 SP43.014",
+      "question": {
+        "prompt": "Which operation makes each result available for the parent\u2019s ordinary reads?",
+        "answer": "future::get waits for and obtains that asynchronous result; the parent combines the returned values afterward."
+      },
+      "code": {
+        "filename": "sys_ch43_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <future>\n#include <iostream>\n#include <string>\nint main() {\n    auto first = std::async(std::launch::async, [word = std::string(\"red\")] {\n        return word.size();\n    });\n    auto second = std::async(std::launch::async, [word = std::string(\"blue\")] {\n        return word.size();\n    });\n    const auto a = first.get();\n    const auto b = second.get();\n    std::cout << \"first=\" << a << \" second=\" << b << \" total=\" << a+b << '\\n';\n}\n",
+        "expectedStdout": "first=3 second=4 total=7\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "Count schedules without running a race",
+      "eyebrow": "COUNT SCHEDULES WITHOUT RUNNING A RACE",
+      "kind": "code",
+      "keyPoints": [
+        "Three A steps and two B steps have ten interleavings",
+        "Within-task order remains fixed",
+        "A model step must have a declared meaning"
+      ],
+      "narration": "This program enumerates order-preserving interleavings for three steps belonging to A and two belonging to B. It prints schedules=10, first=AAABB, and last=BBAAA. The repeated letters stand for the next step of that activity, so every sequence preserves its internal order. next_permutation visits each distinct ordering of these five labels once. This is a mathematical schedule model running in one thread. It does not claim that a real C++ statement is indivisible, nor does it execute unsafe shared accesses. Even this tiny model has ten possibilities; larger state spaces grow quickly. That growth motivates synchronization arguments instead of a test strategy that hopes to observe every timing arrangement.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch43.json \u2192 SP43.012",
+      "question": {
+        "prompt": "Does enumerating these ten schedules prove a real program with five source lines is safe?",
+        "answer": "No. The modeled atomic steps and memory rules must correspond to the real program, whose statements may involve more operations."
+      },
+      "code": {
+        "filename": "sys_ch43_schedule_model.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <algorithm>\n#include <array>\n#include <iostream>\n#include <string>\nint main() {\n    // Serialized enumeration of abstract activity steps.\n    std::array<char,5> order{'A','A','A','B','B'};\n    unsigned count = 0;\n    std::string first, last;\n    do {\n        const std::string trace(order.begin(), order.end());\n        if (count == 0) first = trace;\n        last = trace;\n        ++count;\n    } while (std::next_permutation(order.begin(), order.end()));\n    std::cout << \"schedules=\" << count << '\\n';\n    std::cout << \"first=\" << first << \" last=\" << last << '\\n';\n}\n",
+        "expectedStdout": "schedules=10\nfirst=AAABB last=BBAAA\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Single-thread enumeration of abstract ordered steps, not executed concurrent accesses."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Find the unit that must appear indivisible",
+      "eyebrow": "FIND THE UNIT THAT MUST APPEAR INDIVISIBLE",
+      "kind": "concept",
+      "keyPoints": [
+        "A source statement can contain several operations",
+        "Separate read and write can lose an update",
+        "A language data race is not just a surprising schedule"
+      ],
+      "narration": "Consider the intended operation count one completed task. Its implementation might read a counter, add one locally, then store the result. Two activities can both read zero and later both store one in a model whose steps are defined as indivisible. That explains the logical lost-update hazard. It does not define the behavior of two real threads racing on an ordinary C++ integer. Such a data race has undefined behavior. Use an atomic read-modify-write, a mutex-protected transaction, or private results with later reduction. Each repair establishes an actual language-level rule instead of treating a convenient source-line drawing as a guarantee.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch43.json \u2192 SP43.012",
+      "question": {
+        "prompt": "What does a lost-update model explain, and what does it not justify?",
+        "answer": "It explains a logical failure of split operations. It does not make an unsynchronized ordinary C++ shared counter a defined program."
+      }
+    },
+    {
+      "title": "Separate shared addressability from permission",
+      "eyebrow": "SEPARATE SHARED ADDRESSABILITY FROM PERMISSION",
+      "kind": "concept",
+      "keyPoints": [
+        "Threads can reach shared objects",
+        "Reaching an object does not synchronize access",
+        "Ownership can eliminate many conflicts"
+      ],
+      "narration": "Two threads can hold pointers to the same vector, but that only tells us they can name its storage. It does not grant permission to resize it while another thread reads an element. Resizing may move storage and end element lifetimes as well as change values. A cleaner protocol might construct an immutable vector before launch and keep it alive until all readers join. Another might transfer each mutable message to one worker. Process isolation can strengthen boundaries, but shared files and mappings still require protocols. Always ask who may change each object and when, rather than assuming that a shared address space is itself a communication agreement.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch43.json \u2192 SP43.010",
+      "question": {
+        "prompt": "Why is a shared pointer value alone insufficient for safe reading?",
+        "answer": "The object must remain alive and its initialization and later mutations must obey a synchronization or ownership protocol."
+      }
+    },
+    {
+      "title": "Dependencies limit useful parallelism",
+      "eyebrow": "DEPENDENCIES LIMIT USEFUL PARALLELISM",
+      "kind": "concept",
+      "keyPoints": [
+        "A chain cannot run its successor early",
+        "Independent partitions expose parallel work",
+        "Shared bottlenecks can dominate"
+      ],
+      "narration": "Suppose stage B needs the exact output of A, and C needs B's output. Giving all three separate threads does not remove those data dependencies. They still form a chain. In contrast, counting two independent documents offers separate work that can be combined later. Even then, thread launch, memory bandwidth, and a shared result lock can dominate the cost. A correctness proof says the answer is valid; a performance measurement says whether the arrangement helped for a defined workload. Keep those claims separate. Before adding more workers, identify the work graph and the resource that currently limits progress.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch43.json \u2192 SP43.006",
+      "question": {
+        "prompt": "Why might four worker threads fail to speed up a three-step dependent chain?",
+        "answer": "Each step must wait for its predecessor\u2019s result, so the available parallel work remains limited regardless of thread count."
+      }
+    },
+    {
+      "title": "Cache coherence is not a transaction protocol",
+      "eyebrow": "CACHE COHERENCE IS NOT A TRANSACTION PROTOCOL",
+      "kind": "concept",
+      "keyPoints": [
+        "Coherence concerns individual memory behavior",
+        "An increment still needs the right operation",
+        "False sharing can hurt correct programs"
+      ],
+      "narration": "Hardware coherence helps processors maintain a consistent view of supported shared-memory locations, but it does not turn a read, add, and store into one indivisible business operation. The language still requires suitable atomic operations or synchronization. A different issue arises when two threads update distinct nearby values on the same cache line. Those accesses can be free of a language data race yet cause repeated cache-line movement, called false sharing. Diagnose correctness and performance separately. Our independent-result example gives a clear ownership argument; a larger write-heavy workload may still need measurements before changing layout or adding padding.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch43.json \u2192 SP43.016",
+      "question": {
+        "prompt": "Can distinct result slots be race-free yet perform poorly together?",
+        "answer": "Yes. They can occupy the same hardware cache line and cause false sharing despite being separate language memory locations."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Debug the protocol before changing timing",
+      "eyebrow": "DEBUG THE PROTOCOL BEFORE CHANGING TIMING",
+      "kind": "concept",
+      "keyPoints": [
+        "Write one failing allowed schedule",
+        "Identify the missing ordering edge",
+        "A sleep creates delay, not proof"
+      ],
+      "narration": "A test that fails only under load often tempts a programmer to add a sleep before reading a result. That changes timing without stating what completion means. Instead, draw the smallest allowed schedule in which the reader runs too early or a shared update is split. Then add the required relationship: joining a worker, acquiring a protected state, or consuming a published message. Repeat the test after the repair, but also explain why the former schedule is no longer permitted. A stress run is useful evidence for observed behavior; it cannot rescue a protocol whose correctness still depends on one activity happening to be slower than another.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch43.json \u2192 SP43.014",
+      "question": {
+        "prompt": "What should replace \u201csleep long enough before reading the worker\u2019s result\u201d?",
+        "answer": "An explicit completion relationship, such as a join or future result, that orders the worker\u2019s completed writes before the read."
+      }
+    },
+    {
+      "title": "Choose an ownership story learners can retell",
+      "eyebrow": "CHOOSE AN OWNERSHIP STORY LEARNERS CAN RETELL",
+      "kind": "concept",
+      "keyPoints": [
+        "Name tasks and their private results",
+        "Name shared mutable state and its guard",
+        "State completion and cancellation separately"
+      ],
+      "narration": "To review a concurrent feature, ask for a short story: these tasks own these inputs, these fields are shared under this rule, and this operation tells the caller that work has finished. Include cancellation and failure rather than only the successful output. Private task results and a final combination phase often make the story much simpler than one shared counter touched everywhere. If the work mostly waits for I/O, an event loop may fit better than many threads. If fault isolation matters, processes may be worth their communication cost. Concurrency is an organization of overlapping work, so choose the mechanism after the ownership and progress requirements are clear.",
+      "actions": [
+        "Ask learners to predict the specific result before revealing it.",
+        "Trace the state and lifetime rule that supports the answer."
+      ],
+      "sourceRef": "content/systems-programming/ch43.json \u2192 SP43.004",
+      "question": {
+        "prompt": "What three questions should a concurrency review answer first?",
+        "answer": "Who owns mutable state, what orders communication, and how completion or cancellation allows every participant to stop safely."
+      }
+    }
+  ]
+}

@@ -1,0 +1,1689 @@
+{
+  "schemaVersion": 1,
+  "courseId": "design-patterns-cpp",
+  "courseTitle": "Design Patterns in C++",
+  "chapter": 7,
+  "title": "Bridge",
+  "author": "Dr. Charles Dorner",
+  "sourceTopics": [
+    {
+      "id": "C07.01",
+      "title": "Pattern overview"
+    },
+    {
+      "id": "C07.02",
+      "title": "Two useful reports, two useful formats"
+    },
+    {
+      "id": "C07.03",
+      "title": "Locate the two decisions before drawing classes"
+    },
+    {
+      "id": "C07.04",
+      "title": "Trace data and control across the bridge"
+    },
+    {
+      "id": "C07.05",
+      "title": "What compilation guarantees and what it cannot"
+    },
+    {
+      "id": "C07.06",
+      "title": "When the split helps, and when it does not"
+    },
+    {
+      "id": "C07.07",
+      "title": "Roles in the implementation"
+    },
+    {
+      "id": "C07.08",
+      "title": "Worked example: contracts and alternatives"
+    },
+    {
+      "id": "C07.09",
+      "title": "Execution trace"
+    },
+    {
+      "id": "C07.10",
+      "title": "Failure cases and repairs"
+    },
+    {
+      "id": "C07.11",
+      "title": "Code focus: The shared report boundary"
+    },
+    {
+      "id": "C07.12",
+      "title": "Code focus: Choose meaning, then delegate"
+    },
+    {
+      "id": "C07.13",
+      "title": "Exercise 07.1: Guided modification"
+    },
+    {
+      "id": "C07.14",
+      "title": "Exercise 07.2: Trace unfamiliar code"
+    },
+    {
+      "id": "C07.15",
+      "title": "Exercise 07.3: Diagnose a bug"
+    },
+    {
+      "id": "C07.16",
+      "title": "Exercise 07.4: Choose a design"
+    },
+    {
+      "id": "C07.17",
+      "title": "Exercise 07.5: Extend without regressions"
+    },
+    {
+      "id": "C07.18",
+      "title": "Exercise 07.6: Justify a decision"
+    },
+    {
+      "id": "C07.19",
+      "title": "Implementation lab"
+    },
+    {
+      "id": "C07.20",
+      "title": "Chapter summary"
+    },
+    {
+      "id": "C07.21",
+      "title": "Application case 1"
+    },
+    {
+      "id": "C07.22",
+      "title": "Application case 2"
+    }
+  ],
+  "slides": [
+    {
+      "title": "Reports change for two different reasons",
+      "eyebrow": "BRIDGE / THE PROBLEM",
+      "kind": "cover",
+      "keyPoints": [
+        "Meaning: count or warning classification.",
+        "Presentation: plain text or brackets.",
+        "Negative counts remain invalid in either format."
+      ],
+      "narration": "Our inspection tool must present the same count on two screens. One wants count equals six; another wants count colon six inside brackets. The tool also needs a warning report that chooses high above five and normal otherwise. We now have two reasons for change: what the report means and how the text looks. Begin by stating those reasons separately. A punctuation change should not force us to rethink the warning boundary, and a policy change should not force us to edit every format. The program builds strings in memory; its Writer name does not mean that it writes a file or contacts a service.",
+      "actions": [
+        "Create a two-by-two table of report meaning and output format."
+      ],
+      "sourceRef": "manuscript/ch07.json → Two useful reports, two useful formats",
+      "question": {
+        "prompt": "What two choices form the four report combinations?",
+        "answer": "Count versus warning report, and plain versus bracket formatting."
+      },
+      "section": "Problem and first design",
+      "topicIds": [
+        "C07.01"
+      ],
+      "id": "dp-ch07-01"
+    },
+    {
+      "title": "One report needs only one function",
+      "eyebrow": "BASELINE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "Validate the count.",
+        "Build one clear result string.",
+        "Do not split a dimension that does not vary yet."
+      ],
+      "narration": "This first program serves exactly one requirement: render a valid count in the plain format. A single function makes the contract visible and keeps the implementation short. The function returns a string value, so the caller owns the returned characters. It throws before formatting a negative number because negativity is a report-domain error. There is no need yet for an abstract Writer or a family of Report classes. We will earn that separation by showing independent changes, rather than adding it in anticipation of every possible future request. Notice that a valid zero is accepted; absence of work is still a meaningful count.",
+      "actions": [
+        "Run with six and zero.",
+        "Explain why the negative test belongs before formatting."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch07.json → Two useful reports, two useful formats",
+      "question": {
+        "prompt": "Would a Writer interface improve a permanently fixed single report?",
+        "answer": "Not necessarily. The direct function is easier to read when there is no independent format choice."
+      },
+      "code": {
+        "filename": "dp_ch07_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nstd::string count_text(int n) {\n    if (n < 0) throw std::invalid_argument(\"count\");\n    return \"count=\" + std::to_string(n); // One policy, one format.\n}\nint main() {\n    std::cout << count_text(6) << '\\n';\n    std::cout << count_text(0) << '\\n';\n    try { std::cout << count_text(-1) << '\\n'; }\n    catch (const std::invalid_argument&) { std::cout << \"negative rejected\\n\"; }\n}\n",
+        "expectedStdout": "count=6\ncount=0\nnegative rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-02.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_baseline.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch07-02"
+    },
+    {
+      "title": "A policy edit can drift between formats",
+      "eyebrow": "CONCRETE FAILURE / RUN IT",
+      "kind": "code",
+      "keyPoints": [
+        "New requirement: high only above ten.",
+        "Plain output was updated.",
+        "Bracket output still applies the old boundary."
+      ],
+      "narration": "Imagine that an operations team changes the warning boundary from five to ten. In a combined implementation, each format has its own copy of the classification expression. A developer fixes the plain version but misses the bracket version. The two strings now disagree about the same observation even though both compile and run normally. Our demonstration uses the new requirement deliberately; the chapter's unchanged main example still uses five. This is the pressure that motivates a bridge. Put the classification decision in one report path, and let separate writers control punctuation. We need a boundary that prevents this kind of drift from spreading across combinations.",
+      "actions": [
+        "Predict whether the two outputs agree before running.",
+        "Locate the duplicated business decision, not just duplicated punctuation."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch07.json → Locate the two decisions before drawing classes",
+      "question": {
+        "prompt": "Which concern was duplicated and then changed inconsistently?",
+        "answer": "The warning classification threshold was duplicated in each formatting function."
+      },
+      "code": {
+        "filename": "dp_ch07_policy_drift.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\n\nstd::string plain_warning(int n) {\n    // Updated requirement: only values above ten are high.\n    return std::string(n > 10 ? \"high=\" : \"normal=\") + std::to_string(n);\n}\nstd::string bracket_warning(int n) {\n    // Deliberate bug: this copy still uses the old boundary.\n    return std::string(n > 5 ? \"[high:\" : \"[normal:\") + std::to_string(n) + \"]\";\n}\nint main() {\n    const int observation = 6; // This demonstration uses valid fixed input.\n    std::cout << plain_warning(observation) << '\\n';\n    std::cout << bracket_warning(observation) << '\\n';\n}\n",
+        "expectedStdout": "normal=6\n[high:6]\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-03.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_policy_drift.cpp -o example\n./example"
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch07-03"
+    },
+    {
+      "title": "Separate meaning from punctuation",
+      "eyebrow": "THE BRIDGE DECISION",
+      "kind": "concept",
+      "keyPoints": [
+        "Report chooses a field name and validates data.",
+        "Writer formats the supplied field without changing meaning.",
+        "The stored Writer connection selects the pairing."
+      ],
+      "narration": "We can now name the design. Bridge keeps two related families connected through a stable operation so that they can grow independently. In this chapter, CountReport and WarningReport decide the meaning of the field. Plain and Brackets decide how that field is written. Report stores a borrowed Writer connection, and each concrete report crosses that connection during render. With two reports and two writers, we have four supported pairings but do not need four combination classes. This is not a promise that every imaginable display can use the same tiny operation. Independence only holds while the shared field contract carries the data each supported format needs.",
+      "actions": [
+        "Point to the single classification expression in WarningReport.",
+        "Point to punctuation in each Writer implementation."
+      ],
+      "sourceRef": "manuscript/ch07.json → Locate the two decisions before drawing classes",
+      "question": {
+        "prompt": "Which side should change when brackets become braces?",
+        "answer": "The formatting implementation should change; the report classification should remain the same."
+      },
+      "section": "Problem and first design",
+      "id": "dp-ch07-04"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json",
+      "title": "The contract we must preserve",
+      "keyPoints": [
+        "Support count and warning reports in both formats.",
+        "Classify n > 5 as high; zero through five as normal.",
+        "Reject negative counts before formatting."
+      ],
+      "narration": "Counts in plain text and brackets. Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.\n\nSupport count and warning reports in both formats. Classify n > 5 as high; zero through five as normal. Reject negative counts before formatting.\n\nReports never change a writer or own its lifetime. Writers preserve the supplied name and numeric value. Validation happens before formatting. These are the rules that define a correct extension, even if it has the right C++ types. An enum-based formatter is simpler for a permanently closed set of formats. Templates fit compile-time selection; virtual writers fit objects selected while the program runs.",
+      "comparisons": [
+        {
+          "label": "Chosen design",
+          "text": "Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit."
+        },
+        {
+          "label": "A reasonable alternative",
+          "text": "An enum-based formatter is simpler for a permanently closed set of formats. Templates fit compile-time selection; virtual writers fit objects selected while the program runs."
+        }
+      ],
+      "question": {
+        "prompt": "Which promise would a new Bridge implementation be allowed to break?",
+        "answer": "None of the stated requirements. The implementation may change, but these rules remain: Reports never change a writer or own its lifetime. Writers preserve the supplied name and numeric value. Validation happens before formatting."
+      },
+      "topicIds": [
+        "C07.08"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch07-05"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → Two useful reports, two useful formats",
+      "title": "Two useful reports, two useful formats",
+      "keyPoints": [
+        "A small inspection tool prints a count and also classifies that count.",
+        "The simplest first version returns a string directly from a function."
+      ],
+      "narration": "A small inspection tool prints a count and also classifies that count. One screen wants count=6. Another wants [count:6]. The classification report calls counts above five high and all others normal. It must work in either format. Negative counts are invalid. Requirements now vary in two directions: what the report means, and how its fields are written.\n\nThe simplest first version returns a string directly from a function. That is a good solution when there is one meaning and one format. A second function can serve a second fixed report. The difficulty appears when both dimensions grow. If each combination has its own class, two report types and two formats need four combinations. Three types and four formats need twelve. The count is the product of the choices, not automatically an exponential function of one choice. What hurts is repeated policy and repeated formatting.",
+      "excerpt": {
+        "text": "std::string count_report(int n) {\n    return \"count=\" + std::to_string(n);\n}",
+        "filename": "Excerpt — simplest starting point",
+        "explain": []
+      },
+      "question": {
+        "prompt": "How many combinations arise from two report meanings and two output formats? What changes when a third format is added?",
+        "answer": "There are four combinations, then six. Writing a subclass for every combination duplicates policy and formatting. The next step separates the two choices so they can be combined."
+      },
+      "reading": [
+        "A small inspection tool prints a count and also classifies that count. One screen wants count=6. Another wants [count:6]. The classification report calls counts above five high and all others normal. It must work in either format. Negative counts are invalid. Requirements now vary in two directions: what the report means, and how its fields are written.",
+        "The simplest first version returns a string directly from a function. That is a good solution when there is one meaning and one format. A second function can serve a second fixed report. The difficulty appears when both dimensions grow. If each combination has its own class, two report types and two formats need four combinations. Three types and four formats need twelve. The count is the product of the choices, not automatically an exponential function of one choice. What hurts is repeated policy and repeated formatting."
+      ],
+      "topicIds": [
+        "C07.02"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch07-06"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → Locate the two decisions before drawing classes",
+      "title": "Locate the two decisions before drawing classes",
+      "keyPoints": [
+        "Suppose the warning boundary changes from five to ten.",
+        "A bridge is a stable connection between a high-level operation and a lower-level implementation that can vary independently.",
+        "The pattern's traditional word abstraction means the high-level view offered to the caller."
+      ],
+      "narration": "Suppose the warning boundary changes from five to ten. In the combined design, each warning-format class must change. Suppose the bracket screen changes its separator. Every bracket-report class must change. That gives a concrete reason to separate the decisions. The boundary rule belongs with the report; punctuation belongs with the writer. Neither side should inspect the exact type on the other side.\n\nA bridge is a stable connection between a high-level operation and a lower-level implementation that can vary independently. Here Report supplies the high-level render operation and borrows a Writer. CountReport and WarningReport decide which field name to send. Plain and Brackets implement Writer::field. The bridge is the writer_ reference. The two families can now grow without adding one class for every cross-product combination.\n\nThe pattern's traditional word abstraction means the high-level view offered to the caller. It does not require every high-level class to be an abstract C++ base class. Our Report is abstract because two report meanings already exist and both must be usable through the same contract. A single concrete report with a Writer member would still separate format from meaning when only one report is needed.",
+      "question": {
+        "prompt": "Explain the design choice in “Locate the two decisions before drawing classes” using this chapter's objects.",
+        "answer": "The pattern's traditional word abstraction means the high-level view offered to the caller. It does not require every high-level class to be an abstract C++ base class. Our Report is abstract because two report meanings already exist and both must be usable through the same contract. A single concrete report with a Writer member would still separate format from meaning when only one report is needed."
+      },
+      "reading": [
+        "Suppose the warning boundary changes from five to ten. In the combined design, each warning-format class must change. Suppose the bracket screen changes its separator. Every bracket-report class must change. That gives a concrete reason to separate the decisions. The boundary rule belongs with the report; punctuation belongs with the writer. Neither side should inspect the exact type on the other side.",
+        "A bridge is a stable connection between a high-level operation and a lower-level implementation that can vary independently. Here Report supplies the high-level render operation and borrows a Writer. CountReport and WarningReport decide which field name to send. Plain and Brackets implement Writer::field. The bridge is the writer_ reference. The two families can now grow without adding one class for every cross-product combination.",
+        "The pattern's traditional word abstraction means the high-level view offered to the caller. It does not require every high-level class to be an abstract C++ base class. Our Report is abstract because two report meanings already exist and both must be usable through the same contract. A single concrete report with a Writer member would still separate format from meaning when only one report is needed."
+      ],
+      "topicIds": [
+        "C07.03"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch07-07"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → Trace data and control across the bridge",
+      "title": "Trace data and control across the bridge",
+      "keyPoints": [
+        "In main, plain and brackets are created before the report objects that borrow them.",
+        "WarningReport follows the same route but chooses its label first.",
+        "The returned strings own their character storage."
+      ],
+      "narration": "In main, plain and brackets are created before the report objects that borrow them. cp stores a reference to plain; cb stores a reference to brackets. Calling cb.render(6) enters CountReport. validate first rejects a negative value. The report then sends the label count and integer 6 to writer_.field. Virtual dispatch selects Brackets::field. It creates [count:6] and returns that string by value through the report to main.\n\nWarningReport follows the same route but chooses its label first. The conditional expression n > 5 ? \"high\" : \"normal\" evaluates the condition, selects exactly one of the two strings, and initializes label. The question mark introduces the true result, and the colon separates it from the false result. This colon is different from the colon that begins a constructor initializer list or a range loop. Syntax takes its meaning from its surrounding statement.\n\nThe returned strings own their character storage. The label passed to field is a const reference, so field borrows the argument during the call. Neither writer keeps that reference afterward. writer_ is a longer-lived borrow stored inside Report. Those are different lifetime obligations: a call parameter need only stay valid for the call, while a stored reference must stay valid for later calls too.",
+      "question": {
+        "prompt": "Explain the design choice in “Trace data and control across the bridge” using this chapter's objects.",
+        "answer": "The returned strings own their character storage. The label passed to field is a const reference, so field borrows the argument during the call. Neither writer keeps that reference afterward. writer_ is a longer-lived borrow stored inside Report. Those are different lifetime obligations: a call parameter need only stay valid for the call, while a stored reference must stay valid for later calls too."
+      },
+      "reading": [
+        "In main, plain and brackets are created before the report objects that borrow them. cp stores a reference to plain; cb stores a reference to brackets. Calling cb.render(6) enters CountReport. validate first rejects a negative value. The report then sends the label count and integer 6 to writer_.field. Virtual dispatch selects Brackets::field. It creates [count:6] and returns that string by value through the report to main.",
+        "WarningReport follows the same route but chooses its label first. The conditional expression n > 5 ? \"high\" : \"normal\" evaluates the condition, selects exactly one of the two strings, and initializes label. The question mark introduces the true result, and the colon separates it from the false result. This colon is different from the colon that begins a constructor initializer list or a range loop. Syntax takes its meaning from its surrounding statement.",
+        "The returned strings own their character storage. The label passed to field is a const reference, so field borrows the argument during the call. Neither writer keeps that reference afterward. writer_ is a longer-lived borrow stored inside Report. Those are different lifetime obligations: a call parameter need only stay valid for the call, while a stored reference must stay valid for later calls too."
+      ],
+      "topicIds": [
+        "C07.04"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch07-08"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → What compilation guarantees and what it cannot",
+      "title": "What compilation guarantees and what it cannot",
+      "keyPoints": [
+        "The compiler checks public inheritance, virtual signatures, and whether each concrete class implements the required operation.",
+        "The compiler does not verify that a new Writer preserves the label and value faithfully.",
+        "At execution the same report can use either writer selected during construction."
+      ],
+      "narration": "The compiler checks public inheritance, virtual signatures, and whether each concrete class implements the required operation. override catches a mismatch. protected makes writer_ and validate available to the derived reports while keeping them out of ordinary client code. The helper is static because it depends only on its argument and needs no Report object. Constructors initialize the reference before any render call can occur.\n\nThe compiler does not verify that a new Writer preserves the label and value faithfully. A writer could accidentally swap field names or drop a minus sign. That would still compile. The shared semantic contract is therefore essential: format the supplied name and integer without changing their meaning. The report checks the domain rule that counts cannot be negative. The generic writer is capable of formatting any integer, which makes it usable in other domains.\n\nAt execution the same report can use either writer selected during construction. Our design does not provide a setter to switch writer_ later; C++ references cannot be rebound. To change format, construct a new report borrowing another writer. This keeps ownership and configuration simple. An application needing live format changes could instead hold a non-owning pointer with an explicit non-null rule or own an interchangeable writer. That requirement has not appeared here, so its extra states are unnecessary.",
+      "question": {
+        "prompt": "Explain the design choice in “What compilation guarantees and what it cannot” using this chapter's objects.",
+        "answer": "At execution the same report can use either writer selected during construction. Our design does not provide a setter to switch writer_ later; C++ references cannot be rebound. To change format, construct a new report borrowing another writer. This keeps ownership and configuration simple. An application needing live format changes could instead hold a non-owning pointer with an explicit non-null rule or own an interchangeable writer. That requirement has not appeared here, so its extra states are unnecessary."
+      },
+      "reading": [
+        "The compiler checks public inheritance, virtual signatures, and whether each concrete class implements the required operation. override catches a mismatch. protected makes writer_ and validate available to the derived reports while keeping them out of ordinary client code. The helper is static because it depends only on its argument and needs no Report object. Constructors initialize the reference before any render call can occur.",
+        "The compiler does not verify that a new Writer preserves the label and value faithfully. A writer could accidentally swap field names or drop a minus sign. That would still compile. The shared semantic contract is therefore essential: format the supplied name and integer without changing their meaning. The report checks the domain rule that counts cannot be negative. The generic writer is capable of formatting any integer, which makes it usable in other domains.",
+        "At execution the same report can use either writer selected during construction. Our design does not provide a setter to switch writer_ later; C++ references cannot be rebound. To change format, construct a new report borrowing another writer. This keeps ownership and configuration simple. An application needing live format changes could instead hold a non-owning pointer with an explicit non-null rule or own an interchangeable writer. That requirement has not appeared here, so its extra states are unnecessary."
+      ],
+      "topicIds": [
+        "C07.05"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch07-09"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → When the split helps, and when it does not",
+      "title": "When the split helps, and when it does not",
+      "keyPoints": [
+        "A bridge gives independence only when the interface is stable and truthful.",
+        "An enum and one formatting function may be smaller when the set of formats is fixed and tiny.",
+        "Bridge and Adapter can produce similar shapes in a diagram."
+      ],
+      "narration": "A bridge gives independence only when the interface is stable and truthful. If field lacks data one format needs, reports may begin checking for special writers. That is a warning that the boundary is too narrow or the supposedly independent dimensions are actually linked. Improve the contract using a real use case, or accept a smaller set of supported combinations. Do not promise that every conceivable report will work with every renderer.\n\nAn enum and one formatting function may be smaller when the set of formats is fixed and tiny. A template can select a writer at compilation and may remove virtual calls, but it exposes more implementation to callers and moves the choice from runtime to build time. Neither alternative is inherently inferior. The reason for this bridge is the already demonstrated independent growth in report policy and presentation.\n\nBridge and Adapter can produce similar shapes in a diagram. Their motivations differ. An adapter repairs an existing disagreement between interfaces. A bridge deliberately separates dimensions that should evolve independently. When reviewing a change, ask what boundary is being protected. Add tests for each report's meaning and each format's text, plus a few combinations. That protects the separation more effectively than checking only class names.",
+      "question": {
+        "prompt": "Does sharing a const Writer reference guarantee thread safety?",
+        "answer": "No general guarantee follows from const alone. A concrete writer could use mutable state or external resources; its implementation must supply any concurrency guarantee."
+      },
+      "reading": [
+        "A bridge gives independence only when the interface is stable and truthful. If field lacks data one format needs, reports may begin checking for special writers. That is a warning that the boundary is too narrow or the supposedly independent dimensions are actually linked. Improve the contract using a real use case, or accept a smaller set of supported combinations. Do not promise that every conceivable report will work with every renderer.",
+        "An enum and one formatting function may be smaller when the set of formats is fixed and tiny. A template can select a writer at compilation and may remove virtual calls, but it exposes more implementation to callers and moves the choice from runtime to build time. Neither alternative is inherently inferior. The reason for this bridge is the already demonstrated independent growth in report policy and presentation.",
+        "Bridge and Adapter can produce similar shapes in a diagram. Their motivations differ. An adapter repairs an existing disagreement between interfaces. A bridge deliberately separates dimensions that should evolve independently. When reviewing a change, ask what boundary is being protected. Add tests for each report's meaning and each format's text, plus a few combinations. That protects the separation more effectively than checking only class names."
+      ],
+      "topicIds": [
+        "C07.06"
+      ],
+      "section": "Requirements and mechanism",
+      "id": "dp-ch07-10"
+    },
+    {
+      "title": "The abstraction role is not C++ syntax",
+      "eyebrow": "VOCABULARY IN CONTEXT",
+      "kind": "concept",
+      "keyPoints": [
+        "Report is the high-level view offered to clients.",
+        "Writer is the lower-level formatting contract.",
+        "A Bridge can also use a concrete high-level class."
+      ],
+      "narration": "The traditional pattern word abstraction means the useful high-level view, not automatically an abstract C++ class. Here Report happens to be abstract because several report meanings need the same render operation. A single concrete report holding a Writer could still separate meaning from formatting. This distinction matters in reviews: counting abstract classes is not evidence that a bridge exists. Look instead for independently changing decisions connected through a useful operation. Writer::field receives a name and a number because these are the stable pieces of information both current formats can display. It should not ask which concrete report made the request.",
+      "actions": [
+        "Ask whether one concrete CountReport plus two writers could still preserve the separation."
+      ],
+      "sourceRef": "manuscript/ch07.json → Locate the two decisions before drawing classes",
+      "question": {
+        "prompt": "Is an abstract C++ Report base required for every Bridge?",
+        "answer": "No. The separation of independently varying responsibilities is central; an abstract high-level base depends on the actual caller needs."
+      },
+      "theory": {
+        "what": "High-level reporting delegates formatting through a stable contract.",
+        "where": "Report holds writer_; concrete render methods call field.",
+        "why": "Meaning and appearance should change independently.",
+        "invariant": "Each writer preserves the supplied field meaning.",
+        "risk": "Type checks against concrete reports or writers recouple the families."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch07-11"
+    },
+    {
+      "title": "Trace one value across the connection",
+      "eyebrow": "CONTROL FLOW / COUNT SIX",
+      "kind": "concept",
+      "keyPoints": [
+        "CountReport validates six.",
+        "Writer receives the name count and value six.",
+        "Brackets returns [count:6] by value."
+      ],
+      "narration": "Follow cb.render with six. The selected object is a CountReport whose stored reference points to the Brackets object. CountReport first checks the domain rule, then calls writer_.field with count and six. The compiler checks that Writer offers this operation. Runtime virtual dispatch chooses the Brackets implementation. That implementation creates a new string and returns it through the report to the client. Data moves across the bridge as a field name and integer; control moves into the chosen writer and then back. No writer reference to the temporary name is saved. That makes the short call-time borrow safe under the current contract.",
+      "actions": [
+        "Trace forward with arrows for calls, then backward with the returned string."
+      ],
+      "sourceRef": "manuscript/ch07.json → Trace data and control across the bridge",
+      "question": {
+        "prompt": "Where is the punctuation decision made for cb.render(6)?",
+        "answer": "Inside Brackets::field, after CountReport validates the count and supplies the field name."
+      },
+      "theory": {
+        "what": "A report call delegates formatting once and returns the resulting value.",
+        "where": "CountReport::render and Brackets::field.",
+        "why": "The report should not know bracket punctuation.",
+        "invariant": "The passed integer and name retain their meaning.",
+        "risk": "A writer that retains a reference to a temporary argument can later access dead storage."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch07-12"
+    },
+    {
+      "title": "Two references, two lifetime duties",
+      "eyebrow": "OWNERSHIP / ARGUMENT VERSUS MEMBER",
+      "kind": "concept",
+      "keyPoints": [
+        "field borrows its name only during the call.",
+        "Report borrows its writer across many calls.",
+        "A reference member cannot be rebound."
+      ],
+      "narration": "The same ampersand can appear in two places with different practical obligations. The field parameter borrows a string only while that one function call is active. The writer_ member is stored in Report and may be used much later. Its source writer must therefore outlive all those report calls. In main, writers are constructed first, followed by reports, which gives the correct reverse destruction order. The reference also fixes the pairing during construction: assigning through a reference does not make it refer to another object. A runtime format switch would need a new report or a deliberately different connection design, with its own rules.",
+      "actions": [
+        "Draw the short argument lifetime inside the longer report and writer lifetimes."
+      ],
+      "sourceRef": "manuscript/ch07.json → Trace data and control across the bridge",
+      "question": {
+        "prompt": "Can a setter rebind the existing const Writer& member?",
+        "answer": "No. Construct a new report or redesign the connection as an explicitly managed pointer or owner if live switching is required."
+      },
+      "theory": {
+        "what": "A report stores a non-owning connection selected at construction.",
+        "where": "Report::writer_ and its constructor.",
+        "why": "Writers can be shared without copying their objects.",
+        "invariant": "The selected writer stays alive for each render call.",
+        "risk": "Returning a report that borrows a local writer creates a dangling connection."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch07-13"
+    },
+    {
+      "title": "Syntax does not enforce semantic honesty",
+      "eyebrow": "CONTRACTS / BUILD AND RUN",
+      "kind": "concept",
+      "keyPoints": [
+        "override catches a wrong virtual signature.",
+        "protected limits member access to the class family.",
+        "Tests still verify labels, thresholds, and formatting."
+      ],
+      "narration": "The compiler provides several useful checks, but none can read the business requirement. Protected makes writer_ and validate available to derived reports while keeping them out of ordinary client code. Static on validate means it uses no particular Report object's data. The conditional expression in WarningReport evaluates n greater than five and selects high or normal; its colon separates the two possible results. Override catches a mismatched field or render signature. However, a writer that changes six to seven still satisfies the type signature. Tests must verify that formatting preserves data and that the report chooses the correct label on both sides of the threshold.",
+      "actions": [
+        "Explain the question mark and colon in the classification expression.",
+        "Ask which guarantees are checked by compilation and which need examples or tests."
+      ],
+      "sourceRef": "manuscript/ch07.json → What compilation guarantees and what it cannot",
+      "question": {
+        "prompt": "Why test five and six rather than only a large count?",
+        "answer": "They exercise the exact branch boundary: five is normal and six is high in the chapter contract."
+      },
+      "theory": {
+        "what": "Language checks establish valid calls; tests establish required meaning.",
+        "where": "Report::validate, WarningReport::render, and Writer implementations.",
+        "why": "Independent components must share more than a matching signature.",
+        "invariant": "Every supported writer preserves the report-selected field and count.",
+        "risk": "Silent semantic changes compile successfully and can disagree across formats."
+      },
+      "section": "Mechanism in C++",
+      "id": "dp-ch07-14"
+    },
+    {
+      "title": "Add CSV by extending one side",
+      "eyebrow": "MAINTENANCE / A TEST OF THE BOUNDARY",
+      "kind": "concept",
+      "keyPoints": [
+        "Add Csv::field without rewriting reports.",
+        "Test count, high, normal, and zero.",
+        "Fixed safe labels do not make a general CSV library."
+      ],
+      "narration": "The extension asks for comma-separated output. The useful test of our design is whether this format can be added without changing either report's decision logic. Csv implements field and joins the supplied name, a comma, and the number. That is sufficient for the existing fixed labels, because count, high, and normal contain no comma or quote. Do not claim that the result is a complete CSV encoder for arbitrary text. If labels become user-controlled, quoting and escaping become new requirements. A clear boundary makes that change local, but a boundary cannot eliminate the need to define the new format contract.",
+      "actions": [
+        "Review the solution and verify that CountReport and WarningReport are unchanged."
+      ],
+      "sourceRef": "manuscript/ch07.json → When the split helps, and when it does not",
+      "question": {
+        "prompt": "Why is name + comma + value sufficient only for this lab contract?",
+        "answer": "The supported fixed names contain no CSV-special characters. Arbitrary names would need escaping and quoting rules."
+      },
+      "comparisons": [
+        {
+          "label": "Runtime Writer",
+          "text": "Choose the format when constructing report objects."
+        },
+        {
+          "label": "Template writer",
+          "text": "Choose a format type during compilation when that restriction fits."
+        },
+        {
+          "label": "Enum plus function",
+          "text": "Keep a tiny fixed family in one simple formatting function."
+        }
+      ],
+      "section": "Mechanism in C++",
+      "id": "dp-ch07-15"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → C07.07 concepts",
+      "title": "Map the roles to the actual types",
+      "keyPoints": [
+        "Abstraction → Report",
+        "Refined Abstraction → CountReport / WarningReport",
+        "Implementation / Implementor → Writer",
+        "Concrete Implementation → Plain / Brackets",
+        "Client → main"
+      ],
+      "narration": "Abstraction → Report. Define the application-facing operation and retain the implementation connection.\n\nRefined Abstraction → CountReport / WarningReport. Choose report meaning while relying only on the implementation interface.\n\nImplementation / Implementor → Writer. Declare the lower-level operations every backend must provide.\n\nConcrete Implementation → Plain / Brackets. Produce the chosen representation without deciding application meaning.\n\nClient → main. Select a pairing during setup, then request the high-level operation.",
+      "comparisons": [
+        {
+          "label": "Abstraction → Report",
+          "text": "Define the application-facing operation and retain the implementation connection."
+        },
+        {
+          "label": "Refined Abstraction → CountReport / WarningReport",
+          "text": "Choose report meaning while relying only on the implementation interface."
+        },
+        {
+          "label": "Implementation / Implementor → Writer",
+          "text": "Declare the lower-level operations every backend must provide."
+        },
+        {
+          "label": "Concrete Implementation → Plain / Brackets",
+          "text": "Produce the chosen representation without deciding application meaning."
+        },
+        {
+          "label": "Client → main",
+          "text": "Select a pairing during setup, then request the high-level operation."
+        }
+      ],
+      "question": {
+        "prompt": "In Bridge, which part plays Abstraction and what does it do?",
+        "answer": "Report. Define the application-facing operation and retain the implementation connection."
+      },
+      "topicIds": [
+        "C07.07"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch07-16"
+    },
+    {
+      "eyebrow": "CLASS DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch07/main.cpp:1-81; content/design-patterns-cpp/ch7.json → diagrams.7",
+      "title": "Separate meaning from presentation",
+      "keyPoints": [
+        "Read the class relationships in the named example.",
+        "Reports never change a writer or own its lifetime.",
+        "Writers preserve the supplied name and numeric value."
+      ],
+      "narration": "The diagram focuses on one pairing; WarningReport also derives from Report and Plain also derives from Writer in the complete listing. Triangles mean inheritance. The Report-to-Writer dependency is the borrowing bridge, not ownership and not a call sequence.\n\nTwo report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.\n\nAdding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.",
+      "diagram": {
+        "chapter": 7,
+        "view": "overview",
+        "index": -1
+      },
+      "theory": {
+        "what": "Separate meaning from presentation",
+        "where": "companion/examples/ch07/main.cpp",
+        "why": "Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.",
+        "invariant": "Reports never change a writer or own its lifetime. Writers preserve the supplied name and numeric value. Validation happens before formatting.",
+        "risk": "Duplicate the warning threshold in every writer. One format may print high for 6 while another prints normal. Store a reference to a temporary writer in a report. Later rendering uses a destroyed object and has undefined behavior. Use n >= 5 instead of n > 5. The boundary report becomes [high:5] instead of [normal:5]."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "The diagram focuses on one pairing; WarningReport also derives from Report and Plain also derives from Writer in the complete listing. Triangles mean inheritance. The Report-to-Writer dependency is the borrowing bridge, not ownership and not a call sequence."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch07-17"
+    },
+    {
+      "eyebrow": "ACTIVITY DIAGRAM · ACTUAL IMPLEMENTATION",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch07/main.cpp:1-81; content/design-patterns-cpp/ch7.json → diagrams.7",
+      "title": "Bridge — chronological driver trace",
+      "keyPoints": [
+        "Read the activity relationships in the named example.",
+        "Reports never change a writer or own its lifetime.",
+        "Writers preserve the supplied name and numeric value."
+      ],
+      "narration": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.\n\nTwo report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.\n\nAdding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.",
+      "diagram": {
+        "chapter": 7,
+        "view": "extra",
+        "index": 0
+      },
+      "theory": {
+        "what": "Bridge — chronological driver trace",
+        "where": "companion/examples/ch07/main.cpp",
+        "why": "Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.",
+        "invariant": "Reports never change a writer or own its lifetime. Writers preserve the supplied name and numeric value. Validation happens before formatting.",
+        "risk": "Duplicate the warning threshold in every writer. One format may print high for 6 while another prints normal. Store a reference to a temporary writer in a report. Later rendering uses a destroyed object and has undefined behavior. Use n >= 5 instead of n > 5. The boundary report becomes [high:5] instead of [normal:5]."
+      },
+      "question": {
+        "prompt": "Which arrow or connection carries ownership, and which only describes use or order?",
+        "answer": "Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs."
+      },
+      "section": "UML and source walkthrough",
+      "id": "dp-ch07-18"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch07/main.cpp:28-35",
+      "title": "The shared report boundary",
+      "keyPoints": [
+        "A report borrows one formatting mechanism and protects the count rule.",
+        "All formats receive validated report inputs without duplicating the validation.",
+        "The writer stays alive and every report rejects negative counts."
+      ],
+      "narration": "A report borrows one formatting mechanism and protects the count rule. These protected members support both concrete report types. All formats receive validated report inputs without duplicating the validation.\n\nThe comment states that the connection is borrowed. Store a const reference to the writer interface. Declare a helper that needs no object-specific state. Open the rejection branch for a negative count. Begin throwing an invalid-argument exception. Name the invalid input and complete the throw. Close the rejection branch. Close the shared validation helper.\n\nThe writer stays alive and every report rejects negative counts. A report that forgets validate can send invalid domain data onward.",
+      "diagram": {
+        "chapter": 7,
+        "view": "focus",
+        "index": 0
+      },
+      "theory": {
+        "title": "The shared report boundary",
+        "start": "// Borrow the chosen writer.",
+        "end": "// End validation.",
+        "what": "A report borrows one formatting mechanism and protects the count rule.",
+        "where": "These protected members support both concrete report types.",
+        "why": "All formats receive validated report inputs without duplicating the validation.",
+        "invariant": "The writer stays alive and every report rejects negative counts.",
+        "risk": "A report that forgets validate can send invalid domain data onward.",
+        "explain": [
+          "The comment states that the connection is borrowed.",
+          "Store a const reference to the writer interface.",
+          "Declare a helper that needs no object-specific state.",
+          "Open the rejection branch for a negative count.",
+          "Begin throwing an invalid-argument exception.",
+          "Name the invalid input and complete the throw.",
+          "Close the rejection branch.",
+          "Close the shared validation helper."
+        ],
+        "resolved_start": 28,
+        "resolved_end": 35,
+        "lineStart": 28,
+        "lineEnd": 35,
+        "code": "    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.",
+        "file": "examples/ch07/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "A report that forgets validate can send invalid domain data onward."
+      },
+      "topicIds": [
+        "C07.11"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch07-19"
+    },
+    {
+      "eyebrow": "FOCUSED SOURCE · LINE BY LINE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch07/main.cpp:44-49",
+      "title": "Choose meaning, then delegate",
+      "keyPoints": [
+        "CountReport decides the field name and asks the writer to display it.",
+        "The report should know count semantics without knowing punctuation.",
+        "The original count reaches Writer unchanged after validation."
+      ],
+      "narration": "CountReport decides the field name and asks the writer to display it. This is the high-level operation reached by a render call. The report should know count semantics without knowing punctuation.\n\nDeclare a string result for the count operation. Implement the const virtual render operation. The comment identifies the responsibility of this layer. Reject a negative argument using the shared rule. Send the count label and value through the Writer contract. Close CountReport rendering.\n\nThe original count reaches Writer unchanged after validation. Calling a concrete formatter here would tie this report to one format.",
+      "diagram": {
+        "chapter": 7,
+        "view": "focus",
+        "index": 1
+      },
+      "theory": {
+        "title": "Choose meaning, then delegate",
+        "start": "std::string // Count rendering.",
+        "end": "// End count report.",
+        "what": "CountReport decides the field name and asks the writer to display it.",
+        "where": "This is the high-level operation reached by a render call.",
+        "why": "The report should know count semantics without knowing punctuation.",
+        "invariant": "The original count reaches Writer unchanged after validation.",
+        "risk": "Calling a concrete formatter here would tie this report to one format.",
+        "explain": [
+          "Declare a string result for the count operation.",
+          "Implement the const virtual render operation.",
+          "The comment identifies the responsibility of this layer.",
+          "Reject a negative argument using the shared rule.",
+          "Send the count label and value through the Writer contract.",
+          "Close CountReport rendering."
+        ],
+        "resolved_start": 44,
+        "resolved_end": 49,
+        "lineStart": 44,
+        "lineEnd": 49,
+        "code": "    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.",
+        "file": "examples/ch07/main.cpp"
+      },
+      "question": {
+        "prompt": "What can go wrong if this block is changed carelessly?",
+        "answer": "Calling a concrete formatter here would tie this report to one format."
+      },
+      "topicIds": [
+        "C07.12"
+      ],
+      "section": "UML and source walkthrough",
+      "id": "dp-ch07-20"
+    },
+    {
+      "eyebrow": "ORIGINAL CHECKED C++",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/examples/ch07/main.cpp",
+      "title": "Run the complete chapter program",
+      "keyPoints": [
+        "Counts in plain text and brackets",
+        "All four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance."
+      ],
+      "narration": "We now join the small pieces into the complete working program. Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit.\n\nAll four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.\n\nAdding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/examples/ch07/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\nint main() {\n    Plain plain;\n    Brackets brackets;\n    CountReport cp(plain);\n    CountReport cb(brackets);\n    WarningReport wp(plain);\n    WarningReport wb(brackets);\n    check(cp.render(6) == \"count=6\");\n    check(cb.render(6) == \"[count:6]\");\n    check(wp.render(6) == \"high=6\");\n    check(wb.render(6) == \"[high:6]\");\n    check(wb.render(5) == \"[normal:5]\");\n    check(cp.render(0) == \"count=0\");\n    bool rejected = false;\n    try { static_cast<void>(wp.render(-1)); }\n    catch (const std::invalid_argument&) { rejected = true; }\n    check(rejected);\n    std::cout << cp.render(6) << '\\n' << cb.render(6) << '\\n';\n    std::cout << wp.render(6) << '\\n' << wb.render(6) << '\\n';\n    std::cout << \"negative count rejected\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "count=6\n[count:6]\nhigh=6\n[high:6]\nnegative count rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-21.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "question": {
+        "prompt": "Does matching the demonstration output prove every promised behavior?",
+        "answer": "No. All four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance. A printed result shows that run; the checks and stated limits explain what was actually verified."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch07-21"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → trace",
+      "title": "Follow one request through the objects",
+      "keyPoints": [
+        "cb borrows brackets; n = 6",
+        "validate(6) succeeds; label = count",
+        "Brackets::field returns [count:6]",
+        "wb.render(5) returns [normal:5]"
+      ],
+      "narration": "Step 1. cb borrows brackets; n = 6. main selects the pairing during construction.\n\nStep 2. validate(6) succeeds; label = count. The report owns the meaning decision.\n\nStep 3. Brackets::field returns [count:6]. The writer owns punctuation.\n\nStep 4. wb.render(5) returns [normal:5]. The report threshold is strictly greater than five.",
+      "walkthrough": [
+        {
+          "label": "Step 1",
+          "text": "cb borrows brackets; n = 6",
+          "reason": "main selects the pairing during construction."
+        },
+        {
+          "label": "Step 2",
+          "text": "validate(6) succeeds; label = count",
+          "reason": "The report owns the meaning decision."
+        },
+        {
+          "label": "Step 3",
+          "text": "Brackets::field returns [count:6]",
+          "reason": "The writer owns punctuation."
+        },
+        {
+          "label": "Step 4",
+          "text": "wb.render(5) returns [normal:5]",
+          "reason": "The report threshold is strictly greater than five."
+        }
+      ],
+      "question": {
+        "prompt": "Which operation makes the next step possible?",
+        "answer": "cb borrows brackets; n = 6 — main selects the pairing during construction.\nvalidate(6) succeeds; label = count — The report owns the meaning decision.\nBrackets::field returns [count:6] — The writer owns punctuation.\nwb.render(5) returns [normal:5] — The report threshold is strictly greater than five."
+      },
+      "topicIds": [
+        "C07.09"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch07-22"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → example.failures",
+      "title": "Debug the promise: Duplicate the warning threshold in every writer.",
+      "keyPoints": [
+        "Duplicate the warning threshold in every writer.",
+        "One format may print high for 6 while another prints normal."
+      ],
+      "narration": "Duplicate the warning threshold in every writer. One format may print high for 6 while another prints normal. A domain rule has been scattered across format implementations.\n\nAll four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.\n\nAdding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "One format may print high for 6 while another prints normal."
+        },
+        {
+          "label": "Why it fails",
+          "text": "A domain rule has been scattered across format implementations."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "A domain rule has been scattered across format implementations. One format may print high for 6 while another prints normal."
+      },
+      "topicIds": [
+        "C07.10"
+      ],
+      "section": "Execute and debug",
+      "id": "dp-ch07-23"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → example.failures",
+      "title": "Debug the promise: Store a reference to a temporary writer in a report.",
+      "keyPoints": [
+        "Store a reference to a temporary writer in a report.",
+        "Later rendering uses a destroyed object and has undefined behavior."
+      ],
+      "narration": "Store a reference to a temporary writer in a report. Later rendering uses a destroyed object and has undefined behavior. The borrowed writer must outlive the report.\n\nAll four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.\n\nAdding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "Later rendering uses a destroyed object and has undefined behavior."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The borrowed writer must outlive the report."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The borrowed writer must outlive the report. Later rendering uses a destroyed object and has undefined behavior."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch07-24"
+    },
+    {
+      "eyebrow": "INCORRECT DESIGN · OBSERVABLE CONSEQUENCE",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → example.failures",
+      "title": "Debug the promise: Use n >= 5 instead of n > 5.",
+      "keyPoints": [
+        "Use n >= 5 instead of n > 5.",
+        "The boundary report becomes [high:5] instead of [normal:5]."
+      ],
+      "narration": "Use n >= 5 instead of n > 5. The boundary report becomes [high:5] instead of [normal:5]. The code no longer matches the explicit classification rule.\n\nAll four combinations are checked for six, plus the threshold five, zero, and a negative rejected case. These checks establish the example contract, not arbitrary escaping rules or performance.\n\nAdding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.",
+      "comparisons": [
+        {
+          "label": "What goes wrong",
+          "text": "The boundary report becomes [high:5] instead of [normal:5]."
+        },
+        {
+          "label": "Why it fails",
+          "text": "The code no longer matches the explicit classification rule."
+        }
+      ],
+      "question": {
+        "prompt": "Where would you look first, and what observation would distinguish this defect?",
+        "answer": "The code no longer matches the explicit classification rule. The boundary report becomes [high:5] instead of [normal:5]."
+      },
+      "section": "Execute and debug",
+      "id": "dp-ch07-25"
+    },
+    {
+      "title": "Trace 1: Bridge: Plain count",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Bridge: Plain count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Bridge: Plain count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe report supplies count and three; Plain joins them with an equals sign.\n\nThe bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → dpx-c07-trace-1; companion/solutions/ch07/main.cpp",
+      "question": {
+        "prompt": "Bridge: Plain count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"count=3\". The report supplies count and three; Plain joins them with an equals sign."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Plain w;\n  return CountReport(w).render(3);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch07_trace_1.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Plain w;\n  return CountReport(w).render(3);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "count=3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-26.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_trace_1.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-07-a",
+      "section": "Trace experiments",
+      "id": "dp-ch07-26"
+    },
+    {
+      "title": "Trace 2: Bridge: Bracket warning boundary",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Bridge: Bracket warning boundary. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Bridge: Bracket warning boundary. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe warning rule chooses normal before the writer adds brackets.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → dpx-c07-trace-2; companion/solutions/ch07/main.cpp",
+      "question": {
+        "prompt": "Bridge: Bracket warning boundary. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"[normal:5]\". The warning rule chooses normal before the writer adds brackets."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Brackets w;\n  return WarningReport(w).render(5);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch07_trace_2.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Brackets w;\n  return WarningReport(w).render(5);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "[normal:5]\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-27.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_trace_2.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-07-a",
+      "section": "Trace experiments",
+      "id": "dp-ch07-27"
+    },
+    {
+      "title": "Trace 3: Bridge: High warning",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Bridge: High warning. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Bridge: High warning. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nSix is above the warning threshold.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → dpx-c07-trace-3; companion/solutions/ch07/main.cpp",
+      "question": {
+        "prompt": "Bridge: High warning. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"high=6\". Six is above the warning threshold."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Plain w;\n  return WarningReport(w).render(6);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch07_trace_3.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Plain w;\n  return WarningReport(w).render(6);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "high=6\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-28.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_trace_3.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-07-a",
+      "section": "Trace experiments",
+      "id": "dp-ch07-28"
+    },
+    {
+      "title": "Trace 4: Bridge: Negative report input",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Bridge: Negative report input. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Bridge: Negative report input. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nAll report forms retain the common nonnegative-count contract.\n\n The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → dpx-c07-trace-4; companion/solutions/ch07/main.cpp",
+      "question": {
+        "prompt": "Bridge: Negative report input. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "true. All report forms retain the common nonnegative-count contract."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Plain w;\n  return dpx_rejects<std::invalid_argument>([&]{\n    CountReport(w).render(-1);\n  });\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch07_trace_4.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Plain w;\n  return dpx_rejects<std::invalid_argument>([&]{\n    CountReport(w).render(-1);\n  });\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-29.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_trace_4.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-07-a",
+      "section": "Trace experiments",
+      "id": "dp-ch07-29"
+    },
+    {
+      "title": "Trace 5: Bridge: CSV count",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Bridge: CSV count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Bridge: CSV count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nAdding a writer should not require a new CountReport subclass.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → dpx-c07-trace-5; companion/solutions/ch07/main.cpp",
+      "question": {
+        "prompt": "Bridge: CSV count. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"count,3\". Adding a writer should not require a new CountReport subclass."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Csv w;\n  return CountReport(w).render(3);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch07_trace_5.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Csv w;\n  return CountReport(w).render(3);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "count,3\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-30.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_trace_5.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-07-a",
+      "section": "Trace experiments",
+      "id": "dp-ch07-30"
+    },
+    {
+      "title": "Trace 6: Bridge: CSV warning",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Bridge: CSV warning. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Bridge: CSV warning. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nThe same warning rule can use the new representation.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → dpx-c07-trace-6; companion/solutions/ch07/main.cpp",
+      "question": {
+        "prompt": "Bridge: CSV warning. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"normal,5\". The same warning rule can use the new representation."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Csv w;\n  return WarningReport(w).render(5);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch07_trace_6.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Csv w;\n  return WarningReport(w).render(5);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "normal,5\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-31.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_trace_6.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-07-a",
+      "section": "Trace experiments",
+      "id": "dp-ch07-31"
+    },
+    {
+      "title": "Trace 7: Bridge: CSV zero",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Bridge: CSV zero. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Bridge: CSV zero. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nZero remains meaningful; the writer does not reject it.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → dpx-c07-trace-7; companion/solutions/ch07/main.cpp",
+      "question": {
+        "prompt": "Bridge: CSV zero. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"count,0\". Zero remains meaningful; the writer does not reject it."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Csv w;\n  return CountReport(w).render(0);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch07_trace_7.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Csv w;\n  return CountReport(w).render(0);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "count,0\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-32.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_trace_7.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-07-a",
+      "section": "Trace experiments",
+      "id": "dp-ch07-32"
+    },
+    {
+      "title": "Trace 8: Bridge: Shared writer, distinct reports",
+      "eyebrow": "PREDICT · EXECUTE · EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "Bridge: Shared writer, distinct reports. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "Explain the object state that produces your prediction."
+      ],
+      "narration": "Bridge: Shared writer, distinct reports. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.\n\nOne borrowed writer formats two independent report meanings.\n\n",
+      "actions": [
+        "Ask for the exact result before opening Expected behavior.",
+        "Read the focused call, then find the invoked member in the complete editor.",
+        "Change one input and explain which contract or branch should change."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → dpx-c07-trace-8; companion/solutions/ch07/main.cpp",
+      "question": {
+        "prompt": "Bridge: Shared writer, distinct reports. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.",
+        "answer": "\"count,8|high,8\". One borrowed writer formats two independent report meanings."
+      },
+      "excerpt": {
+        "text": "std::cout << std::boolalpha << ([]{\n  Csv w;\n  CountReport a(w);\n  WarningReport b(w);\n  return a.render(8)+\"|\"+b.render(8);\n})() << '\\n';",
+        "filename": "Focused call from the complete program",
+        "explain": [
+          "The expression between << operators computes one result.",
+          "The lambda uses the actual extension types copied into this complete source.",
+          "The output statement prints that result followed by one newline."
+        ]
+      },
+      "code": {
+        "filename": "dp_ch07_trace_8.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\n// Return true only for the requested exception type.\n#include <utility>\ntemplate<class E, class F> bool dpx_rejects(F&& action) {\n  try { std::forward<F>(action)(); }\n  catch (const E&) { return true; }\n  return false;\n}\n\nint main() {\nstd::cout << std::boolalpha << ([]{\n  Csv w;\n  CountReport a(w);\n  WarningReport b(w);\n  return a.render(8)+\"|\"+b.render(8);\n})() << '\\n';\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "count,8|high,8\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-33.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread dp_ch07_trace_8.cpp -o example\n./example"
+      },
+      "relatedLab": "dpx-07-a",
+      "section": "Trace experiments",
+      "id": "dp-ch07-33"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → exercises.07.1",
+      "title": "Exercise 07.1: Guided modification",
+      "keyPoints": [
+        "Change the warning threshold to ten. State the warning outputs for 10 and 11 with Plain."
+      ],
+      "narration": "Change the warning threshold to ten. State the warning outputs for 10 and 11 with Plain.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Keep the comparison strict.\n\nAfter the discussion, compare the reasoning. Use n > 10. The outputs are normal=10 and high=11. No Writer changes because labels and punctuation still follow the same contract.",
+      "hint": "Keep the comparison strict.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Use n > 10. The outputs are normal=10 and high=11. No Writer changes because labels and punctuation still follow the same contract."
+      },
+      "topicIds": [
+        "C07.13"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-34"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → exercises.07.2",
+      "title": "Exercise 07.2: Trace unfamiliar code",
+      "keyPoints": [
+        "In the supplied main program, add Plain p; WarningReport r(p); then print r.render(0), r.render(5), and r.render(6), each on a new line. Predict the text."
+      ],
+      "narration": "In the supplied main program, add Plain p; WarningReport r(p); then print r.render(0), r.render(5), and r.render(6), each on a new line. Predict the text.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Follow validation, label choice, then Writer::field.\n\nAfter the discussion, compare the reasoning. The lines are normal=0, normal=5, and high=6. All counts are valid; only six exceeds the threshold.",
+      "hint": "Follow validation, label choice, then Writer::field.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The lines are normal=0, normal=5, and high=6. All counts are valid; only six exceeds the threshold."
+      },
+      "topicIds": [
+        "C07.14"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-35"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → exercises.07.3",
+      "title": "Exercise 07.3: Diagnose a bug",
+      "keyPoints": [
+        "A Brackets writer prints name + \":0\" regardless of n and uses static_cast<void>(n) to suppress the unused-parameter warning. Why can the class compile, and which existing checks catch it?"
+      ],
+      "narration": "A Brackets writer prints name + \":0\" regardless of n and uses static_cast<void>(n) to suppress the unused-parameter warning. Why can the class compile, and which existing checks catch it?\n\nPause here and make a concrete prediction or sketch a change. The hint is: Signatures cannot prove meaning.\n\nAfter the discussion, compare the reasoning. It compiles because the return type and parameter types match. The checks for [count:6] and [high:6] fail. The implementation ignores n, violating the writer contract even though it satisfies the C++ type interface.",
+      "hint": "Signatures cannot prove meaning.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "It compiles because the return type and parameter types match. The checks for [count:6] and [high:6] fail. The implementation ignores n, violating the writer contract even though it satisfies the C++ type interface."
+      },
+      "topicIds": [
+        "C07.15"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-36"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → exercises.07.4",
+      "title": "Exercise 07.4: Choose a design",
+      "keyPoints": [
+        "There will always be exactly one report and two formats selected at compile time. Compare a bridge with two formatting helper functions."
+      ],
+      "narration": "There will always be exactly one report and two formats selected at compile time. Compare a bridge with two formatting helper functions.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Look for demonstrated independent growth and selection time.\n\nAfter the discussion, compare the reasoning. Two helpers may be clearer and avoid inheritance. A bridge becomes attractive when multiple reports and independently added runtime writers appear. A template is another reasonable choice if selection stays at compile time and code size remains acceptable.",
+      "hint": "Look for demonstrated independent growth and selection time.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Two helpers may be clearer and avoid inheritance. A bridge becomes attractive when multiple reports and independently added runtime writers appear. A template is another reasonable choice if selection stays at compile time and code size remains acceptable."
+      },
+      "topicIds": [
+        "C07.16"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-37"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → exercises.07.5",
+      "title": "Exercise 07.5: Extend without regressions",
+      "keyPoints": [
+        "Add a Writer that surrounds fields with braces and uses an equals sign, such as {count=6}. Preserve every existing test and add warning tests at five and six."
+      ],
+      "narration": "Add a Writer that surrounds fields with braces and uses an equals sign, such as {count=6}. Preserve every existing test and add warning tests at five and six.\n\nPause here and make a concrete prediction or sketch a change. The hint is: The report family should remain unchanged.\n\nAfter the discussion, compare the reasoning. Implement field to return \"{\" + name + \"=\" + std::to_string(n) + \"}\". Pair it with both reports. Expected warning text is {normal=5} and {high=6}. Only the new writer and its construction/tests need change.",
+      "hint": "The report family should remain unchanged.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "Implement field to return \"{\" + name + \"=\" + std::to_string(n) + \"}\". Pair it with both reports. Expected warning text is {normal=5} and {high=6}. Only the new writer and its construction/tests need change."
+      },
+      "topicIds": [
+        "C07.17"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-38"
+    },
+    {
+      "eyebrow": "TRY FIRST · THEN REVEAL",
+      "kind": "concept",
+      "actions": [
+        "Give students time to write an answer before opening the hint.",
+        "Ask for a reason tied to the contract, then reveal the explained answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → exercises.07.6",
+      "title": "Exercise 07.6: Justify a decision",
+      "keyPoints": [
+        "Explain why Writer should not decide whether a count is high. Give one case where a writer may reject an input."
+      ],
+      "narration": "Explain why Writer should not decide whether a count is high. Give one case where a writer may reject an input.\n\nPause here and make a concrete prediction or sketch a change. The hint is: Separate domain meaning from representational limits.\n\nAfter the discussion, compare the reasoning. The threshold belongs to the report and must remain the same across formats. A writer may reject a label it cannot encode, such as unsupported control characters, if its contract documents that restriction. It should not silently change the label or numeric meaning.",
+      "hint": "Separate domain meaning from representational limits.",
+      "question": {
+        "prompt": "Reveal the explained answer",
+        "answer": "The threshold belongs to the report and must remain the same across formats. A writer may reject a label it cannot encode, such as unsupported control characters, if its contract documents that restriction. It should not silently change the label or numeric meaning."
+      },
+      "topicIds": [
+        "C07.18"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-39"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/exercises/ch07/main.cpp",
+      "title": "Extend the program without losing its tests",
+      "keyPoints": [
+        "Add a Csv writer producing name,value with no spaces or newline. Support the existing fixed labels count, high, and normal. Keep Report and both concrete report classes unchanged. Preserve all original tests."
+      ],
+      "narration": "Add a Csv writer producing name,value with no spaces or newline. Support the existing fixed labels count, high, and normal. Keep Report and both concrete report classes unchanged. Preserve all original tests.\n\nKeep the original checks as a baseline. The new behavior must also satisfy these checks: Count six becomes count,6. Warning five becomes normal,5 and warning six becomes high,6. Count zero becomes count,0.\n\nThe starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.",
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/exercises/ch07/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "// LAB STARTER: see the chapter for extension requirements.\n#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\nint main() {\n    Plain plain;\n    Brackets brackets;\n    CountReport cp(plain);\n    CountReport cb(brackets);\n    WarningReport wp(plain);\n    WarningReport wb(brackets);\n    check(cp.render(6) == \"count=6\");\n    check(cb.render(6) == \"[count:6]\");\n    check(wp.render(6) == \"high=6\");\n    check(wb.render(6) == \"[high:6]\");\n    check(wb.render(5) == \"[normal:5]\");\n    check(cp.render(0) == \"count=0\");\n    bool rejected = false;\n    try { static_cast<void>(wp.render(-1)); }\n    catch (const std::invalid_argument&) { rejected = true; }\n    check(rejected);\n    std::cout << cp.render(6) << '\\n' << cb.render(6) << '\\n';\n    std::cout << wp.render(6) << '\\n' << wb.render(6) << '\\n';\n    std::cout << \"negative count rejected\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "count=6\n[count:6]\nhigh=6\n[high:6]\nnegative count rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-40.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "checks": [
+        {
+          "prompt": "Count six becomes count,6.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Warning five becomes normal,5 and warning six becomes high,6.",
+          "answer": "This is a required acceptance check for the extension."
+        },
+        {
+          "prompt": "Count zero becomes count,0.",
+          "answer": "This is a required acceptance check for the extension."
+        }
+      ],
+      "question": {
+        "prompt": "What must the extension add?",
+        "answer": "Add a Csv writer producing name,value with no spaces or newline. Support the existing fixed labels count, high, and normal. Keep Report and both concrete report classes unchanged. Preserve all original tests."
+      },
+      "topicIds": [
+        "C07.19"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-40"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "companion/solutions/ch07/main.cpp",
+      "title": "Extension solution and design review",
+      "keyPoints": [
+        "Count six becomes count,6.",
+        "Warning five becomes normal,5 and warning six becomes high,6.",
+        "Count zero becomes count,0."
+      ],
+      "code": {
+        "filename": "main.cpp",
+        "sourcePath": "companion/solutions/ch07/main.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nvoid check(bool ok) {\n    if (!ok) throw std::runtime_error(\"check failed\");\n}\nclass Writer {\npublic:\n    virtual ~Writer() = default;\n    virtual std::string field(\n        const std::string& name, int n) const = 0;\n};\nclass Plain final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \"=\" + std::to_string(n);\n    }\n};\nclass Brackets final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return \"[\" + name + \":\" + std::to_string(n) + \"]\";\n    }\n};\nclass Csv final : public Writer {\npublic:\n    std::string field(const std::string& name, int n) const override {\n        return name + \",\" + std::to_string(n);\n    }\n};\nclass Report {\nprotected:\n    // Borrow the chosen writer.\n    const Writer& writer_;\n    static void validate(int n) {\n        if (n < 0) {\n            throw std::invalid_argument(\n                \"count\");\n        }\n    } // End validation.\npublic:\n    explicit Report(const Writer& w) : writer_(w) {}\n    virtual ~Report() = default;\n    virtual std::string render(int n) const = 0;\n};\nclass CountReport final : public Report {\npublic:\n    explicit CountReport(const Writer& w) : Report(w) {}\n    std::string // Count rendering.\n    render(int n) const override {\n        // This layer chooses meaning.\n        validate(n);\n        return writer_.field(\"count\", n);\n    } // End count report.\n};\nclass WarningReport final : public Report {\npublic:\n    explicit WarningReport(const Writer& w) : Report(w) {}\n    std::string\n    render(int n) const override {\n        validate(n);\n        const std::string label = n > 5 ? \"high\" : \"normal\";\n        return writer_.field(label, n);\n    }\n};\nint main() {\n    Plain plain;\n    Brackets brackets;\n    CountReport cp(plain);\n    CountReport cb(brackets);\n    WarningReport wp(plain);\n    WarningReport wb(brackets);\n    check(cp.render(6) == \"count=6\");\n    check(cb.render(6) == \"[count:6]\");\n    check(wp.render(6) == \"high=6\");\n    check(wb.render(6) == \"[high:6]\");\n    check(wb.render(5) == \"[normal:5]\");\n    check(cp.render(0) == \"count=0\");\n    bool rejected = false;\n    try { static_cast<void>(wp.render(-1)); }\n    catch (const std::invalid_argument&) { rejected = true; }\n    check(rejected);\n    Csv csv;\n    CountReport cc(csv);\n    WarningReport wc(csv);\n    check(cc.render(6) == \"count,6\");\n    check(wc.render(5) == \"normal,5\");\n    check(wc.render(6) == \"high,6\");\n    check(cc.render(0) == \"count,0\");\n    std::cout << cc.render(6) << '\\n' << wc.render(6) << '\\n';\n    std::cout << cp.render(6) << '\\n' << cb.render(6) << '\\n';\n    std::cout << wp.render(6) << '\\n' << wb.render(6) << '\\n';\n    std::cout << \"negative count rejected\\n\";\n}\n",
+        "expectedPhase": "run",
+        "expectedStdout": "count,6\nhigh,6\ncount=6\n[count:6]\nhigh=6\n[high:6]\nnegative count rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "downloadPath": "lectures/examples/design-patterns-cpp/ch7/dp-ch07-41.cpp",
+        "buildCommand": "g++ -std=c++20 -Wall -Wextra -Wpedantic -pthread main.cpp -o example\n./example"
+      },
+      "narration": "The reference solution adds only Csv plus construction and tests. Because the current labels contain no commas or quotes, no escaping is needed for these requirements. A general CSV writer for arbitrary names would need quoting and escaping; the narrow lab contract does not claim to provide that.\n\nAdding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.",
+      "question": {
+        "prompt": "Why is this solution a reasonable extension, and could another design work?",
+        "answer": "The reference solution adds only Csv plus construction and tests. Because the current labels contain no commas or quotes, no escaping is needed for these requirements. A general CSV writer for arbitrary names would need quoting and escaping; the narrow lab contract does not claim to provide that."
+      },
+      "section": "Practice and extension",
+      "id": "dp-ch07-41"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → C07.21 scenario",
+      "title": "Application case 1: defend your choice",
+      "keyPoints": [
+        "Two report policies must each work with three output formats. The choices change independently. Which structure fits?"
+      ],
+      "scenario": {
+        "prompt": "Two report policies must each work with three output formats. The choices change independently. Which structure fits?",
+        "options": [
+          "Observer",
+          "Bridge",
+          "One subclass for every pair is required",
+          "Prototype"
+        ],
+        "correctIndex": 1,
+        "explanation": "Separate report policy from its formatting collaborator.",
+        "rationales": [
+          "No event subscription requirement appears.",
+          "Separate report policy from its formatting collaborator.",
+          "Pairwise subclasses duplicate independent choices.",
+          "Copying configured objects does not explain the independent dimensions."
+        ],
+        "id": "C07.21-s1"
+      },
+      "narration": "Two report policies must each work with three output formats. The choices change independently. Which structure fits?\n\nObserver. No event subscription requirement appears.\n\nBridge. Separate report policy from its formatting collaborator.\n\nOne subclass for every pair is required. Pairwise subclasses duplicate independent choices.\n\nPrototype. Copying configured objects does not explain the independent dimensions.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "Bridge. Separate report policy from its formatting collaborator."
+      },
+      "topicIds": [
+        "C07.21"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-42"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Have learners choose and defend one option.",
+        "Reveal the answer and compare every alternative, including the tempting wrong ones."
+      ],
+      "sourceRef": "content/design-patterns-cpp/ch7.json → C07.22 scenario",
+      "title": "Application case 2: defend your choice",
+      "keyPoints": [
+        "The warning rule is n > 5. A report uses n >= 5 instead. What is the boundary defect at 5?"
+      ],
+      "scenario": {
+        "prompt": "The warning rule is n > 5. A report uses n >= 5 instead. What is the boundary defect at 5?",
+        "options": [
+          "No difference because both tests compare with 5.",
+          "It labels 5 high instead of normal.",
+          "The writer must reject the entire report.",
+          "The program necessarily has undefined behavior."
+        ],
+        "correctIndex": 1,
+        "explanation": "The requirement excludes equality from the high category.",
+        "rationales": [
+          "Strict and inclusive comparison differ at equality.",
+          "The requirement excludes equality from the high category.",
+          "The writer formats the chosen label; the policy chose it incorrectly.",
+          "This is a defined but incorrect decision."
+        ],
+        "id": "C07.22-s1"
+      },
+      "narration": "The warning rule is n > 5. A report uses n >= 5 instead. What is the boundary defect at 5?\n\nNo difference because both tests compare with 5.. Strict and inclusive comparison differ at equality.\n\nIt labels 5 high instead of normal.. The requirement excludes equality from the high category.\n\nThe writer must reject the entire report.. The writer formats the chosen label; the policy chose it incorrectly.\n\nThe program necessarily has undefined behavior.. This is a defined but incorrect decision.",
+      "question": {
+        "prompt": "Reveal the design decision",
+        "answer": "It labels 5 high instead of normal.. The requirement excludes equality from the high category."
+      },
+      "topicIds": [
+        "C07.22"
+      ],
+      "section": "Practice and extension",
+      "id": "dp-ch07-43"
+    },
+    {
+      "eyebrow": "DESIGN PATTERNS · CHAPTER 7",
+      "kind": "concept",
+      "actions": [
+        "Ask students for a prediction before revealing the answer."
+      ],
+      "sourceRef": "manuscript/ch07.json → summary",
+      "title": "Keep these rules when the program grows",
+      "keyPoints": [
+        "Separate decisions that change for independent reasons.",
+        "A bridge is the connection between policy and an interchangeable implementation.",
+        "The number of combined variants grows as a product.",
+        "A borrowed implementation must outlive its users.",
+        "Test both dimensions and meaningful combinations."
+      ],
+      "narration": "Separate decisions that change for independent reasons. A bridge is the connection between policy and an interchangeable implementation. The number of combined variants grows as a product. A borrowed implementation must outlive its users. Test both dimensions and meaningful combinations.\n\nAdding a screen format should modify its Writer implementation and construction site. A report-policy change should remain in the report family.",
+      "question": {
+        "prompt": "Explain Bridge without reciting its class names.",
+        "answer": "Two report types share a Writer interface because report policy and field formatting change for different reasons. Constructors make each pairing explicit. An enum-based formatter is simpler for a permanently closed set of formats. Templates fit compile-time selection; virtual writers fit objects selected while the program runs."
+      },
+      "topicIds": [
+        "C07.20"
+      ],
+      "section": "Recall and transfer",
+      "id": "dp-ch07-44"
+    },
+    {
+      "title": "Independence has a price and a limit",
+      "eyebrow": "DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Two types and four formats create eight combinations.",
+        "Separation reduces repeated implementation decisions.",
+        "A weak shared contract can force coupling back in."
+      ],
+      "narration": "Bridge is useful because the number of combinations grows as the product of the two choices. Two reports and four formats create eight possible pairings. Separate families can avoid writing a dedicated class for every pairing, but the combination behavior still needs thought and testing. If a new format requires information that field does not carry, forcing it into the interface may create special cases or concrete-type checks. That is evidence to revisit the contract. Sometimes an enum and a small switch is clearer for a closed set. The design is successful when real changes remain local, not when the diagram contains more boxes.",
+      "actions": [
+        "Propose a format needing structured severity metadata and discuss whether the interface is sufficient."
+      ],
+      "sourceRef": "manuscript/ch07.json → When the split helps, and when it does not",
+      "question": {
+        "prompt": "What warns that the two dimensions are no longer cleanly separated?",
+        "answer": "Reports inspect concrete writer types, or writers inspect concrete report types to recover missing information."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch07-45"
+    },
+    {
+      "title": "Bridge and Adapter can look alike",
+      "eyebrow": "COMPARE INTENT / EXPLAIN THE CHANGE",
+      "kind": "concept",
+      "keyPoints": [
+        "Bridge separates dimensions expected to vary.",
+        "Adapter repairs an existing interface mismatch.",
+        "A stored service connection alone proves neither pattern."
+      ],
+      "narration": "Both designs can show one object forwarding a call to another. That shared shape does not settle their purpose. In Adapter, a useful old service and an established caller disagree about an interface or meaning. In Bridge, we intentionally put reporting and formatting behind a connection so each side can develop independently. A real system can even place an adapter on one side of a bridge. The useful review question is therefore what change this boundary protects against. Here, adding a writer should not duplicate report policy. That story identifies Bridge more clearly than simply noticing a reference member.",
+      "actions": [
+        "Ask learners to classify a vendor printer wrapper and then a report-format family."
+      ],
+      "sourceRef": "manuscript/ch07.json → When the split helps, and when it does not",
+      "question": {
+        "prompt": "Can similar UML class shapes represent different patterns?",
+        "answer": "Yes. Pattern intent, responsibilities, and the protected change boundary distinguish them."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch07-46"
+    },
+    {
+      "title": "Defend a new report in plain language",
+      "eyebrow": "RETRIEVAL / TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "Name the policy change.",
+        "State what Writer must receive.",
+        "Predict which existing tests remain unchanged."
+      ],
+      "narration": "Imagine adding a report that labels values above twenty as critical and others as routine. Before writing code, explain why the new labels belong to the report and why every current writer can still display them. Then ask whether the CSV contract remains safe with these fixed words. Existing CountReport and WarningReport tests should stay untouched because their rules have not changed. Add focused tests around twenty and twenty-one and test the new report with more than one writer. This exercise turns a memorized pattern into a maintenance plan: identify the changing responsibility, preserve the shared promise, and verify both the new decision and old behavior.",
+      "actions": [
+        "Have learners give a one-minute change plan with one threshold test and one cross-format test."
+      ],
+      "sourceRef": "manuscript/ch07.json → Locate the two decisions before drawing classes",
+      "question": {
+        "prompt": "What is the smallest useful claim a Bridge test suite should support?",
+        "answer": "Report policy stays consistent across supported writers, and each writer preserves the supplied field while applying its own format."
+      },
+      "section": "Recall and transfer",
+      "id": "dp-ch07-47"
+    }
+  ]
+}

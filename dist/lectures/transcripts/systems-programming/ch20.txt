@@ -1,0 +1,719 @@
+Systems Programming and Machine Organization
+Chapter 20: Protected Control Transfer
+Dr. Charles Dorner
+
+1. Not every unexpected path has the same cause
+Problem and first experiment
+
+SAY
+A running program may enter privileged handling because it requested a service, touched a page needing attention, or was interrupted by a timer. These events all change control flow, but their causes and continuation rules differ. A page fault is associated with the instruction that attempted access. A timer interrupt need not come from anything that instruction intended. A system call is an explicit request through an operating-system interface. Begin a trace by naming the event and the state that must be preserved. A single vague phrase such as the operating system takes over hides the distinction between retrying, continuing, blocking, and terminating.
+
+DO
+Classify a read request, absent-page access, and timer event.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.024
+
+------------------------------------------------------------
+
+2. A tiny real system-service round trip
+Problem and first experiment
+
+SAY
+This Linux/POSIX program asks the operating system to create a pipe, writes the byte Q into its empty buffer, and then reads one byte from the other end. Because the write succeeds first, the read has that byte available without needing another process. The output prints sent Q and received Q. We check the exact one-byte results and close both descriptors; an unexpected failure returns a nonzero status instead of pretending the transfer worked. This demonstrates real service interfaces, not a model of processor entry instructions. It does not require a process context switch, outside networking, or a particular measured number of CPU cycles.
+
+DO
+Trace user buffer, kernel-managed pipe, and destination buffer separately.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch20.json → SP20.022
+
+------------------------------------------------------------
+
+3. A C++ exception is not a CPU privilege transition
+Problem and first experiment
+
+SAY
+The output starts with begin. The program then increments completed to one and throws a C++ runtime_error. Before the matching catch runs, the local Guard is destroyed and prints cleanup. The handler finally prints caught completed equals one. That order is a language-level exception guarantee for this completed local object. It is not a demonstration of a CPU page fault or a switch to kernel mode. We choose a deliberate throw rather than an invalid memory access, because undefined behavior does not turn into a portable C++ exception that catch can reliably repair. Keep the two meanings of exception distinct in low-level discussions.
+
+DO
+Predict cleanup versus catch ordering before running.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch20.json → SP20.004
+
+------------------------------------------------------------
+
+4. A fault may retry the same instruction
+Problem and first experiment
+
+SAY
+Consider a load from a legitimate mapping whose page is not yet installed for the process. The processor reports the fault associated with that load, and the kernel can make the page available before arranging a retry. The load may then complete with the expected value, even though its latency was much larger. Now change the address to one outside permitted mappings. The entry mechanism can look similar, but kernel policy cannot simply invent permission; the outcome may be a signal and termination. The source model separates permitted from present for this reason. Recoverable is a possibility that depends on the access contract, not a promise attached to every fault.
+
+DO
+Trace permitted-and-absent versus forbidden-and-absent from the same load attempt.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.010
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Model a load that faults because a permitted page is absent. Resolve the page, retry the load, then advance the program counter.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Model a load with separate permitted and present flags. A permitted absent page may be resolved and retried; a forbidden access leaves the program counter unchanged and returns failure.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+Not every fault is recoverable. An invalid access may terminate the process instead of resuming it.
+
+A related failure in the generalized operation is concrete: Advance pc before checking the load. On denial, the model silently skips an instruction that never completed.
+
+The repair changes the operation at the point where the rule can be enforced: Commit the new program counter only on the successful path. Test both denied and recoverable cases from the same starting pc.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The model separates permission from presence. Missing backing is recoverable only when the mapping policy allows the access. The instruction advances after success, preserving the restart point across a repair. This is a model of architectural control transfer, not a real exception handler or a promise that every page fault is repaired.
+
+A plausible alternative: Use a state model for understanding control transfer; real behavior requires the target OS and ISA contracts.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.03
+
+------------------------------------------------------------
+
+8. Chapter 20 — Protected Control Transfer
+Systems mechanisms and source lecture
+
+SAY
+Control flow can leave a program for reasons beyond a source-level function call. A device may need attention, an instruction may encounter an invalid condition, or the program may explicitly request an operating-system service. The processor and kernel cooperate to save enough state, select an appropriate handler, and eventually continue or terminate the interrupted activity. Terminology depends on context. In this chapter, fault and trap use the architectural distinction when discussing x86 exceptions. They are not C++ exceptions, and the informal phrase “trap into the kernel” does not imply that every system call is an x86 trap-class exception. [ R3 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.001, SP20.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+20.1 Exceptions 20.2 Interrupts 20.3 Traps 20.4 Faults ...plus 8 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.003
+
+------------------------------------------------------------
+
+10. Exceptions
+Systems mechanisms and source lecture
+
+SAY
+An architectural exception arises in relation to instruction execution. Examples include a page fault, an invalid instruction, or a divide error. The processor identifies the condition and transfers control through a configured mechanism. The saved state allows the handler to determine what happened and decide whether execution can continue. A language exception such as throw std::runtime_error(...) belongs to a different abstraction. Its implementation may unwind call frames entirely in user space. Although both mechanisms redirect control, their causes, handlers, and guarantees differ. Do not infer operating-system privilege changes from the presence of a C++ try statement.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.004, SP20.005
+
+------------------------------------------------------------
+
+11. Interrupts
+Systems mechanisms and source lecture
+
+SAY
+An interrupt is commonly an externally generated event delivered to a processor, such as a timer or device notification. Its timing is asynchronous with respect to the program’s intended instruction sequence. The interrupted program did not necessarily request the event and may have no direct relationship to the device that generated it. Interrupt handling must preserve the context required by the architecture and kernel. A handler may acknowledge an event, make work runnable, and defer lengthy processing. Interrupts are one reason that elapsed wall time can exceed a program’s own CPU execution time. They are also one reason that a single-core system can exhibit interleavings even without simultaneous application execution.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.006, SP20.007
+
+------------------------------------------------------------
+
+12. Traps
+Systems mechanisms and source lecture
+
+SAY
+In the x86 exception classification, a trap is reported after the instruction associated with it has completed. The saved instruction location generally supports continuation after that instruction. Debugging facilities use trap-like mechanisms to regain control at intentional observation points. The word is also used more broadly in operating-systems discussions for a deliberate transfer into privileged handling. When reading documentation, identify which meaning applies. A precise trace should state whether the current instruction will be retried, whether the next instruction will run, or whether execution will end. Those distinctions matter more than an ambiguous label.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.008, SP20.009
+
+------------------------------------------------------------
+
+13. Faults
+Systems mechanisms and source lecture
+
+SAY
+A fault is reported in a way that can support restarting the faulting instruction after the underlying condition is corrected. A page fault is the central example: the instruction attempts a memory access, translation or protection checks fail, and the kernel decides whether the access is legitimate and recoverable. Recoverable does not mean automatically recovered. A legitimate demand-paged access may cause the kernel to install a mapping and retry the instruction. An access to an invalid address may instead lead to a signal and process termination. The same architectural entry mechanism can therefore serve both routine resource management and error reporting.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.010, SP20.011
+
+------------------------------------------------------------
+
+14. System calls
+Systems mechanisms and source lecture
+
+SAY
+A system call is an explicit request for a kernel service through an operating-system ABI. A C library wrapper translates a source-level interface into that ABI and translates the result back into the library’s conventions. Some library operations require several system calls; others require none for a particular invocation. The Linux x86-64 system-call register convention is not identical to the System V function-call convention from Chapter 17. In particular, the fourth integer system-call argument uses %r10 , not %rcx , and syscall has specific effects on %rcx and %r11 . Handwritten wrappers must respect the correct ABI. This book normally uses documented C interfaces instead of embedding raw system-call assembly. [ R46 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.012, SP20.013
+
+------------------------------------------------------------
+
+15. User-to-kernel transition
+Systems mechanisms and source lecture
+
+SAY
+A protected entry transfers control to a destination configured by privileged software. The entry path establishes the kernel’s execution environment and records state needed for a return. Do not picture every entry as an ordinary call instruction that simply pushes a return address on the application’s stack. For example, x86-64 syscall does not itself perform a conventional push of the entire user context onto a kernel stack. The processor provides specified register and control-state changes, and kernel entry code performs additional work, including establishing suitable stack state. The exact entry sequence is architecture- and kernel-dependent. The stable lesson is that user-supplied state must not be trusted merely because execution is now privileged. [ R3 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.014, SP20.015
+
+------------------------------------------------------------
+
+16. Kernel-to-user return
+Systems mechanisms and source lecture
+
+SAY
+Before returning, the kernel prepares a valid user execution context and a result. The return may resume the original user instruction stream, deliver a signal through an arranged user-space path, or select another runnable task before the original one eventually continues. A system call that blocks is not completed by busy-waiting in user code. The kernel can place the caller in a waiting state and schedule other work. When the relevant event occurs, the caller becomes eligible to run again. Becoming runnable and actually receiving CPU time are distinct events; scheduling determines the latter.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.016, SP20.017
+
+------------------------------------------------------------
+
+17. Timer interrupts
+Systems mechanisms and source lecture
+
+SAY
+Timer facilities let the kernel regain control and account for or schedule work. A runnable process cannot assume that avoiding voluntary system calls grants it indefinite uninterrupted use of a CPU. The hardware timer and scheduling mechanisms provide opportunities to reconsider execution. Modern systems need not use a simplistic fixed periodic tick for every purpose. Exact timing and scheduling policy vary. For reasoning about an application, the important fact is that preemption can occur between operations that appear adjacent in source code. A sequence is not atomic merely because it is short or usually finishes within one timer interval. [ R38 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.018, SP20.019
+
+------------------------------------------------------------
+
+18. A recoverable load
+Systems mechanisms and source lecture
+
+SAY
+Consider a valid private mapping whose page is not currently installed in the process’s page tables. A load instruction targets that page. The following sequence is a conceptual model, not a promise about every kernel implementation: The load may ultimately produce the same value it would have produced had the page already been resident. Nevertheless, its latency is very different. This is an early example of why a source-level operation does not imply a fixed machine-level cost. A page fault is also not the same event as a TLB miss; Chapter 25 separates them explicitly. [ R10 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.020, SP20.021
+
+------------------------------------------------------------
+
+19. System-call round trip
+Systems mechanisms and source lecture
+
+SAY
+A user program calling read eventually enters the kernel through the platform’s system-call mechanism. Hardware changes privilege context and transfers to a registered kernel entry path. The kernel validates the descriptor and user buffer, performs or schedules the operation, places a result in the calling convention’s return location, and returns to user mode. The library wrapper then exposes the result to C code.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.022, SP20.023
+
+------------------------------------------------------------
+
+20. Fault versus interrupt
+Systems mechanisms and source lecture
+
+SAY
+A page fault is synchronous with the instruction that attempted the access: retrying that instruction may succeed after the mapping is fixed. A timer interrupt is asynchronous with respect to the current instruction stream and is generated by hardware timing. Both transfer control to privileged handlers, but their causes and restart semantics differ.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.024, SP20.025
+
+------------------------------------------------------------
+
+21. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 20. Write two traces for a memory access: one to a legitimate demand-paged address and one to an address outside all allowed mappings. Mark the point at which the architectural mechanism is the same and the point at which kernel policy produces different outcomes. Review 1. Does every system call require a process context switch? Review 2. Why must a concurrent program remain correct even when a thread is preempted between two adjacent statements?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.026, SP20.027
+
+------------------------------------------------------------
+
+22. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is protected control transfer. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.028
+
+------------------------------------------------------------
+
+23. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Processes.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.029
+
+------------------------------------------------------------
+
+24. Trap terminology needs a continuation point
+Reason about the implementation
+
+SAY
+The word trap can be used in more than one way, so a precise explanation states where execution continues. In the x86 exception classification used here, a trap is reported after the associated instruction completes, supporting continuation after it. A fault is reported in a way that can support retrying the faulting instruction when the condition is repaired. Some operating-system writing uses trap more broadly for a deliberate protected transfer. Rather than arguing from the word alone, record whether the instruction completed, which location was saved, and whether handling resumes, retries, or ends execution. Those facts determine the program trace.
+
+DO
+Have learners label saved continuation points for a trap and a recoverable fault.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.008
+
+------------------------------------------------------------
+
+25. System-call ABI rules differ from ordinary calls
+Reason about the implementation
+
+SAY
+A C declaration for read looks like an ordinary function interface, but its library wrapper must arrange the operating system's service ABI and translate the result back into the library convention. The Linux x86-64 system-call register arrangement differs from the ordinary System V function convention, including the fourth scalar argument in R10 rather than RCX. The entry instruction also has defined effects on RCX and R11. This is why copying a function-call register table into a handwritten system-call wrapper is unsafe. Our examples use documented C interfaces so the platform library handles these details, while the lecture makes the boundary explicit.
+
+DO
+Compare the two ABI roles without attempting raw privileged assembly.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.012
+
+------------------------------------------------------------
+
+26. Protected entry requires kernel setup work
+Reason about the implementation
+
+SAY
+Do not picture every protected entry as an ordinary CALL that pushes a complete context onto the application's stack. The architecture defines particular changes, and kernel entry code performs additional work to establish suitable state, including stack handling. The details depend on the target architecture and operating system. The stable lesson is that a controlled destination does not make the request trustworthy. A pointer and byte count supplied by user code still require validation before privileged code uses them. Separating hardware entry from software policy helps prevent two wrong assumptions: that entry saves absolutely everything automatically, and that privileged execution makes every requested access valid.
+
+DO
+Separate hardware-specified state changes from kernel entry-code responsibilities.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.014
+
+------------------------------------------------------------
+
+27. Blocked, runnable, and running are different states
+Reason about the implementation
+
+SAY
+Imagine reading from an empty pipe while some other participant will later write. The caller may block, allowing the kernel to run other work instead of burning CPU in a user-space spin loop. When data arrives, the waiting task can become runnable, but the scheduler still decides when it actually runs. Our one-byte example avoids this wait by writing first; it therefore does not demonstrate a scheduling delay. Keep these states distinct when interpreting timing. A long elapsed call can include waiting and scheduling time rather than continuous CPU execution, and entering the kernel does not by itself prove that a different process was selected.
+
+DO
+Contrast the prefilled pipe example with an empty pipe awaiting another writer.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.016
+
+------------------------------------------------------------
+
+28. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Model a load that faults because a permitted page is absent. Resolve the page, retry the load, then advance the program counter.
+
+Attempt instruction 8. page absent; one fault. The instruction cannot complete with the current translation state.
+
+Resolve the permitted page. page becomes present; resume point remains 8. A recoverable fault lets the OS repair a condition and retry.
+
+Complete the retried load. value 42; pc advances to 9. Advancing past the load before it succeeds would silently skip required work.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch20/main.cpp
+
+------------------------------------------------------------
+
+29. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Attempt instruction 8. page absent; one fault. The instruction cannot complete with the current translation state.
+
+Resolve the permitted page. page becomes present; resume point remains 8. A recoverable fault lets the OS repair a condition and retry.
+
+Complete the retried load. value 42; pc advances to 9. Advancing past the load before it succeeds would silently skip required work.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch20/main.cpp
+
+------------------------------------------------------------
+
+30. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The model separates permission from presence. Missing backing is recoverable only when the mapping policy allows the access. The instruction advances after success, preserving the restart point across a repair. This is a model of architectural control transfer, not a real exception handler or a promise that every page fault is repaired.
+
+Commit the new program counter only on the successful path. Test both denied and recoverable cases from the same starting pc.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch20/main.cpp:1-13
+
+------------------------------------------------------------
+
+31. A recoverable fault resumes the same instruction
+Code, diagrams, and debugging
+
+SAY
+A recoverable fault resumes the same instruction. The model enters fault handling when the page is absent, counts one fault, and makes the page present. pc stays 8 during this recovery.
+
+Model a load that faults because a permitted page is absent. Resolve the page, retry the load, then advance the program counter.
+
+The instruction cannot complete with the current translation state. A recoverable fault lets the OS repair a condition and retry. Advancing past the load before it succeeds would silently skip required work.
+
+The model enters fault handling when the page is absent, counts one fault, and makes the page present. pc stays 8 during this recovery.
+
+The assertion checks the condition required before the modeled load can complete.
+
+The resumed load produces the fixture value 42. No actual page fault or memory mapping is created by this C++ program.
+
+Only after completing the instruction does pc advance to 9. A denied fault would require a different outcome, covered by the lab.
+
+Recovery does not skip the faulting modeled instruction. pc advances only after the operation completes.
+
+Not every fault is recoverable. An invalid access may terminate the process instead of resuming it. In the extended lab: Advance pc before checking the load. On denial, the model silently skips an instruction that never completed.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch20/main.cpp:8-11
+
+------------------------------------------------------------
+
+32. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Advance pc before checking the load. On denial, the model silently skips an instruction that never completed.
+
+Commit the new program counter only on the successful path. Test both denied and recoverable cases from the same starting pc.
+
+The reference solution makes the contract executable with assertions. The model separates permission from presence. Missing backing is recoverable only when the mapping policy allows the access. The instruction advances after success, preserving the restart point across a repair. This is a model of architectural control transfer, not a real exception handler or a promise that every page fault is repaired.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.06
+
+------------------------------------------------------------
+
+33. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch20/starter.cpp. Implement the first acceptance case for distinguish recoverable and fatal faults. State the function inputs and result before adding code. First case: Present,permitted load completes without a fault.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.07
+
+------------------------------------------------------------
+
+34. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch20/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.08
+
+------------------------------------------------------------
+
+35. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Advance pc before checking the load. On denial, the model silently skips an instruction that never completed. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.09
+
+------------------------------------------------------------
+
+36. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+How is this different from a timer interrupt? Compare the selected design with this plausible alternative: Use a state model for understanding control transfer; real behavior requires the target OS and ISA contracts.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.10
+
+------------------------------------------------------------
+
+37. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch20/starter.cpp. Model a load with separate permitted and present flags. A permitted absent page may be resolved and retried; a forbidden access leaves the program counter unchanged and returns failure. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch20/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.11
+
+------------------------------------------------------------
+
+38. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Distinguish recoverable and fatal faults belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.12
+
+------------------------------------------------------------
+
+39. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Model a load with separate permitted and present flags. A permitted absent page may be resolved and retried; a forbidden access leaves the program counter unchanged and returns failure.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch20/starter.cpp
+
+------------------------------------------------------------
+
+40. Review the extension solution
+Practice and extension
+
+SAY
+The model separates permission from presence. Missing backing is recoverable only when the mapping policy allows the access. The instruction advances after success, preserving the restart point across a repair. This is a model of architectural control transfer, not a real exception handler or a promise that every page fault is repaired. Repair principle: Commit the new program counter only on the successful path. Test both denied and recoverable cases from the same starting pc.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Commit the new program counter only on the successful path. Test both denied and recoverable cases from the same starting pc.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch20/solution.cpp
+
+------------------------------------------------------------
+
+41. Application case: Protected Control Transfer
+Practice and extension
+
+SAY
+A system call enters privileged code.
+
+What must the kernel still do?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.CASE
+
+------------------------------------------------------------
+
+42. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The model separates permission from presence. Missing backing is recoverable only when the mapping policy allows the access. The instruction advances after success, preserving the restart point across a repair. This is a model of architectural control transfer, not a real exception handler or a promise that every page fault is repaired.
+
+Choose a simpler approach when its narrower contract is enough. Use a state model for understanding control transfer; real behavior requires the target OS and ISA contracts.
+
+When this system changes, retain a check that exposes the known failure: Advance pc before checking the load. On denial, the model silently skips an instruction that never completed. Commit the new program counter only on the successful path. Test both denied and recoverable cases from the same starting pc.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch20.json → SYS20.14
+
+------------------------------------------------------------
+
+43. A timer can interrupt apparently adjacent operations
+Recall and transfer
+
+SAY
+Two source statements next to each other may still be separated by an interrupt and scheduling activity. A task cannot assume uninterrupted ownership of the CPU simply because it avoids system calls or usually finishes its update quickly. Timer facilities give the kernel opportunities to regain control, though modern systems need not follow one simple fixed-tick picture. This matters when a later chapter introduces shared state: read, modify, and write is not one indivisible action merely because it occupies three short lines. Define the synchronization boundary from the shared-state invariant, not from an optimistic estimate of how fast the code tends to run.
+
+DO
+Ask where another task could observe an intermediate state between two updates.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.018
+
+------------------------------------------------------------
+
+44. Trace cause, saved state, decision, and continuation
+Recall and transfer
+
+SAY
+A useful protected-transfer trace has four parts. First name what caused entry: a request, a faulting access, or an external event. Next record the state needed to continue. Then explain the handler's decision, including permission and resource availability. Finally state whether execution retries, resumes later, blocks, or ends. The chapter's faulty program-counter update illustrates why the final part matters: advancing before a denied load would skip an instruction that never completed. Keep that model honest by distinguishing it from real hardware and by testing both repairable and forbidden accesses. A successful retry test alone does not establish the denial path.
+
+DO
+Have learners give paired traces for the same load with permitted and forbidden mappings.
+
+SOURCE
+content/systems-programming/ch20.json → SP20.026

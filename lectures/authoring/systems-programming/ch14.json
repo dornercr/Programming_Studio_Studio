@@ -1,0 +1,223 @@
+{
+  "chapter": 14,
+  "title": "Assembly Data Movement",
+  "opening": [
+    {
+      "title": "A value, an address, and the value at that address differ",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "concept",
+      "keyPoints": [
+        "Immediate operands supply constants.",
+        "Register operands supply stored bits.",
+        "Memory operands request an access at a computed location."
+      ],
+      "narration": "The number seven can be a value to add, an index into an array, or part of an address calculation. Assembly syntax must distinguish these roles. In the chapter's AT&T notation, a dollar sign marks an immediate constant and parentheses form a memory-address expression. Moving a register value copies its bits; loading through a register uses those bits as an address and reads the object there. Confusing these operations can return an address when a caller expected data. Before translating any line, say whether it computes a location or actually reads or writes memory at that location.",
+      "actions": [
+        "Contrast a literal seven with memory at a pointer whose numeric value is seven."
+      ],
+      "sourceRef": "content/systems-programming/ch14.json → SP14.008",
+      "question": {
+        "prompt": "Does computing an address necessarily read memory there?",
+        "answer": "No. Address arithmetic and a memory access are distinct operations."
+      }
+    },
+    {
+      "title": "An array index already knows its element size",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "code",
+      "keyPoints": [
+        "Pointer addition advances by elements.",
+        "Byte offsets include sizeof(element).",
+        "The selected value is separate from its position."
+      ],
+      "narration": "The array contains three, seven, eleven, and fifteen as sixteen-bit unsigned elements. Adding two to values.data selects the third element, so dereferencing selected prints eleven. The pointer difference reports two elements, while multiplying that difference by sizeof the element reports four bytes on the explicitly checked eight-bit-byte platform. The example prints no address because real allocation addresses vary. It demonstrates a source-language rule that a compiler must translate into byte addressing. Do not multiply the index by the element size a second time when using typed pointer arithmetic; the language already applies that scaling.",
+      "actions": [
+        "Predict the element distance, byte distance, and selected value."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch14.json → SP14.018",
+      "question": {
+        "prompt": "Why does values.data() + 2 move four bytes here?",
+        "answer": "The pointer advances by two uint16_t elements, each occupying two eight-bit bytes."
+      },
+      "code": {
+        "filename": "sys_ch14_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <climits>\n#include <cstdint>\n#include <iostream>\nint main() {\n    static_assert(CHAR_BIT == 8);\n    const std::array<std::uint16_t, 4> values{3, 7, 11, 15};\n    const auto* selected = values.data() + 2;\n    const auto elements = selected - values.data();\n    std::cout << \"elements=\" << elements\n              << \" bytes=\" << elements * sizeof(values[0])\n              << \" value=\" << *selected << '\\n';\n}\n",
+        "expectedStdout": "elements=2 bytes=4 value=11\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "LEA-style arithmetic does not load the value",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "code",
+      "keyPoints": [
+        "Five plus seven plus twice seven is twenty-six.",
+        "A separate load reads the modeled cell at twenty-six.",
+        "The two results need not resemble each other."
+      ],
+      "narration": "Our bounded model stores ninety-nine in element twenty-six of a thirty-two-element array. The address-form expression five plus x plus twice x, with x equal to seven, computes twenty-six. Only the separate array access retrieves ninety-nine. The output prints calculated twenty-six and loaded ninety-nine to make the distinction unmistakable. This is not a claim that the array lives at a numeric hardware address of twenty-six; the number is a safe model index. Real LEA computes its expression without reading the memory it names. Replacing a MOV load with LEA therefore changes the returned meaning even when the operand text looks similar.",
+      "actions": [
+        "Point to the only statement that actually reads the modeled memory cell."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch14.json → SP14.028",
+      "question": {
+        "prompt": "What mistake does returning twenty-six instead of ninety-nine represent?",
+        "answer": "Returning a computed location instead of reading the data at that location."
+      },
+      "code": {
+        "filename": "sys_ch14_address_not_value.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <array>\n#include <cstddef>\n#include <iostream>\nint main() {\n    std::array<int, 32> memory{};\n    memory[26] = 99;\n    const std::size_t x = 7;\n    const auto calculated = 5 + x + 2 * x; // Address-form arithmetic only.\n    const int loaded = memory.at(calculated); // Separate checked access.\n    std::cout << \"calculated=\" << calculated << \" loaded=\" << loaded << '\\n';\n}\n",
+        "expectedStdout": "calculated=26 loaded=99\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "An indexed array model distinguishes address calculation from memory access."
+      }
+    },
+    {
+      "title": "Read an effective address as one formula",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "concept",
+      "keyPoints": [
+        "D(B,I,S) means displacement plus base plus index times scale.",
+        "The result is a byte address.",
+        "The scale is part of the encoding, not a source type label."
+      ],
+      "narration": "Read eight of base, index, four as the formula eight plus base plus four times index. If base is hexadecimal one thousand and index is three, the effective address is hexadecimal one thousand fourteen. The displacement contributes eight bytes and the scaled index contributes twelve. Standard x86 scales are one, two, four, and eight. An array of twenty-four-byte records may therefore require an extra arithmetic step, such as computing three times the index before scaling by eight. Read the complete formula before guessing a source declaration. The machine does not carry an array-of-records type that automatically explains the access.",
+      "actions": [
+        "Ask learners to expand one address expression before evaluating numbers."
+      ],
+      "sourceRef": "content/systems-programming/ch14.json → SP14.012",
+      "question": {
+        "prompt": "How can a twenty-four-byte record index be formed with an allowed scale of eight?",
+        "answer": "Compute three times the element index first, then apply scale eight."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "MOV width decides how many bits travel",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "concept",
+      "keyPoints": [
+        "Byte, word, long, and quadword forms differ.",
+        "A narrow value may need sign or zero extension.",
+        "Later full-register use makes upper bits matter."
+      ],
+      "narration": "Loading one byte into a narrow register view does not necessarily establish a meaningful full-width value for later use. If the byte represents an unsigned count, widening should preserve a nonnegative value through zero extension. If it represents a signed temperature, sign extension preserves the signed meaning. A thirty-two-bit general-purpose destination also has the special x86-64 rule of clearing the upper half. Ask what width the later consumer reads, not merely what width the load wrote. A correct low byte can coexist with stale upper bits, producing a wrong comparison or address when later code uses the full register.",
+      "actions": [
+        "Compare the byte pattern FF as an unsigned count and a signed eight-bit value."
+      ],
+      "sourceRef": "content/systems-programming/ch14.json → SP14.010",
+      "question": {
+        "prompt": "What determines whether a narrow load should be sign-extended or zero-extended?",
+        "answer": "The source value’s intended signedness and the required wider interpretation."
+      }
+    },
+    {
+      "title": "A displacement is not a bounds check",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "concept",
+      "keyPoints": [
+        "An offset can identify a member or neighboring element.",
+        "The assembler does not know the live object extent.",
+        "Validate untrusted indices before forming an invalid access."
+      ],
+      "narration": "An instruction using an eight-byte displacement merely computes a location eight bytes beyond its base. It does not prove that the base points to a structure with a valid member there. Similarly, an index times four can calculate a neat address outside its array. The assembler checks whether the instruction form is encodable, not whether the runtime pointer describes a live object large enough for the access. The chapter's checked wrapper puts that object-level condition back into the interface. Maintenance work should keep the range check and the pointer lifetime guarantee together; arithmetic without overflow is necessary but does not establish memory ownership or permission.",
+      "actions": [
+        "Ask whether a valid row index proves a column access is valid."
+      ],
+      "sourceRef": "content/systems-programming/ch14.json → SP14.014",
+      "question": {
+        "prompt": "What does a successful effective-address calculation fail to prove?",
+        "answer": "That the resulting range is inside a live permitted object with the required access width."
+      }
+    },
+    {
+      "title": "RIP-relative uses the following instruction as its base",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "concept",
+      "keyPoints": [
+        "Disassembly labels the current instruction’s start.",
+        "The displacement is relative to the next instruction address.",
+        "Relocation can preserve relationships while changing absolute addresses."
+      ],
+      "narration": "Suppose an instruction begins at address one thousand, occupies seven bytes, and uses a relative displacement of twenty. The calculation uses the next instruction address, one thousand seven, before adding twenty. It does not add twenty directly to the starting label. This detail matters when checking a target from disassembly. RIP-relative addressing also helps code refer to nearby data after the image is relocated, because the relative distance can remain valid. A memory instruction then reads at the computed location; LEA can instead return the location itself. A pointer-table lookup may add yet another access, so keep each level distinct.",
+      "actions": [
+        "Have learners compute a target using a seven-byte instruction and a twenty-byte displacement."
+      ],
+      "sourceRef": "content/systems-programming/ch14.json → SP14.020",
+      "question": {
+        "prompt": "Which address is the base for the stated relative displacement?",
+        "answer": "The address immediately after the current instruction, including its full encoded length."
+      }
+    },
+    {
+      "title": "LEA can preserve flags that ADD would change",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "concept",
+      "keyPoints": [
+        "LEA computes address-form arithmetic.",
+        "It does not update ordinary arithmetic condition flags.",
+        "The useful choice depends on the surrounding dependencies."
+      ],
+      "narration": "The expression x plus twice x can be arithmetic rather than a pointer. LEA is useful because its addressing form can produce that number without a memory load and without replacing ordinary arithmetic flags. If a comparison has already established flags for a later branch, using ADD in between may destroy the needed condition while LEA can preserve it. This is a correctness dependency before it is a performance question. Do not claim LEA is always faster: instruction forms and processor implementations differ. First explain the expression and flag requirements, then inspect the actual target when cost matters.",
+      "actions": [
+        "Identify the flag producer and consumer before choosing an arithmetic instruction."
+      ],
+      "sourceRef": "content/systems-programming/ch14.json → SP14.022",
+      "question": {
+        "prompt": "Why might LEA be chosen between a comparison and a branch?",
+        "answer": "It can compute the required expression without overwriting the comparison’s arithmetic flags."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Check the neighboring-element requirement carefully",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "concept",
+      "keyPoints": [
+        "The operation reads values[index + 1].",
+        "An empty range must be rejected before subtracting one.",
+        "Check count > 0 before index < count - 1."
+      ],
+      "narration": "The chapter's indexed-load routine asks for the element after index, so checking only index less than count is insufficient. For count four and index three, the base element exists but its neighbor does not. The proposed guard first establishes a nonempty count and then compares index with count minus one. This order avoids unsigned underflow when count is zero. A one-element array still has no valid neighbor request under this contract. These tests are more informative than repeatedly checking a middle element because they target the exact relationship between the requested operation and its permitted index domain.",
+      "actions": [
+        "Test count/index pairs 0/0, 1/0, 4/2, and 4/3."
+      ],
+      "sourceRef": "content/systems-programming/ch14.json → SP14.030",
+      "question": {
+        "prompt": "Why is index < count too weak for values[index + 1]?",
+        "answer": "It permits the last index, whose following element is outside the array."
+      }
+    },
+    {
+      "title": "Debug movement by naming source, destination, and width",
+      "eyebrow": "SYSTEMS / CHAPTER 14",
+      "kind": "concept",
+      "keyPoints": [
+        "Identify whether each operand is immediate, register, or memory.",
+        "Expand the complete byte-address formula.",
+        "Separate representation correctness from access validity."
+      ],
+      "narration": "When a loaded value is wrong, resist changing the displacement by trial and error. Write down the source operand, destination operand, transfer width, and extension rule. Then calculate the address using the runtime base and index, and verify that the required bytes belong to the intended live object. This procedure can distinguish returning an address, reading the wrong element, and interpreting the right byte with the wrong signedness. In a code review, retain a small test for each distinct defect class. A single expected value from the middle of an array does not verify the full data-movement contract.",
+      "actions": [
+        "Ask learners to diagnose an address-as-value result without editing code first."
+      ],
+      "sourceRef": "content/systems-programming/ch14.json → SP14.032",
+      "question": {
+        "prompt": "Which three facts should be stated before interpreting a MOV instruction?",
+        "answer": "Its source and destination operand kinds, transfer width, and any required widening interpretation."
+      }
+    }
+  ]
+}

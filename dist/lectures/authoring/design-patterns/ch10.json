@@ -1,0 +1,258 @@
+{
+  "chapter": 10,
+  "title": "Facade",
+  "opening": [
+    {
+      "title": "One summary button, three promises",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "Accept complete integer tokens only",
+        "Accept 1–1000 readings, each −100 through 100",
+        "Return a count and total only after all checks"
+      ],
+      "narration": "Imagine three screens that all show a summary of inspection readings. Each screen has one button, but behind that button the program must read words, check their meaning, and add numbers. Our first job is to name what success promises. The text must contain whole integer tokens. The number of readings and each reading must fit the stated limits. Only then may we return a summary. This is a question about a trustworthy entrance to work, not about how many classes we can create. A user who supplies 4x should get rejection, not a cheerful total of four. We will locate exactly where each promise becomes true.",
+      "actions": [
+        "Ask for one accepted input, one syntax error, and one domain error."
+      ],
+      "sourceRef": "manuscript/ch10.json → A small request with several hidden steps",
+      "question": {
+        "prompt": "Why are 4x and 101 rejected for different reasons?",
+        "answer": "4x is not a complete integer token; 101 is an integer but exceeds the accepted domain."
+      }
+    },
+    {
+      "title": "Start with one direct workflow",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "code",
+      "keyPoints": [
+        "A fixed valid input needs no object hierarchy",
+        "Read, check, then calculate",
+        "This baseline does not prove complete-token parsing"
+      ],
+      "narration": "This complete baseline uses a fixed input so we can see the order without a large interface. The stream reads integers into a vector, a growable sequence of values. We then reject a bad count, reject values outside the range, and finally calculate the total. The colon in the final loop means take each value from the vector in order. The program has no shared state and returns no reference into temporary storage. For the known input it works. Its input loop is not yet a sufficient parser for arbitrary user text: stream extraction can stop after reading a numeric prefix. Keep that limitation in mind before copying this code into several screens.",
+      "actions": [
+        "Run the program, then predict whether replacing 6 4 with 6x would necessarily trigger rejection."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch10.json → A small request with several hidden steps",
+      "question": {
+        "prompt": "Why is this baseline unsuitable as a complete user-input contract?",
+        "answer": "Its stream loop can accept a numeric prefix and stop. It does not establish that every token was consumed as a complete integer."
+      },
+      "code": {
+        "filename": "dp_ch10_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <sstream>\n#include <stdexcept>\n#include <vector>\nint main() {\n    std::istringstream input(\"6 4\");\n    std::vector<int> values;\n    int value = 0;\n    // Suitable for this fixed input, not a complete token grammar.\n    while (input >> value) values.push_back(value);\n    if (values.empty() || values.size() > 1000)\n        throw std::invalid_argument(\"count\");\n    for (int n : values) {\n        if (n < -100 || n > 100)\n            throw std::invalid_argument(\"range\");\n    }\n    int total = 0;\n    for (int n : values) total += n;\n    std::cout << \"count=\" << values.size()\n              << \" total=\" << total << '\\n';\n}\n",
+        "expectedStdout": "count=2 total=10\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Successful conversion can still reject the token",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "code",
+      "keyPoints": [
+        "from_chars reports both status and stopping position",
+        "A numeric prefix is not a complete token",
+        "Check both conditions before storing the number"
+      ],
+      "narration": "Here is a small, safe reproduction of the parsing trap. The text is 6x. The conversion function can read the six, so its error code reports success. It stops before the x. We print both facts separately rather than pretending that successful conversion means valid input. A pointer is a value that identifies a position in storage. The end pointer identifies the position after the final character; we compare with it but do not read a character there. The repaired decision requires no conversion error and a stopping pointer equal to the end. The main chapter parser uses that same two-part rule before it adds an integer to its vector.",
+      "actions": [
+        "Pause before running and ask learners to predict all three lines."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch10.json → Parsing must consume the whole token",
+      "question": {
+        "prompt": "Which extra condition rejects 6x even when ec reports success?",
+        "answer": "The stopping pointer must equal the end pointer. For 6x, it points at x instead."
+      },
+      "code": {
+        "filename": "dp_ch10_partial_token.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <charconv>\n#include <iostream>\n#include <string>\nint main() {\n    const std::string token = \"6x\";\n    int value = 0;\n    const char* end = token.data() + token.size();\n    const auto result = std::from_chars(token.data(), end, value);\n    // Success of a prefix is weaker than success of the token.\n    const bool prefix_ok = result.ec == std::errc{};\n    const bool whole_ok = prefix_ok && result.ptr == end;\n    std::cout << std::boolalpha;\n    std::cout << \"prefix=\" << value << \" conversion=\" << prefix_ok << '\\n';\n    std::cout << \"whole token=\" << whole_ok << '\\n';\n    std::cout << (whole_ok ? \"accepted\" : \"rejected\") << '\\n';\n}\n",
+        "expectedStdout": "prefix=6 conversion=true\nwhole token=false\nrejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Repeated call order is the pressure for a facade",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "Clients request a checked summary",
+        "Importer owns the sequence",
+        "Subsystem operations remain focused"
+      ],
+      "narration": "Suppose a second screen copies our direct workflow but forgets validation. A third screen validates only after adding the numbers. Every screen now carries a slightly different version of the same promise. A facade is a simpler public entrance to a related group of operations. Importer::run becomes that entrance: clients ask for a checked summary and the method controls the sequence. The double colon names a member within its class. This design does not need inheritance or a virtual method. The parser, validator, and summarizer remain concrete tools. A free function could provide the same facade when no stored state or configuration is needed.",
+      "actions": [
+        "Have learners name the workflow in one sentence without listing internal method names."
+      ],
+      "sourceRef": "manuscript/ch10.json → A small doorway rather than a new object hierarchy",
+      "question": {
+        "prompt": "Why would forwarding every subsystem method leave the original problem unsolved?",
+        "answer": "Callers would still need to know the correct sequence and establish every precondition themselves."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Each stage establishes the next stage’s permission",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "Parser establishes integer syntax",
+        "Validator establishes count and value bounds",
+        "Summarizer relies on both established facts"
+      ],
+      "narration": "A precondition is a rule that must already be true before an operation begins. The summarizer has one: this vector has passed validation. It does not independently rediscover that fact. The facade supplies the missing proof by calling the validator first. This matters for arithmetic, not just friendly error messages. At most one thousand numbers, each between negative one hundred and positive one hundred, place the total between negative one hundred thousand and positive one hundred thousand. That fits the supported environment's integer type. If someone calls Summarizer directly with unchecked data, the class name does not protect them. Debugging starts by finding the path that bypassed the promise.",
+      "actions": [
+        "Ask learners to derive both total bounds aloud before showing the answer."
+      ],
+      "sourceRef": "manuscript/ch10.json → Validation establishes arithmetic assumptions",
+      "question": {
+        "prompt": "Does moving validation after summarize preserve safety if an error is eventually thrown?",
+        "answer": "No. The arithmetic has already run without its precondition; a later exception cannot undo undefined signed overflow."
+      }
+    },
+    {
+      "title": "Borrow input; own the result",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "const reference reads the caller’s string",
+        "run owns its local vector",
+        "Stats contains independent count and total values"
+      ],
+      "narration": "Follow storage as well as control. The const reference parameter lets run read the caller's string without copying it and without changing it through this parameter. The parser returns a vector of integer values. Run keeps that vector as a local object, and the validator and summarizer borrow it while they execute. Stats then copies out a count and a total; it does not point into the vector. When run finishes, the local vector can be destroyed without harming the returned summary. The Importer member objects also live with Importer. There is no reason to introduce manual allocation merely to connect three ordinary operations.",
+      "actions": [
+        "Draw separate labels for borrowed text, owned local vector, and returned value."
+      ],
+      "sourceRef": "manuscript/ch10.json → A small doorway rather than a new object hierarchy",
+      "question": {
+        "prompt": "Would returning a reference to the local vector be safe after run returns?",
+        "answer": "No. The vector is destroyed at function exit; a reference to it would outlive the object it names."
+      }
+    },
+    {
+      "title": "Exceptions skip later stages, not earlier side effects",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "Failure prevents a Stats result",
+        "Local owned storage is cleaned up",
+        "A facade is not automatically a transaction"
+      ],
+      "narration": "If parsing throws an exception, ordinary execution leaves run at that point. Validation and summarizing do not happen. If validation throws, summarizing is skipped. C++ destroys the local objects whose lifetimes end during this exit, so the vector does not need a manual cleanup branch. That is a useful failure guarantee, but be precise about its scope. This example has no writes to a file or database. If a future facade first writes one file and then fails while writing another, an exception will not restore the first file. All-or-nothing external work requires a separate commit or recovery design. A short interface does not erase side effects.",
+      "actions": [
+        "Propose a write-first workflow and ask which effects an exception can undo automatically."
+      ],
+      "sourceRef": "manuscript/ch10.json → Validation establishes arithmetic assumptions",
+      "question": {
+        "prompt": "What observable result does run return for whitespace-only input?",
+        "answer": "It returns no Stats value; parsing yields an empty vector and validation throws."
+      }
+    },
+    {
+      "title": "Compile-time checking cannot prove the workflow contract",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "The compiler checks available functions and types",
+        "Execution checks actual tokens and bounds",
+        "Resource limits must be enforced early enough"
+      ],
+      "narration": "The compiler can reject a call with the wrong type or a method name that does not exist. It does not prove that calling summarize before validate respects this program's intended policy. Both calls can be well-typed in the wrong order. Tests therefore need to exercise actual malformed text, edge values, empty input, and count limits. There is another boundary worth finding: parsing builds the entire vector before the validator checks the one-thousand limit. That limits accepted calculations but does not limit work spent reading a huge input. A network-facing service should enforce byte or token limits while reading. The current bounded teaching example makes no stronger resource guarantee.",
+      "actions": [
+        "Ask which check rejects 1001 tokens and whether that check prevented their allocation."
+      ],
+      "sourceRef": "manuscript/ch10.json → Compilation, performance, and a maintainable boundary",
+      "question": {
+        "prompt": "Why is a post-parse count check insufficient to bound memory used by arbitrary incoming text?",
+        "answer": "The vector and tokens may already have been allocated before the validator sees their count."
+      }
+    },
+    {
+      "title": "A mean should reuse the established contract",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "Call run to retain one acceptance rule",
+        "Convert before division",
+        "A valid count is already nonzero"
+      ],
+      "narration": "The lab adds a mean, which is the total divided by the number of readings. This is a good extension because it asks whether we trust our existing entrance enough to reuse it. Mean calls run and receives Stats only after all old checks succeed. It then converts the total to double before division. Double stores a floating-point approximation and can represent halves in this example. Dividing integer nine by integer two first would produce integer four; converting that four later cannot recover the lost half. Empty input still throws because run rejects it. A separate parsing path for mean would create a second contract to keep synchronized.",
+      "actions": [
+        "Compare converting before division with converting the finished integer quotient."
+      ],
+      "sourceRef": "manuscript/ch10.json → Validation establishes arithmetic assumptions",
+      "question": {
+        "prompt": "Why does mean not need its own special empty-vector branch?",
+        "answer": "run rejects empty input before returning Stats, so every successful result has a count of at least one."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Choose the boundary size, not the class count",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "One facade should name one coherent task",
+        "Direct subsystem access can remain available",
+        "A free function can be enough"
+      ],
+      "narration": "A good facade is small in what callers must understand, not necessarily small in how much useful work it performs. Import readings is a coherent task. Import readings, manage users, render screens, send mail, and repair the database would be unrelated work gathered under one name. When requirements expand, ask which callers need which promise. A troubleshooting screen may reasonably use Parser alone to inspect raw tokens, as long as it understands that domain validation has not happened. That does not require weakening run for every other screen. Choose a separate, honestly named operation. For a stateless three-function subsystem, keep the free-function option on the table.",
+      "actions": [
+        "Have pairs propose one feature that belongs in Importer and one that deserves another boundary."
+      ],
+      "sourceRef": "manuscript/ch10.json → Compilation, performance, and a maintainable boundary",
+      "question": {
+        "prompt": "Should a parse-only screen force run to accept out-of-range values?",
+        "answer": "No. Keep run as a checked-summary operation and expose a distinct parse-only operation with a weaker documented promise."
+      }
+    },
+    {
+      "title": "Debug the earliest broken promise",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "4x accepted: inspect token consumption",
+        "Empty input totals zero: inspect count validation",
+        "Wrong mean: inspect arithmetic conversion order"
+      ],
+      "narration": "Use the symptom to identify the earliest missing promise. If 4x becomes four, inspect the parser's end-position check. If no readings become count zero and total zero, inspect validation or a route that bypassed it. If a mean of four and five becomes four, inspect the division types. Adding an output-screen patch for each symptom hides the contract break and duplicates policy. The strongest regression tests describe both successful boundaries and specific rejection behavior. Include a single zero reading so nobody confuses a legitimate total of zero with absence of readings. Tests should explain the difference, not merely print a green status.",
+      "actions": [
+        "Present the three symptoms one at a time and ask for the first source location to inspect."
+      ],
+      "sourceRef": "manuscript/ch10.json → Parsing must consume the whole token",
+      "question": {
+        "prompt": "Why test both run(\"0\") and run(\"\")?",
+        "answer": "The first is one valid reading with total zero; the second has no readings and must be rejected."
+      }
+    },
+    {
+      "title": "Recall the entrance and its limits",
+      "eyebrow": "FACADE / CHAPTER 10",
+      "kind": "concept",
+      "keyPoints": [
+        "Intent: simplify a useful subsystem workflow",
+        "Mechanism: ordered delegation",
+        "Guarantee: a successful result satisfies the declared contract"
+      ],
+      "narration": "Explain Facade to a teammate without drawing a box first. We had several operations whose order mattered, and repeated clients were getting the order wrong. We introduced one useful entrance that applies the order once. The parser owns syntax, the validator owns accepted bounds, and the summarizer owns calculation under those bounds. The facade joins those responsibilities without pretending they are the same responsibility. It does not require a hierarchy, does not make every lower-level operation safe to call blindly, and does not make external writes atomic. In a code review, point to the invariant and the line where it is established. That explanation is more useful than merely naming the pattern.",
+      "actions": [
+        "Ask for a thirty-second explanation using the words promise, order, and result."
+      ],
+      "sourceRef": "manuscript/ch10.json → A small doorway rather than a new object hierarchy",
+      "question": {
+        "prompt": "What single question best detects an unsafe facade bypass in this example?",
+        "answer": "Where did this path establish valid syntax, a nonempty bounded count, and bounded values before calculation?"
+      }
+    }
+  ]
+}

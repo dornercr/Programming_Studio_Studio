@@ -1,0 +1,258 @@
+{
+  "chapter": 11,
+  "title": "Flyweight",
+  "opening": [
+    {
+      "title": "A thousand marks need not mean a thousand shapes",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Many placements may reuse one style",
+        "Position changes independently of style",
+        "Measure repeated payload before changing ownership"
+      ],
+      "narration": "A drawing tool places marks at different horizontal positions. A mark has a style name and size as well as its position. Storing all three values in every mark is easy to understand, and for a small drawing it may be the best design. Now imagine each style also includes a large shape outline. Copying that outline into ten thousand marks spends memory on the same information again and again. Our question is whether we can keep that common part once without making the positions common too. Before designing the sharing, measure the repeated data. The small strings in this teaching example do not by themselves prove a memory saving.",
+      "actions": [
+        "Ask learners to separate facts about a shape from facts about one placement."
+      ],
+      "sourceRef": "manuscript/ch11.json → Repeated data can outweigh useful differences",
+      "question": {
+        "prompt": "Which field must stay local when two marks share one style?",
+        "answer": "The position belongs to each individual mark; sharing it would couple independent placements."
+      }
+    },
+    {
+      "title": "The direct value model is a valid starting point",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "code",
+      "keyPoints": [
+        "Each mark owns its own name, size, and position",
+        "Changing one value does not change another",
+        "Repeated payload grows with the number of marks"
+      ],
+      "narration": "Run this complete value-based model before introducing pointers. Each Mark owns a string, a size, and a position. The brace lists supply those fields in declaration order. A const reference in draw borrows one mark so printing does not copy its string. We first draw two equal styles at different positions, then change only the left style's size. The right mark remains size twelve because it owns a separate value. That independence is a useful default, not a defect. The cost appears only if the style payload becomes large and many marks repeat it. Any sharing design must preserve the independence of position while deliberately changing how the style is stored.",
+      "actions": [
+        "Predict the last two output lines before running."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch11.json → Repeated data can outweigh useful differences",
+      "question": {
+        "prompt": "Why does changing left.size not change right.size?",
+        "answer": "They are two independent int members in two different Mark objects."
+      },
+      "code": {
+        "filename": "dp_ch11_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\nstruct Mark {\n    std::string name;\n    int size;\n    int x;\n};\nvoid draw(const Mark& mark) {\n    std::cout << mark.name << '/' << mark.size << '@' << mark.x << '\\n';\n}\nint main() {\n    Mark left{\"stamp\", 12, 3};\n    Mark right{\"stamp\", 12, 8};\n    draw(left);\n    draw(right);\n    // These styles are values, so the change is local.\n    left.size = 20;\n    draw(left);\n    draw(right);\n}\n",
+        "expectedStdout": "stamp/12@3\nstamp/12@8\nstamp/20@3\nstamp/12@8\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "A pool can share the wrong thing perfectly",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "code",
+      "keyPoints": [
+        "The lookup key defines interchangeability",
+        "Name alone loses the requested size",
+        "Well-typed code can preserve the wrong identity"
+      ],
+      "narration": "This demonstration intentionally uses an incomplete lookup key. The bad pool remembers styles by name only. Requesting stamp size twelve creates an object; requesting stamp size twenty finds the same name and returns the earlier object. The output therefore reports requested twenty but received twelve. Nothing crashed, no object died early, and the pointer is valid. The failure is a false claim about equality: the key treats two different styles as interchangeable. The correct chapter pool uses both name and size. If color later becomes shared state, color must enter the key too. A compiler cannot infer that design promise from the name of a map.",
+      "actions": [
+        "Ask which one field must be added to the key before discussing pointer changes."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch11.json → Split stable shared data from each use",
+      "question": {
+        "prompt": "Would replacing shared_ptr with another owner repair the wrong size?",
+        "answer": "No. The lookup identity is incomplete; the key must include every field that affects the shared style."
+      },
+      "code": {
+        "filename": "dp_ch11_incomplete_key.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <map>\n#include <memory>\n#include <string>\nstruct Style { std::string name; int size; };\nusing Owner = std::shared_ptr<const Style>;\nclass BadPool {\n    std::map<std::string, Owner> styles_;\npublic:\n    Owner get(const std::string& name, int size) {\n        // Intentional bug: size is absent from the lookup key.\n        if (const auto found = styles_.find(name); found != styles_.end())\n            return found->second;\n        auto created = std::make_shared<const Style>(Style{name, size});\n        styles_.emplace(name, created);\n        return created;\n    }\n};\nint main() {\n    BadPool pool;\n    const auto small = pool.get(\"stamp\", 12);\n    const auto large = pool.get(\"stamp\", 20);\n    std::cout << \"requested=12 actual=\" << small->size << '\\n';\n    std::cout << \"requested=20 actual=\" << large->size << '\\n';\n    std::cout << \"same object=\" << std::boolalpha << (small == large) << '\\n';\n}\n",
+        "expectedStdout": "requested=12 actual=12\nrequested=20 actual=12\nsame object=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Share the stable facts; keep each use separate",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Intrinsic state: shared name and size",
+        "Extrinsic state: the individual x position",
+        "A Mark owns a handle, not another full style"
+      ],
+      "narration": "Flyweight is a design that shares repeated state while leaving each use's changing details outside the shared object. The shared part has the technical name intrinsic state. In our chapter that is the style name and size. The per-use part is extrinsic state, here the horizontal position. These names describe a design choice, not a property that every program must assign the same way. A StylePool returns owners of an immutable Style, and a Mark stores one such owner beside its own position. Two marks can refer to the same style without becoming the same mark. That separation is the central mechanism to find in code.",
+      "actions": [
+        "Ask learners to describe a third mark that shares style but differs in position."
+      ],
+      "sourceRef": "manuscript/ch11.json → Split stable shared data from each use",
+      "question": {
+        "prompt": "If x were stored in shared Style, what visible bug could moving one mark cause?",
+        "answer": "Every mark sharing that Style would observe the changed x, so independent placements would become coupled."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Read const on the object, not just the handle",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "shared_ptr<const Style> gives read-only shared state",
+        "const shared_ptr<Style> only fixes one handle",
+        "The chapter creates an actually const Style"
+      ],
+      "narration": "A shared pointer is an owning handle: several handles can keep the same object alive. In shared_ptr<const Style>, const describes the Style reached through the handle, so field updates through that handle are forbidden. Putting const before shared_ptr instead fixes that particular handle variable; it can still reach a mutable Style. This distinction matters because one change to shared mutable style would appear in all marks using it. The chapter calls make_shared<const Style>, making the allocated object itself const, rather than retaining a secret mutable owner elsewhere. Each style is fully initialized and then read. Changing style means choosing another style owner, not quietly editing the shared object.",
+      "actions": [
+        "Point to both const placements and ask what each prevents."
+      ],
+      "sourceRef": "manuscript/ch11.json → Read the shared pointer type carefully",
+      "question": {
+        "prompt": "Does const shared_ptr<Style> prevent pointer->size = 20?",
+        "answer": "No. The handle itself cannot be reseated, but the pointed-to Style remains mutable."
+      }
+    },
+    {
+      "title": "A copy of an owner is not a copy of the style",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Copies share ownership of one Style",
+        "Map entries and Marks both keep it alive",
+        "Last-owner destruction ends the Style lifetime"
+      ],
+      "narration": "Follow owners rather than guessing from variable names. StylePool's map owns one handle for each retained style. A successful get returns another handle to the same object. Copying that handle updates ownership bookkeeping; it does not copy the style payload. Each Mark then owns a handle, so destroying the pool does not necessarily destroy a style. The style remains alive until its final strong owner disappears. The current sharing graph has no back pointer from Style to the pool or to marks, so it does not create an ownership cycle. In a review, label these links as shared ownership. An arrow that suggests one mark exclusively owns the style would teach the wrong lifetime.",
+      "actions": [
+        "Count the owners after a map entry, two local handles, and two Marks refer to one style."
+      ],
+      "sourceRef": "manuscript/ch11.json → Read the shared pointer type carefully",
+      "question": {
+        "prompt": "Why can survivor safely read a style after a short-lived pool is destroyed?",
+        "answer": "survivor still owns a shared_ptr, so destroying the pool releases only the pool’s owner, not the final owner."
+      }
+    },
+    {
+      "title": "Identity and equality answer different questions",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Equal complete keys reuse one retained object",
+        "Different keys request different styles",
+        "Clearing the pool ends its identity promise for later lookups"
+      ],
+      "narration": "Two styles can have equal field values without being the same object. Pointer equality checks object identity in this example. Before clearing the pool, repeated requests for the same key return the same retained object. The solution lab then clears the map. Old marks remain valid because their owners keep the old object alive, but a later lookup must create a new object for that key. Its name and size equal the earlier values, while its pointer differs because the old object still exists. This is not a contradiction. The pool guarantees reuse among its currently retained entries. Decide whether callers need equal appearance or stable identity across a reset before writing a stronger promise.",
+      "actions": [
+        "Compare the solution’s replacement != first test with its equal name and size tests."
+      ],
+      "sourceRef": "manuscript/ch11.json → Trace a lookup and a draw",
+      "question": {
+        "prompt": "After clear, should pointer inequality imply a different visible drawing style?",
+        "answer": "No. The new object may have equal style values even though it has a distinct identity."
+      }
+    },
+    {
+      "title": "Moving a Mark still copies in this chapter",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Mark explicitly declares copy operations",
+        "No implicit move constructor is generated",
+        "std::move changes the expression category; it does not itself transfer anything"
+      ],
+      "narration": "The chapter includes a subtle lifetime choice. Mark explicitly defaults its copy constructor and copy assignment. That choice suppresses automatic generation of a move constructor. When the example constructs copied from std::move(left), the available copy constructor can accept the argument and copies its shared owner. Both marks remain usable. The name std::move is easy to overread: it permits move-aware overload selection, but it does not itself remove an object from storage or force a move operation to exist. Here the value-like copy policy avoids leaving a moved-from Mark with a null style that draw would dereference. If you later add moving, define and test the moved-from contract.",
+      "actions": [
+        "Ask learners to predict whether left.draw remains valid after the chapter’s std::move expression."
+      ],
+      "sourceRef": "manuscript/ch11.json → Trace a lookup and a draw",
+      "question": {
+        "prompt": "Why does std::move(left) not prove that left lost its style owner?",
+        "answer": "It is a cast-like expression; overload resolution chooses the available copy constructor because Mark has no generated move constructor."
+      }
+    },
+    {
+      "title": "A sharing budget must include the handles",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Direct estimate: N × (U + S)",
+        "Shared estimate: N × (U + H) + K × S + overhead",
+        "Savings require enough repeated payload"
+      ],
+      "narration": "Let N be the number of marks. Let U be bytes unique to each mark, S the shared payload size, K the number of distinct styles, and H the per-mark handle size. The direct design roughly uses N times U plus S. Sharing roughly uses N times U plus H, then adds K copies of S and the pool's own overhead. These are estimates, not exact sizeof promises. For example, with ten thousand marks, one thousand payload bytes per style, and only ten styles, the repeated payload shrinks greatly. If nearly every mark has a unique style or the payload is tiny, lookup and handle costs may outweigh the saving. Measure the actual workload.",
+      "actions": [
+        "Use N=10000, S=1000, K=10 to compare payload copies before discussing overhead."
+      ],
+      "sourceRef": "manuscript/ch11.json → Calculate the tradeoff before calling it an optimization",
+      "question": {
+        "prompt": "Which workload makes sharing less attractive even when the code works correctly?",
+        "answer": "K close to N or a tiny S leaves little repeated payload to remove while retaining pool and handle costs."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Retention is a policy; it is not automatically a leak",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Strong map owners retain unused styles",
+        "clear releases pool ownership only",
+        "Weak entries need expiry handling"
+      ],
+      "narration": "A memory graph can be correct and still retain more data than the application wants. Our map holds strong owners until entries are cleared or the pool dies. If all marks using one style disappear, the map can still keep that style alive for reuse. Calling that a missing-delete leak would misdiagnose the code. The question is whether the retention policy fits the workload. A bounded cache, explicit clear, or weak entries may be appropriate in a long-running editor. A weak pointer does not keep the style alive, so lookup must detect an expired object and recreate it. That adds states and tests. Do not add this complexity merely because weak ownership sounds cheaper.",
+      "actions": [
+        "Ask learners to distinguish an unreachable leaked object from an intentionally retained map entry."
+      ],
+      "sourceRef": "manuscript/ch11.json → Lifetime is independent of the pool scope",
+      "question": {
+        "prompt": "Does clear make existing Marks invalid?",
+        "answer": "No. Their shared owners keep styles alive; clear removes only the pool’s owners and entries."
+      }
+    },
+    {
+      "title": "Diagnose the symptom before replacing the mechanism",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Wrong size: inspect key completeness",
+        "All marks change: inspect shared mutability",
+        "Growing cache: inspect retention policy"
+      ],
+      "narration": "Three failures look like a sharing problem but have different causes. A request for size twenty that draws size twelve suggests an incomplete key. Editing one style and changing many marks suggests unintended shared mutation. Memory growth after deleting drawings suggests a retention policy that needs a limit. None is fixed by blindly replacing one smart pointer type with another. Also check the local invariant that every Mark has a nonnull style owner before draw uses it. The constructor rejects a missing owner for that reason. Tests should cover equal keys, different keys, rejected input, independent positions, and survival beyond the pool's scope. Together they describe what sharing actually promises.",
+      "actions": [
+        "Give learners one symptom and require both a likely source location and a regression test."
+      ],
+      "sourceRef": "manuscript/ch11.json → Split stable shared data from each use",
+      "question": {
+        "prompt": "Which test distinguishes per-use position from shared style?",
+        "answer": "Create two Marks with the same Style owner and different x values; their drawings must retain those different positions."
+      }
+    },
+    {
+      "title": "Explain the optimization without hiding the cost",
+      "eyebrow": "FLYWEIGHT / CHAPTER 11",
+      "kind": "concept",
+      "keyPoints": [
+        "Intent: reduce repeated state",
+        "Mechanism: complete-key reuse of immutable objects",
+        "Boundary: independent per-use values and explicit retention"
+      ],
+      "narration": "A useful explanation of Flyweight begins with repeated data, not with shared_ptr. We measured that many uses carry the same large stable payload. We split that payload from per-use values, stored it once per complete key, and gave each use an owner that preserves its lifetime. Immutability prevents one use from changing every other use. The price is lookup, handles, bookkeeping, and a retention policy. If the direct representation is already small and clear, keeping it may be the better engineering decision. For a new drawing feature such as color, first ask whether color belongs to shared style or individual use. The answer controls the key, storage, and tests.",
+      "actions": [
+        "Ask for a design review explanation that includes both a benefit and a measured cost."
+      ],
+      "sourceRef": "manuscript/ch11.json → Calculate the tradeoff before calling it an optimization",
+      "question": {
+        "prompt": "When should color enter the pool key?",
+        "answer": "When color is part of the shared style whose identity determines interchangeability; per-use color would instead stay outside the shared object."
+      }
+    }
+  ]
+}

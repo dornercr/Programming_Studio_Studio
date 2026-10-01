@@ -1,0 +1,808 @@
+Design Patterns in C++
+Chapter 14: Command — requests, history, and honest undo
+Dr. Charles Dorner
+
+1. A request has a creation time and a running time
+Problem and first design
+
+SAY
+Imagine a planning screen with a marker at zero. A student selects move to three, then move to seven, but playback has not started. The screen should still show zero. This is the first distinction: asking for work and doing work may happen at different times. We also want undo, which brings a second requirement. After both requests run, undoing only the latest one must show three, not zero. A request must therefore retain its destination before execution and learn the previous position during execution. Today we will follow those two kinds of data separately, because mixing their timing creates a believable but wrong history.
+
+DO
+Ask learners to name the two moments before introducing a Command object.
+
+SOURCE
+manuscript/ch14.json → The problem: moving a marker is easy until timing changes
+
+------------------------------------------------------------
+
+2. Start with direct calls
+Problem and first design
+
+SAY
+This small program deliberately has no command class. The setter takes a reference, so assigning position changes the integer in main rather than a private copy. Its target parameter is a value: an independent integer argument. The range check runs before assignment, keeping the marker valid even if the caller supplies eleven. The two calls immediately change zero to three and then seven. That meets the immediate-work requirement, and a larger architecture would add no value yet. Notice what is absent: the program has neither a stored request nor the earlier positions. Knowing that the final position is seven does not tell us where it was before.
+
+DO
+Predict both output lines, then Run.
+
+SOURCE
+Lecture demonstration for manuscript/ch14.json → The problem: moving a marker is easy until timing changes
+
+------------------------------------------------------------
+
+3. A queue of integers is still a valid alternative
+Problem and first design
+
+SAY
+Suppose the only new requirement is delayed movement. A vector of destination integers and a loop over the checked setter is enough. We should keep that option on the table. The pressure for Command appears when one queue must also rename a marker or change its color, or when each request has its own reversal rule. Now a plain integer does not describe every request. Separate action-code and argument arrays can drift apart. A command object groups one request's data with its execute operation. The shared interface lets the playback loop trigger different requests without knowing each concrete type. The benefit is a stable place for execution policy, not an automatic guarantee of undo.
+
+DO
+Compare one move-only queue with a mixed move-and-rename queue.
+
+SOURCE
+manuscript/ch14.json → The problem: moving a marker is easy until timing changes
+
+------------------------------------------------------------
+
+4. The wrong saved value can look reasonable
+Problem and first design
+
+SAY
+The demo models the timing bug without unsafe memory access. It saves before_first and before_second while constructing the planned work, so both integers become zero. Only afterward do the moves run. The second request really follows position three, but its stored record cannot know that yet. The printed wrong undo result is zero; the correct isolated undo of the second move would be three. Moving the capture into execute fixes the timing. Do not fix this by changing the expected answer to zero. The required history is about successful execution order, and that order can differ from object construction order in a real event queue.
+
+DO
+Predict the wrong undo result before Run.
+Identify the exact requirement the output violates.
+
+SOURCE
+Lecture demonstration for manuscript/ch14.json → A command has intent before it has a history
+
+------------------------------------------------------------
+
+5. The contract we must preserve
+Requirements and mechanism
+
+SAY
+An undoable queue of marker moves. Move holds the receiver, destination, prior position, and an applied flag. The queue owns commands but borrows no internal marker storage. Receiver validation happens before the command commits success.
+
+Keep marker positions within 0 through 10. Construction must not execute a request. Undo applied moves in reverse order and reject invalid command states.
+
+The marker stays within its allowed range. Only successful executions set applied_ true. Commands must not outlive their borrowed receiver. Undo history assumes no unrelated edits to the receiver. These are the rules that define a correct extension, even if it has the right C++ types. A vector of integers with a loop is sufficient for a fixed set of move-only requests. A std::function<void()> queue is compact for delayed work, but an undo contract still needs saved state and pairing between forward and reverse behavior.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json
+
+------------------------------------------------------------
+
+6. The problem: moving a marker is easy until timing changes
+Requirements and mechanism
+
+SAY
+A planning screen shows a marker at an integer position from zero through ten. Moving it immediately is simple: call marker.set(7). The setter rejects values outside the range and otherwise stores the new position. That direct call is the right first design when every request happens now and never needs undo. The new requirements are different: collect several moves, perform them later in order, and let the user undo that group in reverse order. The program must also reject a second execution of a move that is already applied.
+
+A vector of destination integers can delay this one operation. However, if the screen later queues a rename or a color change, a vector of integers no longer describes all actions. A growing collection of parallel arrays for action codes and arguments is easy to misalign. The missing idea is to store a request together with the data and behavior needed to carry it out. That stored request is a command. We introduce an interface only because a single queue may need different kinds of requests with the same execute and undo operations.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → The problem: moving a marker is easy until timing changes
+
+------------------------------------------------------------
+
+7. A command has intent before it has a history
+Requirements and mechanism
+
+SAY
+Move stores a borrowed Marker reference and a target position. Its constructor records intent but does not move the marker. The reference means there is one actual marker: copying the marker into each command would create private markers and leave the screen unchanged. target_ is stored by value so a later change to a caller variable cannot silently change the queued destination. before_ becomes meaningful only when execute runs. Saving it during construction would record the wrong old position for the second command in a delayed queue.
+
+The interface has virtual execute and undo functions, so callers can use a Command reference without knowing which concrete request it holds. A virtual destructor allows deletion through the base type. Move uses override to ask the compiler to confirm that its functions truly replace those interface functions. std::unique_ptr<Command> owns each queued command. The vector owns its smart pointers, while each command merely borrows the marker. In main the marker is declared before the queue and is destroyed after it, so all borrowed references remain valid.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → A command has intent before it has a history
+
+------------------------------------------------------------
+
+8. Execution has a commit point
+Requirements and mechanism
+
+SAY
+Move begins with applied_ false. execute first rejects a repeated call. It then saves the current marker position, asks the marker to accept the target, and only after success sets applied_ true. This last step is a commit point: the flag now says there is a completed change that can be undone. If the setter rejects eleven, the marker remains unchanged and applied_ remains false. before_ may have been refreshed, but it does not authorize undo because the flag is still false.
+
+This order is not cosmetic. Setting applied_ true before the setter succeeds would mark a failed request as part of the undo history. Updating the marker before validating the target would allow an invalid state even if an exception is thrown afterward. Here the setter validates first and then assigns one integer, which cannot throw. The program therefore gives a clear guarantee for a bad target: the visible marker stays as it was. This guarantee depends on the receiver behavior; a command cannot make a partly failing external service atomic merely by adding a bool.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → Execution has a commit point
+
+------------------------------------------------------------
+
+9. Undo reverses successful requests in reverse order
+Requirements and mechanism
+
+SAY
+The first queued move records zero and sets three. The second records three and sets seven. To reverse the group, undo the second move to restore three, then undo the first to restore zero. The reverse iterators rbegin and rend traverse the vector from its last element toward its first. In (*it)->undo(), *it obtains the unique pointer stored at the iterator position; the arrow accesses the owned command. Iteration changes which command is selected, not who owns it.
+
+An undo operation is permitted only for an applied command. After restoration, applied_ becomes false and another execute is allowed; that is the limited redo behavior of this implementation. Redo reads a new before_ value at execution time. It does not promise to replay the exact historical environment. The design assumes exclusive, ordered changes to this marker while a history is active. If unrelated code changes the marker to nine between execution and undo, blindly restoring before_ can erase that later change. Real editors often route all edits through one history owner or use version checks to detect conflicts.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → Undo reverses successful requests in reverse order
+
+------------------------------------------------------------
+
+10. Queueing, undo, and transactions are separate promises
+Requirements and mechanism
+
+SAY
+The primary queue loop runs commands in order but does not automatically undo earlier commands if a later one fails. A transaction is a group treated as one success or failure under a stated contract. The lab adds a small transaction runner for range failures: it counts successfully applied commands and reverses only that prefix. An empty batch succeeds without changing the marker. A batch containing targets six and eleven returns failure and restores the original zero. This works because the local receiver and undo operations have tightly controlled behavior.
+
+A command can also represent an operation that cannot truly be undone. Sending a message may be followed by a correction, but the recipient may already have read it. A compensation is a new action that tries to offset an earlier effect; it is not time travel. Another option for local state is a snapshot, developed in Chapter 17, which remembers the state instead of how to reverse each action. For this marker, two integers and a flag are cheaper and clearer than a general snapshot system. Choose what must be preserved before promising undo to a user.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → Queueing, undo, and transactions are separate promises
+
+------------------------------------------------------------
+
+11. One owner of commands; one borrowed receiver
+Mechanism in C++
+
+SAY
+In the chapter program, the queue owns its command objects through unique_ptr. Ownership means responsibility for ending those objects' lifetimes. A Move holds Marker&, which is a reference to the real marker, not ownership of it and not a copy. This is why two commands affect one visible position. The marker is declared before the queue in main. Local objects are destroyed in reverse declaration order, so the commands disappear before their receiver. If an application returned this queue while destroying a local marker, no smart pointer around the commands would save the borrowed reference. Review the lifetime of the receiver separately from the lifetime of the requests.
+
+DO
+Trace destruction order from main back to the Marker declaration.
+
+SOURCE
+manuscript/ch14.json → A command has intent before it has a history
+
+------------------------------------------------------------
+
+12. Dispatch is checked twice in different ways
+Mechanism in C++
+
+SAY
+The queue sees Command, while the object behind each pointer is a Move. Calling execute through that interface selects Move::execute during execution; this selection is virtual dispatch. Earlier, during compilation, override asks the compiler to check that the function really replaces a matching virtual function in the base class. These are different jobs. The compiler cannot prove that saving before_ at the wrong time preserves history. The virtual destructor matters when unique_ptr<Command> deletes a concrete command through the base type. The interface is therefore more than a name shared by methods: it defines both callable behavior and safe destruction through the chosen owning handle.
+
+DO
+Have learners classify signature errors and incorrect history as build-time or runtime evidence.
+
+SOURCE
+manuscript/ch14.json → A command has intent before it has a history
+
+------------------------------------------------------------
+
+13. Commit after the receiver succeeds
+Mechanism in C++
+
+SAY
+Treat applied_ as a claim backed by evidence. False means this command currently has no completed change to reverse. execute checks that claim, reads the current position, and asks Marker to apply the destination. Only a successful return permits the assignment applied_ equals true. With destination eleven, Marker throws before assignment; the command remains unapplied and undo must reject it. This ordering provides a useful guarantee because the receiver validates before changing one integer. If a receiver instead wrote half a file before throwing, this flag would not repair the file. The command's guarantee can be no stronger than the receiver and recovery behavior it actually controls.
+
+DO
+Trace the exception path and cross out every statement it skips.
+
+SOURCE
+manuscript/ch14.json → Execution has a commit point
+
+------------------------------------------------------------
+
+14. Reverse the effects, not the display order
+Mechanism in C++
+
+SAY
+After moves to three and seven, the first command remembers zero and the second remembers three. Reverse traversal first asks the second command to restore three, then the first to restore zero. In the source, rbegin starts at the newest queue entry and rend marks the reverse end. The expression (*it)->undo first obtains the smart pointer at the iterator position, then calls through it. If undo runs in forward order, the first restoration gives zero and the second overwrites it with three. Even correct reverse order assumes nobody independently changed the marker. A background edit to nine can be lost unless the application routes edits through one history or checks a version.
+
+DO
+Write the saved values beside the two commands and undo in both orders.
+
+SOURCE
+manuscript/ch14.json → Undo reverses successful requests in reverse order
+
+------------------------------------------------------------
+
+15. A batch needs a stronger contract than a loop
+Mechanism in C++
+
+SAY
+The primary queue loop does not promise all-or-nothing behavior. In the extension, a transaction-like batch applies fresh commands in order and remembers how many completed. The counter increases only after execute returns. For targets six and eleven, one command succeeds and one throws, so rollback undoes exactly the first. It never attempts to undo the failing command. The lab catches the stated range error, not every possible error in the universe. This small contract works because the receiver's saved positions remain valid and undo does not fail under the stated assumptions. A production batch needs an explicit response to rollback failure; catching an exception does not erase that design question.
+
+DO
+Ask why incrementing the count before execute would break rollback.
+
+SOURCE
+manuscript/ch14.json → Queueing, undo, and transactions are separate promises
+
+------------------------------------------------------------
+
+16. Map the roles to the actual types
+UML and source walkthrough
+
+SAY
+Command interface → Command::execute and undo. Give the invoker a common operation. The chapter adds undo explicitly; it is not supplied automatically by virtual dispatch.
+
+Concrete command → Move. Retain request data. Move also remembers the previous position and whether its request was successfully applied.
+
+Receiver → Marker. Perform and validate domain changes. The marker enforces position bounds independently of how a request was triggered.
+
+Invoker → main execution and reverse-undo loops. Decide when commands run. The queue owns stored commands; the loops supply the invoker behavior without a separate class.
+
+Client → main command construction. Bind concrete requests to a receiver, then hand them to code working through the Command interface.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → C14.07 concepts
+
+------------------------------------------------------------
+
+17. A queue owns requests; requests borrow the marker
+UML and source walkthrough
+
+SAY
+The ownership edge ends at Command because that is the queue element type. Actual owned objects are Move instances. The inheritance arrow points from Move toward its base. The dependency arrow is a borrowed reference: deleting a command must never delete the marker. The invoker role belongs to the execution loops over queue, not to std::vector itself; main also performs the separate client role when constructing commands.
+
+Move holds the receiver, destination, prior position, and an applied flag. The queue owns commands but borrows no internal marker storage. Receiver validation happens before the command commits success.
+
+Representing requests explicitly gives a debugger a concrete place to inspect their arguments and state. Keep the history owner responsible for ordering and receiver lifetime instead of scattering undo calls across user-interface components.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch14/main.cpp:1-87; content/design-patterns-cpp/ch14.json → diagrams.14
+
+------------------------------------------------------------
+
+18. Command — chronological driver trace
+UML and source walkthrough
+
+SAY
+Solid arrows show execution order between contiguous excerpts of main, not inheritance, ownership or calls between types. Branches and loops inside a block follow the displayed C++ syntax. The existing relationship view explains the object design; this complementary view follows its actual demonstration. Excerpts are not standalone programs.
+
+Move holds the receiver, destination, prior position, and an applied flag. The queue owns commands but borrows no internal marker storage. Receiver validation happens before the command commits success.
+
+Representing requests explicitly gives a debugger a concrete place to inspect their arguments and state. Keep the history owner responsible for ordering and receiver lifetime instead of scattering undo calls across user-interface components.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch14/main.cpp:1-87; content/design-patterns-cpp/ch14.json → diagrams.14
+
+------------------------------------------------------------
+
+19. Record success only after the receiver accepts
+UML and source walkthrough
+
+SAY
+This method changes intent into a completed marker move. The queue calls it through Command during execution. Saving the old value at execution time gives correct undo information for delayed requests.
+
+Define the concrete implementation of the interface operation. The comment announces the repeated-execution guard. Check whether this request is already applied. Throw a logic error rather than silently applying twice. Close the guard branch. Read the receiver position immediately before changing it. Ask the receiver to validate and apply the target. Record success only after set has returned normally. Close execute; the comment labels the boundary.
+
+A failed setter must leave applied_ false and the marker unchanged. Saving too early or committing the flag too early creates a false history.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch14/main.cpp:31-39
+
+------------------------------------------------------------
+
+20. Undo only a completed move
+UML and source walkthrough
+
+SAY
+This method restores the position captured by a successful execute. The client visits queued commands in reverse order. A completion flag distinguishes valid history from a request that never took effect.
+
+Define the concrete reverse operation. The comment states that only completed work can be undone. Test for the absence of an applied change. Reject undo when there is nothing valid to reverse. Close the invalid-state branch. Restore the saved receiver value, which was previously valid. Mark this command as no longer applied. Close undo and label its source boundary.
+
+Each applied move can be undone once before another execution. Restoring in forward order loses the original state; outside edits also invalidate the assumption.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch14/main.cpp:40-47
+
+------------------------------------------------------------
+
+21. Run the complete chapter program
+Execute and debug
+
+SAY
+We now join the small pieces into the complete working program. Move holds the receiver, destination, prior position, and an applied flag. The queue owns commands but borrows no internal marker storage. Receiver validation happens before the command commits success.
+
+Checks cover delayed execution, the final queue value, repeated execution rejection, reverse undo, invalid destination, undo of a failed command, the upper boundary, and execute-after-undo. They do not establish persistence, concurrency safety, or recovery from process failure.
+
+Representing requests explicitly gives a debugger a concrete place to inspect their arguments and state. Keep the history owner responsible for ordering and receiver lifetime instead of scattering undo calls across user-interface components. Download this source when you want to run it locally. Compare the actual output with the expected panel, then change one boundary case and keep the other checks in place.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/examples/ch14/main.cpp
+
+------------------------------------------------------------
+
+22. Follow one request through the objects
+Execute and debug
+
+SAY
+Step 1. Marker=0; queued targets=[3,7].. Constructing commands stores requests without executing them.
+
+Step 2. First execute: before=0, marker=3.. The old position is captured just before the setter call.
+
+Step 3. Second execute: before=3, marker=7.. The second command sees the result of the first.
+
+Step 4. Undo second: marker=3; undo first: marker=0.. History is reversed from its newest change to its oldest.
+
+Step 5. Target 11 is rejected; marker remains 0.. The setter throws before assignment; failed work cannot be undone.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → trace
+
+------------------------------------------------------------
+
+23. Debug the promise: Capture before_ in the constructor.
+Execute and debug
+
+SAY
+Capture before_ in the constructor. Both queued moves may save zero, so undoing the second jumps from seven directly to zero instead of three. Both objects are constructed before either action executes.
+
+Checks cover delayed execution, the final queue value, repeated execution rejection, reverse undo, invalid destination, undo of a failed command, the upper boundary, and execute-after-undo. They do not establish persistence, concurrency safety, or recovery from process failure.
+
+Representing requests explicitly gives a debugger a concrete place to inspect their arguments and state. Keep the history owner responsible for ordering and receiver lifetime instead of scattering undo calls across user-interface components.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → example.failures
+
+------------------------------------------------------------
+
+24. Debug the promise: Undo the commands in insertion order.
+Execute and debug
+
+SAY
+Undo the commands in insertion order. After moves to three and seven, the final marker becomes three instead of zero. The first restoration to zero is overwritten by the second restoration to three.
+
+Checks cover delayed execution, the final queue value, repeated execution rejection, reverse undo, invalid destination, undo of a failed command, the upper boundary, and execute-after-undo. They do not establish persistence, concurrency safety, or recovery from process failure.
+
+Representing requests explicitly gives a debugger a concrete place to inspect their arguments and state. Keep the history owner responsible for ordering and receiver lifetime instead of scattering undo calls across user-interface components.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → example.failures
+
+------------------------------------------------------------
+
+25. Trace 1: Command: Execute target
+Trace experiments
+
+SAY
+Command: Execute target. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Execution changes the receiver to the requested valid position.
+
+The bracket pair and braces describe a small function, called a lambda. Its final parentheses call it now. std::cout prints the returned value. std::boolalpha prints true or false rather than one or zero, and the quoted backslash-n adds a newline. The full editor includes the chapter's extension types; the focused panel isolates the experiment.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → dpx-c14-trace-1; companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+26. Trace 2: Command: Undo original
+Trace experiments
+
+SAY
+Command: Undo original. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Undo must restore the position captured before execution.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → dpx-c14-trace-2; companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+27. Trace 3: Command: Repeat rejected
+Trace experiments
+
+SAY
+Command: Repeat rejected. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+An already applied Move cannot be applied twice without undo.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → dpx-c14-trace-3; companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+28. Trace 4: Command: Undo unused rejected
+Trace experiments
+
+SAY
+Command: Undo unused rejected. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+An unused command has no successful change to reverse.
+
+ The dpx_rejects helper returns true only if this operation throws the named exception type. Returning normally or throwing a different type does not satisfy that rejection check.
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → dpx-c14-trace-4; companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+29. Trace 5: Command: Failed batch restores receiver
+Trace experiments
+
+SAY
+Command: Failed batch restores receiver. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+The first move must be undone after the second violates the range.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → dpx-c14-trace-5; companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+30. Trace 6: Command: Reverse rollback order
+Trace experiments
+
+SAY
+Command: Reverse rollback order. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Undo seven to three, then three to one; forward undo would leave the wrong value.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → dpx-c14-trace-6; companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+31. Trace 7: Command: Successful batch
+Trace experiments
+
+SAY
+Command: Successful batch. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+Successful commands remain applied; success must not trigger rollback.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → dpx-c14-trace-7; companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+32. Trace 8: Command: Empty batch
+Trace experiments
+
+SAY
+Command: Empty batch. What does this expression return? Use the extended chapter implementation in the linked lab. dpx_rejects<E> returns true only if its callable throws E.
+
+An empty batch succeeds without changing any receiver.
+
+
+
+DO
+Ask for the exact result before opening Expected behavior.
+Read the focused call, then find the invoked member in the complete editor.
+Change one input and explain which contract or branch should change.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → dpx-c14-trace-8; companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+33. Exercise 14.1: Guided modification
+Practice and extension
+
+SAY
+Add a Move to position zero after the existing targets three and seven. Predict the final queue position and the result after reverse undo.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Trace the new command before undoing the group.
+
+After the discussion, compare the reasoning. The queue ends at zero; the new command saved seven. Undo restores seven, then three, then zero. A command that ends at the starting position still has meaningful history.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch14.json → exercises.14.1
+
+------------------------------------------------------------
+
+34. Exercise 14.2: Trace unfamiliar code
+Practice and extension
+
+SAY
+Starting at zero, construct Move a(marker, 2) and Move b(marker, 8); run a.execute(), b.execute(), b.undo(), a.undo(), a.execute(). List the position after each call.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Construction does not change the marker.
+
+After the discussion, compare the reasoning. Positions are 2, 8, 2, 0, 2. The final execution is permitted because undo cleared a.applied_; it records zero again as the prior value.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch14.json → exercises.14.2
+
+------------------------------------------------------------
+
+35. Exercise 14.3: Diagnose a bug
+Practice and extension
+
+SAY
+A developer sets applied_ true before marker_.set(target_). What false state results when target is eleven, and how should it be repaired?
+
+Pause here and make a concrete prediction or sketch a change. The hint is: An exception skips all later statements.
+
+After the discussion, compare the reasoning. The marker stays at its old value but the command claims it is applied. Move the flag assignment after the successful setter call. Keep a test that bad.undo() is rejected after bad.execute() fails.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch14.json → exercises.14.3
+
+------------------------------------------------------------
+
+36. Exercise 14.4: Choose a design
+Practice and extension
+
+SAY
+Choose a saved old value or an inverse subtraction for a command that sets a marker to an absolute destination.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Setting seven is not the same request as adding seven.
+
+After the discussion, compare the reasoning. Save the old value. Subtracting the destination after setting it always gives zero and cannot recover an arbitrary previous position. An inverse delta can work for bounded relative moves under the same isolation contract.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch14.json → exercises.14.4
+
+------------------------------------------------------------
+
+37. Exercise 14.5: Extend without regressions
+Practice and extension
+
+SAY
+Add batch execution that rolls back the successful prefix after a range error. Specify behavior for an empty batch and [6,11] starting at zero.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: Increment the success count only after execute returns.
+
+After the discussion, compare the reasoning. The empty batch succeeds. The two-command batch applies six, rejects eleven, undoes only the first command, and returns failure with marker zero. The reference solution demonstrates this without changing primary checks.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch14.json → exercises.14.5
+
+------------------------------------------------------------
+
+38. Exercise 14.6: Justify a decision
+Practice and extension
+
+SAY
+Explain why a network request named DeleteRemoteFile should not automatically offer undo merely because it derives from Command.
+
+Pause here and make a concrete prediction or sketch a change. The hint is: The interface cannot recover information that was never retained.
+
+After the discussion, compare the reasoning. Undo requires retained content, authorization, and a service operation that can restore it. A local bool proves none of those conditions. Keep irreversible commands outside this undo interface or explicitly describe compensation and its limits.
+
+DO
+Give students time to write an answer before opening the hint.
+Ask for a reason tied to the contract, then reveal the explained answer.
+
+SOURCE
+manuscript/ch14.json → exercises.14.6
+
+------------------------------------------------------------
+
+39. Extend the program without losing its tests
+Practice and extension
+
+SAY
+Add run_batch for fresh commands sharing an exclusively controlled Marker. Execute in order. On std::out_of_range, undo the successfully applied prefix in reverse order and return false. Return true on success, including an empty batch. Preserve all primary checks.
+
+Keep the original checks as a baseline. The new behavior must also satisfy these checks: Fresh batch [6,11] from zero fails and restores zero. Fresh batch [2,5] succeeds at five. An empty batch succeeds and preserves five.
+
+The starter remains a complete program; running it establishes what was already true before your extension. The next slide contains the reference solution. Try your own change first, then compare design choices as well as output.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/exercises/ch14/main.cpp
+
+------------------------------------------------------------
+
+40. Extension solution and design review
+Practice and extension
+
+SAY
+The solution maintains a count rather than assuming the failing command is undoable. It catches only the specified range failure; logic errors remain programming errors. Rollback depends on valid saved positions and no unrelated changes. A production transaction wrapper would need a policy for rollback failures and other receiver types.
+
+Representing requests explicitly gives a debugger a concrete place to inspect their arguments and state. Keep the history owner responsible for ordering and receiver lifetime instead of scattering undo calls across user-interface components.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+companion/solutions/ch14/main.cpp
+
+------------------------------------------------------------
+
+41. Application case 1: defend your choice
+Practice and extension
+
+SAY
+A drawing tool queues moves and later needs to undo them. Which structure makes each request explicit?
+
+Singleton. A shared instance does not preserve each request’s history.
+
+Flyweight. Requests contain per-operation state, not merely pooled appearance.
+
+Adapter. Interface translation alone does not record an operation.
+
+Command. A command can hold the receiver, target, and state needed for undo.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → C14.21 scenario
+
+------------------------------------------------------------
+
+42. Application case 2: defend your choice
+Practice and extension
+
+SAY
+Two Move commands target 3 and 7. Both are constructed when the marker is 0. When should the second save its previous position?
+
+After undoing, saving 7. Undo needs the previous value before restoration.
+
+During execution, after the first move has reached 3.. Undo must restore the state immediately before that specific change.
+
+Never because Command automatically supplies undo. Undo requires explicit state and behavior.
+
+At construction, saving 0. That would skip the first completed move when undoing the second.
+
+DO
+Have learners choose and defend one option.
+Reveal the answer and compare every alternative, including the tempting wrong ones.
+
+SOURCE
+content/design-patterns-cpp/ch14.json → C14.22 scenario
+
+------------------------------------------------------------
+
+43. Keep these rules when the program grows
+Recall and transfer
+
+SAY
+Store arguments when requests are created, but prior state when they execute. A borrowed receiver must outlive its commands. Reverse history in reverse order. Undo needs isolation from unrelated edits. A queue is not automatically a transaction.
+
+Representing requests explicitly gives a debugger a concrete place to inspect their arguments and state. Keep the history owner responsible for ordering and receiver lifetime instead of scattering undo calls across user-interface components.
+
+DO
+Ask students for a prediction before revealing the answer.
+
+SOURCE
+manuscript/ch14.json → summary
+
+------------------------------------------------------------
+
+44. Choose the smallest history that satisfies the promise
+Recall and transfer
+
+SAY
+Command is useful when the request itself must travel: through a queue, a menu action, a macro, or a controlled history. It is not a requirement for every setter call. A callable can represent delayed work compactly, but pairing it with reversal still needs a contract and retained information. An absolute move to seven cannot be undone by subtracting seven unless the previous position happened to be zero. Saving the old position expresses the real operation. For larger state, Chapter 17's snapshots may be clearer. For a remote message, a later correction is compensation, not true reversal. Choose among these designs by what the user has been promised, not by the pattern name.
+
+DO
+Ask for one requirement that would justify replacing that vector.
+
+SOURCE
+manuscript/ch14.json → Queueing, undo, and transactions are separate promises
+
+------------------------------------------------------------
+
+45. Debug the claim, the timing, and the owner
+Recall and transfer
+
+SAY
+A useful debugging session separates three failures. If undoing the second move jumps straight to zero, inspect when before_ was captured. If an invalid request can be undone, inspect when applied_ became true. If delayed execution touches a dead object, inspect who owns the receiver and how long the queue can survive. These failures require different repairs, even though they appear near the same command class. Add a focused test for each path: construction leaves the marker unchanged, a failed execute cannot be undone, and the execution owner never retains requests past receiver lifetime. Do not rely only on the final group-undo value; the early-capture bug can accidentally restore zero after both wrong undos.
+
+DO
+Require an intermediate assertion at position three.
+
+SOURCE
+manuscript/ch14.json → Execution has a commit point
+
+------------------------------------------------------------
+
+46. Explain Command without naming its classes
+Recall and transfer
+
+SAY
+Close the code and describe the design in ordinary words. We keep a request so someone else can decide when it runs. The request holds its destination and a way to reach the real object. When it runs, it records the prior state, asks for a valid change, and marks success only afterward. Undo reverses successful changes under a stated ordering and isolation rule. That explanation is stronger than reciting client, invoker, and receiver. Now transfer it to a drawing editor: a menu and a keyboard shortcut can create the same action, while one history controls its timing. The editor still needs its own rules for document lifetime and edits arriving outside that history.
+
+DO
+Give learners one minute to explain the pattern without using its name.
+
+SOURCE
+manuscript/ch14.json → Queueing, undo, and transactions are separate promises

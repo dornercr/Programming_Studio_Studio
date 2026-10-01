@@ -4,7 +4,9 @@ import fs from 'node:fs/promises';
 const root=new URL('../',import.meta.url);
 const read=p=>fs.readFile(new URL(p,root),'utf8');
 const entries=JSON.parse(await read('lectures/manifest.json'));
-const deck=JSON.parse(await read(entries[0].path));
+const chapterOneEntry=entries.find(e=>e.courseId==='cpp-book-01'&&Number(e.chapter)===1);
+assert.ok(chapterOneEntry,'Book I Chapter 1 lecture entry exists');
+const deck=JSON.parse(await read(chapterOneEntry.path));
 test('Chapter 1 lecture retains 26 distinct slide/narration pairs and original worked source',async()=>{
  assert.equal(deck.courseId,'cpp-book-01');assert.equal(deck.chapter,1);assert.equal(deck.slides.length,26);
  assert.equal(new Set(deck.slides.map(s=>s.id)).size,26);

@@ -1,0 +1,289 @@
+{
+  "chapter": 4,
+  "title": "Prototype: copy the actual object and define what stays independent",
+  "opening": [
+    {
+      "title": "Duplicate a cue, then edit only the duplicate",
+      "eyebrow": "04 / THE DESIGN PRESSURE",
+      "kind": "concept",
+      "keyPoints": [
+        "A group contains several cue kinds",
+        "The copy starts with the same visible value",
+        "Later edits must leave the original alone"
+      ],
+      "narration": "Imagine a presentation tool with a text cue and a list cue. The user duplicates the group, then changes the first name in the copied list. They expect the original list to remain unchanged. This requirement includes more than obtaining another pointer. We need another object with the same starting value and the same kind of behavior, plus independent editable data. If the caller already knows the exact type, normal C++ value copying may be all we need. The difficult case is a mixed collection whose caller sees only the shared Cue interface. Prototype will let each actual object decide how to duplicate itself through that interface.",
+      "actions": [
+        "Ask learners what Duplicate should mean in a presentation editor.",
+        "Separate same starting value from same object identity."
+      ],
+      "sourceRef": "manuscript/ch04.json → Duplicate cues without knowing their kinds",
+      "question": {
+        "prompt": "What three properties must a successful cue duplicate have?",
+        "answer": "It starts with the same public value, preserves the concrete cue behavior, and supports independent edits according to the copy contract."
+      }
+    },
+    {
+      "title": "Same value and same identity are different claims",
+      "eyebrow": "04 / COPY CONTRACT",
+      "kind": "concept",
+      "keyPoints": [
+        "Equal text does not prove independent storage",
+        "A new owner does not automatically mean a deep copy",
+        "Define which mutable data must be independent"
+      ],
+      "narration": "Two cue objects can both display Start without being the same object. Conversely, two handles can have different variable names while both reach one object. Identity asks whether we are dealing with one entity or two. Value asks what that entity currently contains or does. Our duplicate command needs distinct identities with equal initial public values. It also needs independence for the editable names. These are separate properties, so they need separate checks. If a future cue shares an immutable image, sharing that image may be acceptable even while names remain independent. We must say where the copy boundary lies before declaring that a clone is deep enough.",
+      "actions": [
+        "Give examples of two equal values and two aliases to one value.",
+        "Ask what resources a cue could safely share."
+      ],
+      "sourceRef": "manuscript/ch04.json → Copy depth is a design decision",
+      "question": {
+        "prompt": "Do equal text results alone prove that two cues can be edited independently?",
+        "answer": "No. Two handles can point to the same cue and report equal text. An edit-and-observe test is needed to demonstrate independence."
+      }
+    },
+    {
+      "title": "Known value types already know how to copy",
+      "eyebrow": "04 / PREDICT → RUN → EXPLAIN",
+      "kind": "code",
+      "keyPoints": [
+        "A vector of strings copies its values",
+        "Editing the copied list does not edit the original",
+        "Clearing the original does not empty the copy"
+      ],
+      "narration": "This example needs no inheritance or clone operation. CueList holds a vector of strings, and the compiler-provided copy copies that vector. The strings are value objects, so later edits are independently observable. The first output remains Check, the second is Inspect, and clearing the original list still leaves Inspect in the copy. front returns the first element; our initialization and copy guarantee the copied list is nonempty when front is used. The lesson is to begin with ordinary copying when the concrete type is known. Prototype becomes useful only when a caller must ask an unknown concrete type behind a common interface to make the right copy.",
+      "actions": [
+        "Predict all three output lines before Run.",
+        "Identify the invariant that makes front safe for the copied list."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch04.json → Duplicate cues without knowing their kinds",
+      "question": {
+        "prompt": "Why is copy.names.front still valid after original.names.clear?",
+        "answer": "The copied vector owns its own string values and is still nonempty. Clearing the original does not clear the copy."
+      },
+      "code": {
+        "filename": "dp_ch04_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <string>\n#include <vector>\nstruct CueList {\n    std::vector<std::string> names;\n};\nint main() {\n    CueList original{{\"Check\", \"Begin\"}};\n    CueList copy = original; // Vector and string values are copied.\n    copy.names.front() = \"Inspect\";\n    std::cout << \"original=\" << original.names.front() << '\\n';\n    std::cout << \"copy=\" << copy.names.front() << '\\n';\n    original.names.clear();\n    std::cout << \"copy after clear=\" << copy.names.front() << '\\n';\n}\n",
+        "expectedStdout": "original=Check\ncopy=Inspect\ncopy after clear=Inspect\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    },
+    {
+      "title": "Copying a shared handle does not duplicate the list",
+      "eyebrow": "04 / THE CONCRETE FAILURE",
+      "kind": "code",
+      "keyPoints": [
+        "The first edit changes the original",
+        "The second copy allocates a distinct list",
+        "Sharing is legal but violates independent-edit requirements"
+      ],
+      "narration": "Here the first copy is a copy of a shared_ptr handle. Both handles keep one list alive. Editing through handle_copy therefore changes what original sees, and the first line reports Inspect. Nothing is dangling and there is no undefined behavior. The mistake is a mismatch with the user's requirement for independent edits. The second construction copies the list value into a new object. Changing that new list to Continue leaves the old one at Inspect. Replacing a noncopyable unique_ptr with shared_ptr merely to make compilation succeed can create exactly this defect. Select an ownership policy because it matches the required meaning of duplication, not because it silences an error.",
+      "actions": [
+        "Predict which variable observes Inspect after the first edit.",
+        "Run, then explain why the second copy changes the observed behavior."
+      ],
+      "sourceRef": "Lecture demonstration for manuscript/ch04.json → Copy depth is a design decision",
+      "question": {
+        "prompt": "Is the shared-handle version broken memory management?",
+        "answer": "No. It manages shared lifetime correctly, but it violates the independent-edit contract by keeping one mutable list behind both handles."
+      },
+      "code": {
+        "filename": "dp_ch04_shared_vs_value.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\n#include <memory>\n#include <string>\n#include <vector>\nint main() {\n    auto original = std::make_shared<std::vector<std::string>>(\n        std::initializer_list<std::string>{\"Check\", \"Begin\"});\n    auto handle_copy = original; // Shares the same mutable list.\n    handle_copy->front() = \"Inspect\";\n    std::cout << \"original after handle edit=\"\n              << original->front() << '\\n';\n    auto value_copy = std::make_shared<std::vector<std::string>>(\n        *original); // Copy the list itself into a new object.\n    value_copy->front() = \"Continue\";\n    std::cout << \"original after value edit=\"\n              << original->front() << '\\n';\n    std::cout << \"new list=\" << value_copy->front() << '\\n';\n}\n",
+        "expectedStdout": "original after handle edit=Inspect\noriginal after value edit=Inspect\nnew list=Continue\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Ask the object that knows its own concrete type",
+      "eyebrow": "04 / PROTOTYPE MECHANISM",
+      "kind": "concept",
+      "keyPoints": [
+        "Cue declares a virtual clone operation",
+        "ListCue invokes its own copy constructor",
+        "The client receives a new unique_ptr<Cue>"
+      ],
+      "narration": "The generic client knows only Cue, so it cannot safely choose between TextCue and ListCue constructors. Each concrete cue already knows its own type. A virtual clone operation moves that decision to the object that has the information. When the client calls clone through a Cue handle, execution selects the actual cue's override. ListCue then creates a new ListCue copied from itself and returns ownership through the Cue interface. That is Prototype: construction from the state of an existing object without the client naming its concrete type. The caller can keep one simple duplication loop as new cue kinds arrive, while each cue maintains its own copy policy.",
+      "actions": [
+        "Trace a clone call on the list element through the base interface."
+      ],
+      "sourceRef": "manuscript/ch04.json → The limitation is lost concrete type information",
+      "question": {
+        "prompt": "Why place the concrete constructor call inside clone rather than in the generic loop?",
+        "answer": "The concrete object knows its actual type. Keeping that knowledge local avoids a type switch that every new cue would need to extend."
+      },
+      "theory": {
+        "what": "Virtual copying preserves the actual object kind behind a common interface.",
+        "where": "Cue::clone is implemented by TextCue, ListCue, and the extension BoxCue.",
+        "why": "A mixed-cue caller cannot name every concrete copy constructor.",
+        "invariant": "A clone begins with equivalent public value and the promised independence.",
+        "risk": "Copying a base value or a shared mutable handle can lose behavior or independence."
+      }
+    },
+    {
+      "title": "An owning handle is not the object value",
+      "eyebrow": "04 / OWNERSHIP AND SLICING",
+      "kind": "concept",
+      "keyPoints": [
+        "unique_ptr cannot be copied into a second sole owner",
+        "Moving a handle transfers ownership",
+        "Copying a base subobject can lose derived information"
+      ],
+      "narration": "A unique_ptr is a handle with sole cleanup responsibility. Copying it would create two supposed sole owners, so the language forbids that operation. Moving it is allowed, but a move transfers the same object to another owner; it does not duplicate the object. Another tempting idea is to copy the Cue value itself. This chapter's Cue is abstract, so that cannot be constructed at all. In a nonabstract hierarchy, copying just the base part can discard derived fields and behavior, a problem called slicing. clone solves a different operation from both handle transfer and base copying: it constructs another complete object of the same actual kind with its own owner.",
+      "actions": [
+        "Compare the verbs borrow, transfer, and duplicate.",
+        "Ask which one a user’s Duplicate command requires."
+      ],
+      "sourceRef": "manuscript/ch04.json → The limitation is lost concrete type information",
+      "question": {
+        "prompt": "Does std::move on a unique_ptr create a duplicate cue?",
+        "answer": "No. It transfers ownership of the same cue and leaves the source handle empty. A duplicate needs a separately constructed object."
+      }
+    },
+    {
+      "title": "Read make_unique<ListCue>(*this) one part at a time",
+      "eyebrow": "04 / COPY CONSTRUCTION",
+      "kind": "concept",
+      "keyPoints": [
+        "this points to the current concrete object",
+        "*this refers to that complete object",
+        "The concrete copy constructor defines the new contents"
+      ],
+      "narration": "Inside ListCue::clone, this points to the current ListCue. The leading star in *this gives a reference to that object. Because clone is const, it supplies a const source for copying. make_unique<ListCue> allocates storage and constructs a ListCue using that source, which selects the copy constructor. The chapter explicitly defaults the copy constructor, so the vector member is copied using its normal value behavior. The returned handle converts to unique_ptr<Cue>, but the allocated object remains a ListCue. Later text and rename calls therefore still use list behavior. If allocation or construction fails, the construction helper does not leave an ownerless successfully allocated object behind.",
+      "actions": [
+        "Read the construction expression aloud from inside outward.",
+        "Distinguish the type of the handle from the type of the object it owns."
+      ],
+      "sourceRef": "manuscript/ch04.json → What clone preserves",
+      "question": {
+        "prompt": "Does returning unique_ptr<Cue> change the newly allocated object from ListCue into Cue?",
+        "answer": "No. The owner exposes the base interface, while the complete object and its virtual behavior remain ListCue."
+      }
+    },
+    {
+      "title": "The loop borrows each owner and stores each new owner",
+      "eyebrow": "04 / RANGE LOOPS AND CONST",
+      "kind": "concept",
+      "keyPoints": [
+        "The colon means iterate over originals",
+        "const auto& avoids copying a unique_ptr",
+        "The returned owner moves into copies"
+      ],
+      "narration": "In for (const auto& cue : originals), the colon means take each element from originals in turn. auto infers the element's type. The ampersand borrows the element rather than copying its unique_ptr, and const stops us from reseating that owner through this reference. An important subtlety remains: a const unique_ptr does not by itself make the pointed-to object const. The clone operation is separately const to express that it should not change the cue's ordinary state. Each clone returns a temporary owning handle, and push_back transfers that handle into copies. At the end, each collection owns its own objects and can be destroyed independently.",
+      "actions": [
+        "Explain every piece of the range-based loop declaration.",
+        "Ask which const applies to the owner and which applies to clone."
+      ],
+      "sourceRef": "manuscript/ch04.json → Keep the generic loop simple and the copy rules local",
+      "question": {
+        "prompt": "What would go wrong with for (auto cue : originals) for this vector?",
+        "answer": "It attempts to copy each unique_ptr element, which is forbidden. Borrowing each owner with a reference avoids that build error."
+      }
+    },
+    {
+      "title": "A new resource member requires a new copy decision",
+      "eyebrow": "04 / EXTENSION RESPONSIBILITY",
+      "kind": "concept",
+      "keyPoints": [
+        "A unique_ptr member blocks implicit copying",
+        "BoxCue explicitly duplicates its owned string",
+        "Some resources should remain noncopyable"
+      ],
+      "narration": "The extension adds BoxCue, whose name lives in a uniquely owned string. Memberwise copying cannot copy that unique_ptr. BoxCue therefore supplies a copy constructor that allocates a new string containing the old string's value. After that, clone can use make_unique<BoxCue>(*this) normally. This is a local repair based on the member's ownership meaning. A socket, mutex, or open transaction needs more thought: copying bytes does not create a second valid session or lock. A clone might copy configuration and establish a fresh resource, share a documented immutable asset, or be unavailable. Whenever a new field arrives, review what copying that field should mean and how a test will show it.",
+      "actions": [
+        "Describe the BoxCue copy constructor’s two separate allocations in source and clone.",
+        "Ask for one resource that cannot sensibly be copied as raw bytes."
+      ],
+      "sourceRef": "manuscript/ch04.json → Copy depth is a design decision",
+      "question": {
+        "prompt": "Why is replacing BoxCue’s unique_ptr<string> with shared_ptr<string> not an equivalent repair?",
+        "answer": "It changes independent ownership into shared mutable state. Editing the clone could then change the original, violating the promised copy behavior."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Test independence through edits and destruction",
+      "eyebrow": "04 / DIAGNOSIS",
+      "kind": "concept",
+      "keyPoints": [
+        "Check equal starting text",
+        "Edit the clone and inspect both objects",
+        "Destroy the original and use the clone again"
+      ],
+      "narration": "A clone test should exercise the promise in stages. First compare public values immediately after cloning. Then edit the clone and confirm the original is unchanged. Check a rejected edit too, because an invalid empty name must not damage the clone's existing value. Finally destroy the original and use the clone again. That last step exposes a clone that merely borrowed storage from the old object. The BoxCue extension demonstrates this with Open and Close: the copied cue remains box:Close after the original owner is reset. No single check replaces the others. Distinct addresses alone do not prove that nested mutable resources were also copied independently.",
+      "actions": [
+        "Ask students to order the four tests from initial value to lifetime independence.",
+        "Name the hidden defect each test can expose."
+      ],
+      "sourceRef": "manuscript/ch04.json → Keep the generic loop simple and the copy rules local",
+      "question": {
+        "prompt": "Why is a different object address insufficient evidence of a deep-enough copy?",
+        "answer": "Two outer objects can still share the same nested mutable data. Edit and lifetime tests must cover the resources that the contract says are independent."
+      }
+    },
+    {
+      "title": "Use Prototype when duplication has a real meaning",
+      "eyebrow": "04 / DESIGN JUDGMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Known concrete values can use ordinary copying",
+        "Heterogeneous duplication benefits from clone",
+        "Unique identities may forbid copying entirely"
+      ],
+      "narration": "Prototype fits a mixed collection of editable values when Duplicate is a meaningful user operation. It may also fit a library of preconfigured objects that clients copy and customize. A registry of named prototypes is optional; the core mechanism is still virtual copying from an existing object. If the concrete type is already known and its value members copy correctly, direct copying is simpler. If an object represents a unique live transaction, pretending it can be cloned may be misleading. You can also choose a closed value representation such as a variant when the type set is known and that makes copying clearer. Begin with the domain's duplication meaning, then choose the mechanism that preserves it.",
+      "actions": [
+        "Compare an editable cue with a live transaction and a known string value."
+      ],
+      "sourceRef": "manuscript/ch04.json → Keep the generic loop simple and the copy rules local",
+      "question": {
+        "prompt": "Does every class hierarchy need clone?",
+        "answer": "No. Add it only when independent duplication is a meaningful supported operation. Some identities should remain noncopyable."
+      },
+      "comparisons": [
+        {
+          "label": "Ordinary copy",
+          "text": "Use for a known concrete value whose members already have the right copy behavior."
+        },
+        {
+          "label": "Virtual clone",
+          "text": "Use when a caller must duplicate unknown concrete kinds through a shared interface."
+        },
+        {
+          "label": "No copying",
+          "text": "Use when identity or external-resource rules make duplication invalid."
+        }
+      ]
+    },
+    {
+      "title": "Recall what is copied, what is shared, and why",
+      "eyebrow": "04 / RETRIEVAL AND TRANSFER",
+      "kind": "concept",
+      "keyPoints": [
+        "The actual object selects its copy constructor",
+        "The caller receives a new owner",
+        "Copy depth is part of the public contract"
+      ],
+      "narration": "Explain the chapter without using the word deep as a shortcut. A ListCue clone contains a new vector of copied string values, so changing a name in one list leaves the other unchanged. A BoxCue clone contains a new allocated string, so destroying the original does not remove the clone's data. These concrete statements are stronger than saying everything is copied. Now imagine adding a large immutable icon and a mutable caption to a cue. Sharing the icon could be reasonable, while the caption must remain independent. State that boundary and write tests for it. That is how Prototype remains maintainable as a simple value grows into a richer object.",
+      "actions": [
+        "Ask learners to explain a copy policy without saying shallow or deep.",
+        "Have them identify one future member change that would require revisiting clone."
+      ],
+      "sourceRef": "manuscript/ch04.json → Copy depth is a design decision",
+      "question": {
+        "prompt": "For a cue with an immutable shared icon and an editable caption, must every clone duplicate the icon bytes?",
+        "answer": "Not necessarily. The contract can permit immutable icon sharing while requiring an independent caption. The clone implementation and tests must match that stated boundary."
+      }
+    }
+  ]
+}

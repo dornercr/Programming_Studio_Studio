@@ -1,0 +1,223 @@
+{
+  "chapter": 8,
+  "title": "Process Memory Layout: storage duration, mappings, and startup input",
+  "opening": [
+    {
+      "title": "A process map is useful without being a fixed picture",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Virtual mappings serve different purposes",
+        "Sections and runtime mappings are different views",
+        "Exact addresses are observations, not universal constants"
+      ],
+      "narration": "The familiar picture of code, static data, heap, and stack helps organize questions, but a real process can also contain shared libraries, mapped files, thread stacks, guard regions, and several allocator regions. The loader and operating system establish a virtual address space, not a promise that every run uses the same numeric addresses. Address-space randomization is one reason layouts can differ. Start by identifying a region's purpose, permissions, and lifetime rather than memorizing a vertical diagram. A source declaration can tell us an object's storage duration, but usually not its final numeric address or whether all mapped pages are currently resident in physical memory.",
+      "actions": [
+        "Ask learners to separate conceptual region names from measured numeric addresses."
+      ],
+      "sourceRef": "content/systems-programming/ch8.json → SP08.001 / Chapter 8 — Process Memory Layout",
+      "question": {
+        "prompt": "What can be inferred when a stack address differs on two launches?",
+        "answer": "Only that the observed virtual placement differed; it does not by itself indicate a bug or changed source-level lifetime."
+      }
+    },
+    {
+      "title": "Uninitialized static data still begins in a defined state",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Static-duration objects receive zero initialization",
+        "An automatic local without initialization is different",
+        "File bytes and memory image sizes need not match"
+      ],
+      "narration": "The conventional BSS name is often described as uninitialized data, which can mislead beginners. A static-duration integer without an explicit initializer still begins with the language's required zero state. An automatic local integer without an initializer does not gain that same guarantee. The executable can describe a zero-filled region without storing every zero byte literally in the file, so the memory image can be larger than the corresponding stored bytes. This is one reason file size is not a direct measure of live process memory. Keep the language initialization rule, the executable representation, and the eventual mapping as related but distinct explanations.",
+      "actions": [
+        "Compare storage duration before discussing customary section placement."
+      ],
+      "sourceRef": "content/systems-programming/ch8.json → SP08.010 / 8.4 Uninitialized data",
+      "question": {
+        "prompt": "Why is a global int without an explicit initializer different from an uninitialized automatic int?",
+        "answer": "The global has static storage duration and receives zero initialization; the automatic object does not get that guarantee merely by existing."
+      }
+    },
+    {
+      "title": "Predict duration before guessing placement",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "code",
+      "keyPoints": [
+        "The global begins at zero",
+        "The automatic local is recreated on each call",
+        "The static local retains state between calls"
+      ],
+      "narration": "The first line prints global zero=0 because the global integer has static storage duration and zero initialization. Each call to visit creates a new automatic local initialized to zero, so incrementing it prints local=1 both times. retained is a static local: its name is local to visit, but its object persists between calls. It prints one and then two. We have shown lifetime and initialization relationships without printing addresses or claiming exact sections. A compiler could choose different physical representations while preserving these required outputs. This distinction is more useful than labeling every local as a permanent stack slot, especially once optimization enters the picture.",
+      "actions": [
+        "Predict all three lines and label each object’s storage duration."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch8.json → SP08.020 / Worked example — Predicting placement without assuming addresses",
+      "question": {
+        "prompt": "Which object has a local name but a lifetime extending across both calls?",
+        "answer": "retained, the static local in visit. Scope and storage duration are different properties."
+      },
+      "code": {
+        "filename": "sys_ch08_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iostream>\nint global_zero;\nvoid visit() {\n    int local = 0;\n    static int retained = 0;\n    ++local;\n    ++retained;\n    std::cout << \"local=\" << local << \" retained=\" << retained << '\\n';\n}\nint main() {\n    std::cout << \"global zero=\" << global_zero << '\\n';\n    visit();\n    visit();\n}\n",
+        "expectedStdout": "global zero=0\nlocal=1 retained=1\nlocal=1 retained=2\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20"
+      }
+    },
+    {
+      "title": "A numeric prefix is not a validated startup option",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "code",
+      "keyPoints": [
+        "Parse the complete supplied text",
+        "Require the application range 1–64",
+        "Keep rejected input separate from a valid count"
+      ],
+      "narration": "These fixed test strings model text supplied as a command-line option; the demonstration does not inspect your actual command line or environment. from_chars reports both an error code and where parsing stopped. Twelve is accepted and prints twelve. Twelve followed by x is rejected because parsing did not consume the whole string. Zero is syntactically numeric but violates the allowed range. Negative one is rejected for this unsigned-count grammar. The outputs show why syntax and semantic bounds are separate checks. Startup input can influence later allocation and loops, so validate it once near the boundary before converting it into trusted configuration.",
+      "actions": [
+        "Predict the accepted case and name the different rejection reasons before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch8.json → SP08.016 / 8.7 Command-line arguments",
+      "question": {
+        "prompt": "Why is checking only the parse error code insufficient for \"12x\"?",
+        "answer": "Parsing can successfully consume the numeric prefix and stop at x. Full consumption must also be required for this grammar."
+      },
+      "code": {
+        "filename": "sys_ch08_checked_option.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <charconv>\n#include <initializer_list>\n#include <iostream>\n#include <optional>\n#include <string_view>\n#include <system_error>\nstd::optional<unsigned> count_from(std::string_view text) {\n    unsigned value = 0;\n    const auto result = std::from_chars(text.data(), text.data()+text.size(), value);\n    if (result.ec != std::errc{} || result.ptr != text.data()+text.size()\n        || value < 1 || value > 64) return std::nullopt;\n    return value;\n}\nint main() {\n    for (const auto text : {\"12\", \"12x\", \"0\", \"-1\"}) {\n        const auto value = count_from(text);\n        std::cout << text << \" -> \";\n        if (value) std::cout << *value << '\\n';\n        else std::cout << \"rejected\\n\";\n    }\n}\n",
+        "expectedStdout": "12 -> 12\n12x -> rejected\n0 -> rejected\n-1 -> rejected\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Fixed strings exercise startup-option parsing; no environment or external process state is read."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Sections help link; segments help load",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "An ELF section describes file organization for tools",
+        "A loadable segment describes a mapping requirement",
+        "Several sections can contribute to one segment"
+      ],
+      "narration": "A binary inspection tool can show section names such as text or data, but those names are not a complete map of the running process. Sections organize information used by linking and other tools. Program headers describe loadable segments that the loader uses to establish mappings. Several sections can contribute to one segment, and the process also gains regions not explained by one source section name. This distinction helps interpret a file whose stored size and mapped memory size differ. Inspect the appropriate view for the question: symbols and sections for compiled organization, program headers and process mappings for loading and runtime placement.",
+      "actions": [
+        "Ask which tool view answers where symbols live versus what the loader maps."
+      ],
+      "sourceRef": "content/systems-programming/ch8.json → SP08.004 / 8.1 Code/text segment",
+      "question": {
+        "prompt": "Why can a section list fail to describe the complete process address space?",
+        "answer": "The loader uses segment information, and runtime mappings also include libraries, stacks, allocator regions, and other resources beyond that section list."
+      }
+    },
+    {
+      "title": "const is a language access rule, not a section command",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "A const object need not occupy read-only mapped pages",
+        "A string literal must not be modified",
+        "Page permissions protect a different boundary"
+      ],
+      "narration": "Declaring a local value const restricts how the program may modify it through that declaration. It does not command the loader to create a read-only page for that one object. The compiler may keep the value in a register, embed it in an instruction, or choose ordinary storage as appropriate. String literals have their own rule: the program must not modify their storage, regardless of whether a particular cast makes an assignment expression compile. Operating-system page protections can catch some illegal writes, but language validity does not depend on receiving a hardware fault. Keep source access rules and mapping permissions separate when explaining a failure.",
+      "actions": [
+        "Compare a const automatic integer with literal storage without predicting exact addresses."
+      ],
+      "sourceRef": "content/systems-programming/ch8.json → SP08.006 / 8.2 Read-only data",
+      "question": {
+        "prompt": "Can a cast make modifying a string literal valid merely by removing a type qualifier?",
+        "answer": "No. Changing the expression’s type does not remove the rule forbidding modification of the literal’s storage."
+      }
+    },
+    {
+      "title": "Freed objects and resident memory are different counts",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "The allocator may retain released blocks",
+        "Mapped space is not the same as resident pages",
+        "Live application objects are a separate accounting layer"
+      ],
+      "narration": "After a program releases a collection, its resident memory reading may remain high. That observation does not automatically prove the collection is still live. A user-space allocator can retain blocks for reuse rather than returning every page immediately to the operating system. Mapped address space and resident physical pages are different quantities too. To diagnose growth, state which metric you are following: live allocations, allocator-held storage, mapped virtual regions, or resident pages. These counts answer different questions. A memory investigation should connect the metric to ownership evidence and workload history instead of assuming every decrease in application object count must instantly shrink the process map.",
+      "actions": [
+        "Have learners name the four accounting layers before interpreting a memory graph."
+      ],
+      "sourceRef": "content/systems-programming/ch8.json → SP08.012 / 8.5 Heap",
+      "question": {
+        "prompt": "Why can freeing every application-owned block leave mapped memory behind?",
+        "answer": "The allocator may retain regions for later reuse, and mapping or residency accounting is separate from individual allocation lifetime."
+      }
+    },
+    {
+      "title": "A recursion estimate is not a portable stack guarantee",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Each active call needs logical state",
+        "Frame size depends on build and implementation",
+        "A termination argument is separate from a resource bound"
+      ],
+      "narration": "A recursive function can have a correct base case and still exhaust its thread's finite stack before reaching it. A rough calculation dividing available stack space by estimated frame size can help planning, but it is not a language guarantee. Startup frames, alignment, library calls, optimization, and varying local data all affect the usable depth. Tail-call optimization is not a portable correctness requirement you can assume will happen. For untrusted depth, an iterative design with an explicit bounded container can make the resource policy visible. Do not demonstrate stack exhaustion as if it were an ordinary recoverable exception; the error path may need the very stack space already exhausted.",
+      "actions": [
+        "Distinguish reaches a base case eventually from stays within available resources."
+      ],
+      "sourceRef": "content/systems-programming/ch8.json → SP08.014 / 8.6 Stack",
+      "question": {
+        "prompt": "What two arguments does a robust recursive operation need for untrusted input?",
+        "answer": "A progress argument showing termination and a resource bound showing that allowed depth can be handled safely."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Capture configuration deliberately without exposing the environment",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Environment values are input",
+        "Borrowed lookup results can have limited stability",
+        "Diagnostics should reveal only relevant nonsecret facts"
+      ],
+      "narration": "Environment variables can configure library behavior and application options, but they should not be treated as trusted authority merely because startup supplied them. Some values can contain secrets, so printing the complete environment to debug one setting is an unnecessarily broad disclosure. Read the specific value you need, validate it, and capture owned configuration during controlled startup when that fits the program. Concurrent environment modification complicates the lifetime of lookup results, so do not assume a borrowed character pointer remains stable indefinitely. The same general lesson applies to command-line parsing: keep external text at a boundary and give the rest of the program a checked representation.",
+      "actions": [
+        "Ask which data the count parser needs and which unrelated startup data it should not print."
+      ],
+      "sourceRef": "content/systems-programming/ch8.json → SP08.018 / 8.8 Environment",
+      "question": {
+        "prompt": "What is a focused diagnostic for one bad configuration value?",
+        "answer": "Report the relevant setting name and a safe validation reason or redacted value, rather than dumping the entire environment."
+      }
+    },
+    {
+      "title": "Use a process map to test a hypothesis, not to invent a lifetime",
+      "eyebrow": "08 / ACCESS AND LIFETIME",
+      "kind": "concept",
+      "keyPoints": [
+        "Source gives storage-duration facts",
+        "Binary tools show compiled organization",
+        "Runtime tools show this process’s mappings"
+      ],
+      "narration": "Three kinds of evidence fit together. The source tells us whether an object is automatic, static-duration, or dynamically created under an owner. Binary inspection shows sections, symbols, and segments produced by a particular build. Runtime inspection shows the mappings of a particular process at a particular moment. None should be substituted silently for the others. A mapped address does not prove an object is alive, and a source-level static duration does not reveal a universal numeric address. When documenting a system, connect the views with explicit assumptions and label observations as observations. This makes the explanation survive optimization changes, a new loader layout, and a different test machine.",
+      "actions": [
+        "Ask students to choose source, binary, or runtime evidence for three different layout questions."
+      ],
+      "sourceRef": "content/systems-programming/ch8.json → SP08.028 / Chapter Synthesis",
+      "question": {
+        "prompt": "Does a visible mapping prove that an old pointer into it still designates a live object?",
+        "answer": "No. Mappings can outlive individual object lifetimes or allocations. Object validity requires the language and ownership history too."
+      }
+    }
+  ]
+}

@@ -1,0 +1,693 @@
+Systems Programming and Machine Organization
+Chapter 26: Page Faults
+Dr. Charles Dorner
+
+1. A fault is a request for a decision, not always a disaster
+Problem and first experiment
+
+SAY
+A page fault means the attempted memory access could not complete under the current translation or protection state. That can be part of normal demand paging, or it can reveal an invalid operation. The kernel must determine the address, requested access, and mapping policy before choosing recovery. A valid anonymous page may receive zero-filled backing; a forbidden write may be rejected. It is therefore misleading to say every page fault means a crash or every page fault means a disk read. Our programs safely model these policy choices without deliberately dereferencing invalid memory or trying to recover from corrupted application state.
+
+DO
+Ask for the concrete state change or units before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.010: 26.4 Fault handling
+
+------------------------------------------------------------
+
+2. Classify before allocating
+Problem and first experiment
+
+SAY
+The program asks four policy questions without accessing any page. An absent anonymous region yields demand-zero. A write to a read-only region yields deny. A write to a copy-on-write region yields private-write, while a read of a present read-only region can resume. The printed words are decisions in a simplified function, not proof that a kernel allocated memory or raised an exception. The order matters: an invalid region must not be granted storage merely because it lacks a present page. A real handler has more states and synchronization duties, but it preserves the same distinction between logical permission and current backing.
+
+DO
+Predict every line, run the complete example, then state exactly which behavior the result establishes.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch26.json → SP26.004: 26.1 Missing pages
+
+------------------------------------------------------------
+
+3. Demand-zero need not involve a storage device
+Problem and first experiment
+
+SAY
+A program can reserve anonymous memory without touching every page. When it first accesses a legitimate page, the kernel can supply zero-initialized backing according to the mapping contract. No existing file contents need to be read for that demand-zero case. A file-backed fault is different, and even then the required data may already be in the operating system’s cache. Counting all faults together therefore mixes operations with very different costs. When a workload gets slower, distinguish fault type, amount of backing work, and storage waiting before blaming the device. The same number of page faults can correspond to very different elapsed time.
+
+DO
+Ask for the concrete state change or units before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.016: Worked example — Demand-zero allocation
+
+------------------------------------------------------------
+
+4. Private writing copies only the model page that needs separation
+Problem and first experiment
+
+SAY
+Our page objects contain two integers each. Parent and child initially share both objects. The first child write to page zero sees another owner and creates a private copy. A second write to that same page changes the exclusive copy without another allocation, leaving the copy counter at one. The final output is parent seven, child eleven, copies one; the untouched second page remains shared. This is an ownership model in one C++ process, not an actual fork or hardware page fault. It illustrates the private-modification guarantee and why one should not promise that every later write requires a new physical copy.
+
+DO
+Predict every line, run the complete example, then state exactly which behavior the result establishes.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch26.json → SP26.012: 26.5 Copy-on-write
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+Two private address-space models initially share a value of 7. A write in the child should leave the parent’s value unchanged.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Implement a single-threaded copy-on-write update for shared_ptr<int>. Reject a null handle, copy only when another owner shares the object, and preserve the other owner’s value.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+This single-threaded smart-pointer model is not an OS page-fault handler. Checking unique() is not a safe general concurrent copy-on-write protocol.
+
+A related failure in the generalized operation is concrete: Write through child before making the private copy. The parent observes the mutation before separation occurs.
+
+The repair changes the operation at the point where the rule can be enforced: Prepare private backing first, then write it. Keep the thread-safety and lifetime assumptions explicit.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+Copying the old value before assignment preserves the private-write contract. If allocation throws, the assignment to owner has not yet committed and the original shared value remains intact. unique() is suitable only under this lab’s single-threaded access rule; it does not establish a safe concurrent mutation protocol. OS copy-on-write applies similar intent at a different boundary.
+
+A plausible alternative: Eager copying is simpler when data is small or almost every element will change.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.03
+
+------------------------------------------------------------
+
+8. Chapter 26 — Page Faults
+Systems mechanisms and source lecture
+
+SAY
+A page fault is an architectural notification that a memory access could not proceed under the current translation and protection state. The kernel interprets the event in the context of the process’s mappings. Some faults are routine mechanisms for implementing valid memory behavior; others reveal an invalid access. [ R3 , R10 , R14 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.001, SP26.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+26.1 Missing pages 26.2 Protection faults 26.3 Demand paging 26.4 Fault handling ...plus 5 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.003
+
+------------------------------------------------------------
+
+10. Missing pages
+Systems mechanisms and source lecture
+
+SAY
+A missing translation can correspond to a legitimate region whose physical backing has not yet been installed. Anonymous memory can be provided lazily, and file-backed mappings can bring in pages as needed. Deferring work avoids allocating and reading pages that the application never touches. A missing page can also correspond to no valid mapping at all. The handler must consult the mapping policy rather than assume that any requested address deserves storage. Otherwise, invalid pointers would silently create new memory instead of being rejected.
+
+In plain English: The program uses a map of memory addresses. The operating system translates that map to where the data is actually stored.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.004, SP26.005
+
+------------------------------------------------------------
+
+11. Protection faults
+Systems mechanisms and source lecture
+
+SAY
+A protection fault occurs when a mapping exists or is described, but the attempted operation is not permitted by the active protection state. Writing to a read-only mapping and fetching instructions from a non-executable mapping are examples under the relevant hardware configuration. Some protection faults are intentionally recoverable, notably copy-on-write. Others indicate an error. The handler must distinguish the region’s logical policy from its current hardware permission bits. A read-only code page is not made writable simply because a process attempted a store.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.006, SP26.007
+
+------------------------------------------------------------
+
+12. Demand paging
+Systems mechanisms and source lecture
+
+SAY
+Demand paging supplies a page when it is actually needed. For a file mapping, the kernel can obtain the corresponding file data; for anonymous memory, it can provide zero-initialized storage consistent with the mapping’s semantics. Existing cached data can avoid a new storage-device read. The performance consequence depends on the work required. Some faults can be satisfied without reading from storage; others wait for I/O. A fault count without classification and workload context is therefore an incomplete performance metric. The same number of faults can represent very different elapsed costs.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.008, SP26.009
+
+------------------------------------------------------------
+
+13. Fault handling
+Systems mechanisms and source lecture
+
+SAY
+Conceptually, handling involves identifying the faulting address and access, locating the mapping policy, validating the operation, obtaining suitable backing, updating translation structures, and resuming or rejecting the instruction. The kernel must synchronize this work with concurrent mapping changes and other faults. Application error handling usually does not attempt to repair arbitrary invalid pointer faults. Recovering from a corrupted execution state is much harder than catching a normal return-code error. Design programs to prevent invalid access and use operating-system errors for expected resource failures. Signal handling is discussed separately in Chapter 41.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.010, SP26.011
+
+------------------------------------------------------------
+
+14. Copy-on-write
+Systems mechanisms and source lecture
+
+SAY
+Copy-on-write lets logically independent mappings share backing until a writer requires a private version. After fork , parent and child can initially share many physical pages while observing private-memory semantics. A write fault can cause the kernel to create a private copy for the writer and update its mapping. [ R15 ] A physical copy is not mandatory in every write-fault case. If the kernel determines that the backing is no longer shared in a way requiring separation, it may be able to make the page writable without copying. The semantic guarantee is private modification, not a promise that every store invokes a particular copying algorithm.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.012, SP26.013
+
+------------------------------------------------------------
+
+15. A model of private modification
+Systems mechanisms and source lecture
+
+SAY
+The following model uses immutable Python bytes as initial shared content and returns a new object when a private writer changes a byte. It demonstrates the observable contract of copy-on-write; it does not claim to implement page tables or reproduce the kernel’s physical allocation decisions. Companion listing: ch26/cow_model.py The expected output is ABCD AXCD . The model copies the entire small object for every store, which is deliberately simpler than a page-based implementation. Its value is that the ownership and visibility contract can be checked without relying on process scheduling or privileged inspection. The model also clarifies a boundary: a shared mapping would require a different contract. Making a private copy is correct for private modification but wrong for a communication region whose purpose is to expose one participant’s writes to another.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.014, SP26.015
+
+------------------------------------------------------------
+
+16. Demand-zero allocation
+Systems mechanisms and source lecture
+
+SAY
+A process may reserve a new virtual page without immediately receiving a physical frame. The first write faults because no frame is present. The kernel allocates a zeroed frame, installs a writable mapping, and restarts the instruction. The application experiences ordinary memory semantics while physical allocation is deferred until use.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.016, SP26.017
+
+------------------------------------------------------------
+
+17. Copy-on-write after fork
+Systems mechanisms and source lecture
+
+SAY
+After fork , parent and child can initially map the same physical page read-only. If the child writes it, a protection fault lets the kernel allocate a private copy, copy the original contents, and remap the child’s page writable. The parent’s mapping still references the original frame. Copying is paid only for pages actually modified.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.018, SP26.019
+
+------------------------------------------------------------
+
+18. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 26. Extend the model with a second child and verify that writing in one child changes neither the parent nor the other child. Add boundary tests for index -1 , index equal to the size, and byte value 256 . Review 1. Is every page fault evidence of a bug? Review 2. Does every page fault require a disk read?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.020, SP26.021
+
+------------------------------------------------------------
+
+19. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is page faults. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.022
+
+------------------------------------------------------------
+
+20. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Memory Hierarchy.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.023
+
+------------------------------------------------------------
+
+21. Copy-on-write separates logical permission from the current hardware bit
+Reason about the implementation
+
+SAY
+A copy-on-write region may be logically allowed to change even though its current hardware mapping denies a direct store. That temporary protection lets the kernel intervene when a private version becomes necessary. A permanently read-only code mapping can use a similar-looking protection bit but has a different policy: a write is an error. The handler therefore needs more than the leaf writable bit to decide what recovery is allowed. Our classification program uses an explicit region kind to make that missing policy visible. Real kernels maintain richer metadata and coordinate it with mappings and other threads.
+
+DO
+Ask for the concrete state change or units before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.006: 26.2 Protection faults
+
+------------------------------------------------------------
+
+22. Resume only after the required invariant is restored
+Reason about the implementation
+
+SAY
+The conceptual recovery path checks policy, obtains suitable backing, updates translation information, and then allows the operation to resume when permitted. Each step establishes a condition needed by the next. Resuming too early would repeat the unresolved access or expose wrong storage. Rejecting an invalid access is not a failure of demand paging; it is enforcement of the boundary. Real implementations also handle concurrent mapping changes and several threads faulting on related storage. Our models intentionally omit those races. A function that returns a policy word does not claim to perform page-table updates, translation invalidation, or instruction restart.
+
+DO
+Ask for the concrete state change or units before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.010: 26.4 Fault handling
+
+------------------------------------------------------------
+
+23. The shared_ptr demonstration has its own lifetime contract
+Reason about the implementation
+
+SAY
+In the source lab, private_write receives a shared_ptr by reference so it can replace the caller’s owner when detaching. A by-value parameter would replace only the local handle and leave the caller referring to the earlier object. The function rejects a null owner before examining or dereferencing it. These are C++ ownership rules within the teaching model. Shared_ptr’s ownership bookkeeping does not make simultaneous writes to the pointed-to integer safe, and testing uniqueness is not a full concurrent copy-on-write protocol. The examples are single-threaded and bounded. If concurrent access becomes a requirement, design synchronization and publication separately rather than assuming the smart pointer supplies them.
+
+DO
+Ask for the concrete state change or units before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.03: Mechanism, guarantees, and limits
+
+------------------------------------------------------------
+
+24. A source model is not a measurement of kernel copying
+Reason about the implementation
+
+SAY
+Our model increments copies when make_shared creates another page object. That is an exact observation about this C++ program. It is not a count of physical pages copied by the operating system. After a real fork, the kernel may determine that a backing page no longer needs separation and simply change permissions instead. It may also use mechanisms whose granularity differs from our tiny model pages. The stable concept is that a private writer must not alter another logically independent view. Keep semantic tests and implementation measurements separate so a correct optimization is not mistaken for violating an overly specific classroom story.
+
+DO
+Ask for the concrete state change or units before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.018: Worked example — Copy-on-write after fork
+
+------------------------------------------------------------
+
+25. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+Two private address-space models initially share a value of 7. A write in the child should leave the parent’s value unchanged.
+
+Share initial backing. parent and child both read 7. Sharing unchanged storage saves a copy.
+
+Prepare a child write. allocate a private copy. The model checks sharing before allowing mutation.
+
+Write 9. parent 7, child 9. The copy preserves the promise that private modifications are independent.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch26/main.cpp
+
+------------------------------------------------------------
+
+26. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Share initial backing. parent and child both read 7. Sharing unchanged storage saves a copy.
+
+Prepare a child write. allocate a private copy. The model checks sharing before allowing mutation.
+
+Write 9. parent 7, child 9. The copy preserves the promise that private modifications are independent.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch26/main.cpp
+
+------------------------------------------------------------
+
+27. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+Copying the old value before assignment preserves the private-write contract. If allocation throws, the assignment to owner has not yet committed and the original shared value remains intact. unique() is suitable only under this lab’s single-threaded access rule; it does not establish a safe concurrent mutation protocol. OS copy-on-write applies similar intent at a different boundary.
+
+Prepare private backing first, then write it. Keep the thread-safety and lifetime assumptions explicit.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch26/main.cpp:1-12
+
+------------------------------------------------------------
+
+28. Ownership after a private write detaches the child
+Code, diagrams, and debugging
+
+SAY
+Green dashed arrows denote shared_ptr ownership as labeled, not inheritance. This is the state after detachment: each handle reaches a different integer. Before detachment, child copied parent and both reached the original integer. The demonstration is single-threaded; a shared_ptr count is not a general concurrent write lock.
+
+Copying the old value before assignment preserves the private-write contract. If allocation throws, the assignment to owner has not yet committed and the original shared value remains intact. unique() is suitable only under this lab’s single-threaded access rule; it does not establish a safe concurrent mutation protocol. OS copy-on-write applies similar intent at a different boundary.
+
+Prepare private backing first, then write it. Keep the thread-safety and lifetime assumptions explicit.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch26/main.cpp:1-12
+
+------------------------------------------------------------
+
+29. Copy on write separates values only when needed
+Code, diagrams, and debugging
+
+SAY
+Copy on write separates values only when needed. If another owner shares the integer, allocate a new integer initialized from the old one and make child own it. This single-threaded decision is not a concurrent ownership protocol.
+
+Two private address-space models initially share a value of 7. A write in the child should leave the parent’s value unchanged.
+
+Sharing unchanged storage saves a copy. The model checks sharing before allowing mutation. The copy preserves the promise that private modifications are independent.
+
+If another owner shares the integer, allocate a new integer initialized from the old one and make child own it. This single-threaded decision is not a concurrent ownership protocol.
+
+Dereferencing child now reaches the private integer, so writing 9 leaves parent’s integer unchanged.
+
+The two reads print 7 and 9. Copy-on-write delays separation until a writer needs independent state.
+
+A private writer detaches shared backing before changing the value. This ownership-count check is used only in the stated single-threaded model.
+
+This single-threaded smart-pointer model is not an OS page-fault handler. Checking unique() is not a safe general concurrent copy-on-write protocol. In the extended lab: Write through child before making the private copy. The parent observes the mutation before separation occurs.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch26/main.cpp:8-10
+
+------------------------------------------------------------
+
+30. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Write through child before making the private copy. The parent observes the mutation before separation occurs.
+
+Prepare private backing first, then write it. Keep the thread-safety and lifetime assumptions explicit.
+
+The reference solution makes the contract executable with assertions. Copying the old value before assignment preserves the private-write contract. If allocation throws, the assignment to owner has not yet committed and the original shared value remains intact. unique() is suitable only under this lab’s single-threaded access rule; it does not establish a safe concurrent mutation protocol. OS copy-on-write applies similar intent at a different boundary.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.06
+
+------------------------------------------------------------
+
+31. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch26/starter.cpp. Implement the first acceptance case for detach a shared value before a private write. State the function inputs and result before adding code. First case: The first private update detaches a shared object.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.07
+
+------------------------------------------------------------
+
+32. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch26/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.08
+
+------------------------------------------------------------
+
+33. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Write through child before making the private copy. The parent observes the mutation before separation occurs. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.09
+
+------------------------------------------------------------
+
+34. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Why might fork avoid copying every page immediately? Compare the selected design with this plausible alternative: Eager copying is simpler when data is small or almost every element will change.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.10
+
+------------------------------------------------------------
+
+35. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch26/starter.cpp. Implement a single-threaded copy-on-write update for shared_ptr<int>. Reject a null handle, copy only when another owner shares the object, and preserve the other owner’s value. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch26/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.11
+
+------------------------------------------------------------
+
+36. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Detach a shared value before a private write belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.12
+
+------------------------------------------------------------
+
+37. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Implement a single-threaded copy-on-write update for shared_ptr<int>. Reject a null handle, copy only when another owner shares the object, and preserve the other owner’s value.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch26/starter.cpp
+
+------------------------------------------------------------
+
+38. Review the extension solution
+Practice and extension
+
+SAY
+Copying the old value before assignment preserves the private-write contract. If allocation throws, the assignment to owner has not yet committed and the original shared value remains intact. unique() is suitable only under this lab’s single-threaded access rule; it does not establish a safe concurrent mutation protocol. OS copy-on-write applies similar intent at a different boundary. Repair principle: Prepare private backing first, then write it. Keep the thread-safety and lifetime assumptions explicit.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Prepare private backing first, then write it. Keep the thread-safety and lifetime assumptions explicit.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch26/solution.cpp
+
+------------------------------------------------------------
+
+39. Application case: Page Faults
+Practice and extension
+
+SAY
+A first write to a copy-on-write mapping faults.
+
+What can the OS do?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.CASE
+
+------------------------------------------------------------
+
+40. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+Copying the old value before assignment preserves the private-write contract. If allocation throws, the assignment to owner has not yet committed and the original shared value remains intact. unique() is suitable only under this lab’s single-threaded access rule; it does not establish a safe concurrent mutation protocol. OS copy-on-write applies similar intent at a different boundary.
+
+Choose a simpler approach when its narrower contract is enough. Eager copying is simpler when data is small or almost every element will change.
+
+When this system changes, retain a check that exposes the known failure: Write through child before making the private copy. The parent observes the mutation before separation occurs. Prepare private backing first, then write it. Keep the thread-safety and lifetime assumptions explicit.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch26.json → SYS26.14
+
+------------------------------------------------------------
+
+41. Do not use arbitrary invalid accesses as normal error handling
+Recall and transfer
+
+SAY
+A parser expecting malformed input should validate its lengths and return an error rather than deliberately writing beyond a buffer and hoping a signal handler can recover. A protection fault can happen after other mutations already occurred, and corrupted state may no longer support ordinary execution safely. The chapter therefore separates normal system-call error handling from attempts to repair arbitrary invalid pointer use. Our fault models use enum values and policy functions so they can be exercised safely and deterministically. When testing production code, use appropriate memory diagnostics and targeted bounds checks rather than treating a crash as the required validation path.
+
+DO
+Ask for the concrete state change or units before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.010: 26.4 Fault handling
+
+------------------------------------------------------------
+
+42. Review the observation before explaining the cost
+Recall and transfer
+
+SAY
+To explain a page-fault report, start with what the counter actually means. Identify whether the mapping was legitimate, whether the access was a read or write, and whether recovery needed zero-fill, private separation, cached file data, or storage I/O. Then ask how that work sits on the application’s critical path. A single fault count cannot answer all these questions. The source model provides a small ownership lesson; our added examples provide policy and page-granularity lessons. Together they support debugging without pretending to implement a kernel. Extend tests by checking repeated private writes and untouched shared pages, then measure actual platform behavior separately.
+
+DO
+Ask for the concrete state change or units before revealing the explanation.
+
+SOURCE
+content/systems-programming/ch26.json → SP26.020: Guided lab and review

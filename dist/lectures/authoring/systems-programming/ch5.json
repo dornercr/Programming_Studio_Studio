@@ -1,0 +1,224 @@
+{
+  "chapter": 5,
+  "title": "Floating-Point Representation: precision, classification, and numerical contracts",
+  "opening": [
+    {
+      "title": "Large range does not mean exact detail",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Precision limits significant information",
+        "Range limits magnitude",
+        "Choose an error budget for the application"
+      ],
+      "narration": "A measuring instrument may need to describe very large distances without distinguishing every tiny fraction at that scale. Floating-point formats make a similar tradeoff: an exponent supplies a wide range, while a fixed number of significant bits limits detail. These are separate properties. A format can represent a huge power of two exactly while failing to distinguish nearby consecutive integers. That makes it a poor default for exact ticket identifiers or byte counts, even though those numbers fit within its magnitude range. Begin with the application's acceptable error and exactness requirements. The type is useful when its approximation model fits those requirements, not merely because it can display many digits.",
+      "actions": [
+        "Ask learners to distinguish maximum magnitude from spacing between nearby values."
+      ],
+      "sourceRef": "content/systems-programming/ch5.json → SP05.004 / 5.1 Floating-Point Concepts",
+      "question": {
+        "prompt": "Why is floating point a risky choice for exact identifiers?",
+        "answer": "Its finite precision can map distinct large integer identifiers to the same representable value."
+      }
+    },
+    {
+      "title": "A floating value has interacting fields",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Sign selects direction",
+        "Exponent scales the significand",
+        "Special exponent patterns change the interpretation"
+      ],
+      "narration": "For a normal binary floating-point value, think of a signed significant number multiplied by a power of two. The stored exponent is biased so the format can encode negative and positive scale factors. In binary32, a normal leading one is implicit rather than stored in the fraction field. Special exponent patterns change this rule: zero exponents support zeros and subnormals, while all-one exponents support infinities and NaNs depending on the fraction. A NaN is a special value indicating a non-number result or state. Reading only the exponent field is therefore not enough to classify every value. The fields form one interpretation rule, not three independent ordinary integers.",
+      "actions": [
+        "Classify the all-one exponent with zero and nonzero fraction fields separately."
+      ],
+      "sourceRef": "content/systems-programming/ch5.json → SP05.006 / 5.2 IEEE 754",
+      "question": {
+        "prompt": "Why does an all-one exponent not identify infinity by itself?",
+        "answer": "A zero fraction indicates infinity, while a nonzero fraction indicates a NaN in the IEEE binary formats discussed here."
+      }
+    },
+    {
+      "title": "Some decimal fractions are exactly binary fractions",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "code",
+      "keyPoints": [
+        "0.625 is 1/2 plus 1/8",
+        "0.125 is 1/8",
+        "The exact sum is 3/4"
+      ],
+      "narration": "Not every floating-point operation is inexact. The first value is five eighths, which has the finite binary expansion zero point one zero one. The second is one eighth. Their sum is six eighths, or three quarters, which also fits exactly in binary. The program checks the binary radix assumption at compilation and prints first=0.625, sum=0.750, and exact three quarters=true. The three printed decimal places are a formatting choice; they do not create the exactness. The mathematical denominators being powers of two and the values fitting available precision explain it. Contrast this with one tenth, whose binary expansion repeats and needs rounding in a finite binary format.",
+      "actions": [
+        "Express both inputs as fractions with denominator eight before Run."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch5.json → SP05.012 / Worked example — Why 0.1 is approximate",
+      "question": {
+        "prompt": "Does setprecision make the calculation exact?",
+        "answer": "No. It controls presentation. These values are exact because their binary expansions fit the format."
+      },
+      "code": {
+        "filename": "sys_ch05_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <iomanip>\n#include <iostream>\n#include <limits>\nint main() {\n    static_assert(std::numeric_limits<double>::radix == 2);\n    const double first = 0.625; // 1/2 + 1/8.\n    const double second = 0.125; // 1/8.\n    const double sum = first + second;\n    std::cout << std::fixed << std::setprecision(3);\n    std::cout << \"first=\" << first << '\\n';\n    std::cout << \"sum=\" << sum << '\\n';\n    std::cout << std::boolalpha << \"exact three quarters=\"\n              << (sum == 0.75) << '\\n';\n}\n",
+        "expectedStdout": "first=0.625\nsum=0.750\nexact three quarters=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Requires binary floating-point radix, checked by static_assert."
+      }
+    },
+    {
+      "title": "Equality is not a NaN detector",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "code",
+      "keyPoints": [
+        "A NaN is unequal to itself",
+        "Use the classification operation",
+        "Validation can reject nonfinite measurements explicitly"
+      ],
+      "narration": "The program creates a quiet NaN without performing an invalid memory operation or relying on input from a sensor. Its equality comparison with itself prints false. std::isnan recognizes the category and prints true. Our measurement contract accepts finite nonnegative values, so the NaN is rejected while zero is accepted. The output therefore distinguishes a legitimate zero reading from a special non-number state. A test such as value == NaN would not detect the category. The standard classification functions state the intent clearly. This example assumes quiet NaN support, checked at compilation, and ordinary floating-point semantics rather than compiler options that discard NaN behavior.",
+      "actions": [
+        "Predict all four booleans before Run and identify the actual acceptance rule."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch5.json → SP05.014 / Worked example — Classifying an IEEE 754 value",
+      "question": {
+        "prompt": "Why is zero accepted but the NaN rejected?",
+        "answer": "Zero is finite and nonnegative. The NaN is not finite and does not represent a valid measurement under this contract."
+      },
+      "code": {
+        "filename": "sys_ch05_nan_policy.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cmath>\n#include <iostream>\n#include <limits>\nbool accepted_measurement(double value) {\n    return std::isfinite(value) && value >= 0.0;\n}\nint main() {\n    static_assert(std::numeric_limits<double>::has_quiet_NaN);\n    const double missing = std::numeric_limits<double>::quiet_NaN();\n    std::cout << std::boolalpha;\n    std::cout << \"self equality=\" << (missing == missing) << '\\n';\n    std::cout << \"is NaN=\" << std::isnan(missing) << '\\n';\n    std::cout << \"measurement accepted=\" << accepted_measurement(missing) << '\\n';\n    std::cout << \"zero accepted=\" << accepted_measurement(0.0) << '\\n';\n}\n",
+        "expectedStdout": "self equality=false\nis NaN=true\nmeasurement accepted=false\nzero accepted=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Portable C++20",
+        "model": "Requires quiet NaN support and ordinary floating-point semantics; do not use fast-math assumptions."
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "Rounding follows the spacing near the result",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Representable values are not evenly spaced across all magnitudes",
+        "A unit can disappear at a large scale",
+        "A printed result may hide stored approximation"
+      ],
+      "narration": "Near a large power of two, neighboring representable numbers can be farther apart than one. Adding one may then produce the same stored value under the selected rounding rule. That is precision loss, not integer wraparound and not proof that the processor skipped the addition. Near zero, the spacing is much smaller, so the same format retains much finer absolute detail. A short decimal display can conceal these differences by rounding for presentation again. When diagnosing a numerical issue, identify the input values, format, rounding assumptions, and required tolerance. Printing more digits can reveal evidence, but it does not restore information that the arithmetic already rounded away.",
+      "actions": [
+        "Draw two nearby representable values with the exact result between them."
+      ],
+      "sourceRef": "content/systems-programming/ch5.json → SP05.008 / 5.3 Floating-Point Arithmetic",
+      "question": {
+        "prompt": "If a large floating value plus one compares equal to itself, must the addition have been skipped?",
+        "answer": "No. The exact mathematical result may round back to the same representable value at that magnitude."
+      }
+    },
+    {
+      "title": "An equality policy needs scale and special-value rules",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Absolute tolerance helps near zero",
+        "Relative tolerance scales with magnitude",
+        "NaNs and infinities need explicit treatment"
+      ],
+      "narration": "Suppose a sensor's accepted absolute error near zero is one billionth. A result of one ten-billionth may be close to zero even though relative error against zero is not useful. At a magnitude of one million, a relative tolerance of one millionth allows a difference of one. Whether that is acceptable depends on the measurement, not on a universal magic epsilon. A useful comparison can combine an absolute floor with a relative scale, then define behavior for infinities and NaNs separately. The chapter's helper validates tolerance inputs as well. That validation matters because a negative or non-number tolerance would make the intended acceptance rule unclear.",
+      "actions": [
+        "Compare the two stated magnitudes and calculate the allowed differences."
+      ],
+      "sourceRef": "content/systems-programming/ch5.json → SP05.008 / 5.3 Floating-Point Arithmetic",
+      "question": {
+        "prompt": "Why is relative tolerance alone awkward when comparing a tiny result with zero?",
+        "answer": "Scaling by the magnitude near zero can make the allowance vanish or become too small for the application’s absolute error budget."
+      }
+    },
+    {
+      "title": "Changing evaluation order can change the stored answer",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Floating addition need not be associative",
+        "Intermediate rounding affects later work",
+        "Reproducibility includes compiler and algorithm choices"
+      ],
+      "narration": "In exact arithmetic, regrouping three additions does not change their sum. In finite floating-point arithmetic, each intermediate result may round. Combining a tiny value with a very large one can lose the tiny contribution before a later subtraction would have made it visible. Combining the large values first can leave a different result. Neither observation permits us to ignore the mathematical target; it tells us the chosen algorithm and order affect error. Compiler reassociation options can also change the intended sequence. For a reproducible study, keep the input set, order, format, build flags, and reference calculation clear. A timing comparison without those controls may compare different numerical computations.",
+      "actions": [
+        "Ask learners where information can be lost before a later cancellation occurs."
+      ],
+      "sourceRef": "content/systems-programming/ch5.json → SP05.008 / 5.3 Floating-Point Arithmetic",
+      "question": {
+        "prompt": "Why must a summation experiment record optimization options as well as input values?",
+        "answer": "Some options permit reassociation or other transformations that alter rounding order and numerical results."
+      }
+    },
+    {
+      "title": "Avoid unnecessary intermediate overflow",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "A representable final result can have an overflowing naive intermediate",
+        "Use an algorithm designed for the numerical range",
+        "Wider types are not the only repair"
+      ],
+      "narration": "To compute a distance, a naive expression squares two coordinates, adds the squares, and takes a square root. The squares can exceed the finite range even when the final distance would fit. A suitable hypot implementation uses scaling to avoid that unnecessary intermediate failure. This is a design lesson: changing every variable to a wider type may postpone a problem, while changing the algorithm can address its cause. Very small results have their own issues, including subnormal values and rounding to zero. Do not treat every tiny number as automatically invalid. Ask whether the remaining information meets the domain's error budget and whether a more stable formulation is available.",
+      "actions": [
+        "Describe the difference between an intermediate range problem and an invalid input."
+      ],
+      "sourceRef": "content/systems-programming/ch5.json → SP05.008 / 5.3 Floating-Point Arithmetic",
+      "question": {
+        "prompt": "Why can sqrt(x*x + y*y) fail before a representable mathematical answer is produced?",
+        "answer": "The intermediate squares can exceed the finite range even when the final norm is representable."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Test numerical behavior against a stated reference",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "Keep identical input data across alternatives",
+        "Report absolute or relative error deliberately",
+        "Separate exact cases, approximate cases, and invalid states"
+      ],
+      "narration": "A useful numerical test suite should include exact cases such as the binary fractions in our first demonstration. It should include approximate decimal cases under a justified tolerance, large values that reveal spacing, near-zero cases, and explicit nonfinite inputs. When comparing summation methods, keep the same data and explain the reference used to estimate error. A wider calculation can be useful evidence but is not automatically an exact mathematical oracle. Report the error definition and the assumptions behind the comparison. Tests then help maintain the promised numerical quality when someone changes an algorithm, compiler option, or data type for performance.",
+      "actions": [
+        "Build a test matrix with exact, near-zero, large, and NaN categories."
+      ],
+      "sourceRef": "content/systems-programming/ch5.json → SP05.016 / Guided lab and review",
+      "question": {
+        "prompt": "Why include exact cases if most real measurements are approximate?",
+        "answer": "They establish clear expected behavior and can expose logic or formatting mistakes separately from unavoidable numerical approximation."
+      }
+    },
+    {
+      "title": "Explain approximation without calling it random",
+      "eyebrow": "05 / VALUES AND LAYOUT",
+      "kind": "concept",
+      "keyPoints": [
+        "The representation has defined limits",
+        "The operation and rounding policy determine the result",
+        "The application decides whether that result is useful"
+      ],
+      "narration": "Floating-point surprises are easier to manage when we replace the phrase computers are bad at decimals with a concrete explanation. One tenth has a repeating binary expansion, so the stored value is a nearby representable number. Arithmetic uses those stored inputs and rounds results under the active rules. Presentation may round the displayed digits again. None of this is random behavior. The engineering task is to choose a representation and algorithm whose error remains acceptable, then validate the exceptional states. Explain each numerical defect by locating the lost information or violated domain rule. That approach produces a repair more precise than adding an arbitrary tolerance everywhere.",
+      "actions": [
+        "Ask students to explain one-tenth approximation and NaN validation as different issues."
+      ],
+      "sourceRef": "content/systems-programming/ch5.json → SP05.018 / Chapter Synthesis",
+      "question": {
+        "prompt": "What should justify a tolerance value?",
+        "answer": "The domain’s allowed error, scale, and numerical algorithm, including explicit handling of exceptional values."
+      }
+    }
+  ]
+}

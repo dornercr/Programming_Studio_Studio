@@ -1,0 +1,710 @@
+Systems Programming and Machine Organization
+Chapter 24: Page Tables
+Dr. Charles Dorner
+
+1. A mapping must answer where and whether
+Problem and first experiment
+
+SAY
+A table that returns a frame number but ignores access rights is not a complete protection model. Reading, writing, and fetching an instruction can require different permissions. A page-table entry therefore carries control information as well as location information. At one level it may point to another table; at a leaf it may describe the mapped page. The exact encoding belongs to the architecture and configuration, not to a guessed C++ struct layout. Our added programs use explicit small fields to explain decomposition and combined checks. They neither read nor modify the operating system’s active page tables.
+
+DO
+Require a concrete mapping, access, or state example before revealing the answer.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.004: 24.1 Page-table entries
+
+------------------------------------------------------------
+
+2. Split a tiny address into two indexes and an offset
+Problem and first experiment
+
+SAY
+The address one hundred seven is hexadecimal six B. In this eight-bit model, four low bits give offset eleven, the next two give leaf index two, and the top two give root index one. The program prints those fields and reconstructs one hundred seven from them. This verifies decomposition only; it does not prove that root entry one or leaf entry two is present. A page-table walk would use those indexes to inspect entries and permissions. The small geometry keeps every operation visible. Actual x86-64 examples use different index widths and canonical-address rules, so copying these shifts into system code would be incorrect.
+
+DO
+Predict the complete output, run the model, and distinguish its result from a real hardware observation.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch24.json → SP24.018: Worked example — A two-level address decomposition
+
+------------------------------------------------------------
+
+3. A missing entry can have several meanings
+Problem and first experiment
+
+SAY
+An absent entry stops the current hardware translation path, but it does not say what recovery is allowed. A valid anonymous region may need a zero-filled page. A valid file mapping may need file data that is already cached or must be read. An address outside every permitted region should be rejected. Treating every absence as permission to allocate would turn invalid accesses into silently accepted memory. The chapter separates the present indicator from the kernel’s policy metadata for this reason. When debugging a fault, identify the mapping policy and requested operation before assuming the device or disk is involved.
+
+DO
+Require a concrete mapping, access, or state example before revealing the answer.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.006: 24.2 Present bit
+
+------------------------------------------------------------
+
+4. A permissive leaf cannot cancel a restrictive parent
+Problem and first experiment
+
+SAY
+The root entry is present and user-accessible but not writable. The leaf is present, user-accessible, and writable. A careless leaf-only check prints true for a user write. The complete simplified check prints false because the path includes a nonwritable root. For a read, the same present and user conditions pass, so the model prints true. These results follow the explicit AND rule defined here; this struct is not an actual x86 page-table encoding. The lesson is to identify every level whose permissions constrain access rather than choosing the most convenient bit. The requested operation must be part of that decision.
+
+DO
+Predict the complete output, run the model, and distinguish its result from a real hardware observation.
+
+SOURCE
+Lecture demonstration for content/systems-programming/ch24.json → SP24.008: 24.3 Writable bit
+
+------------------------------------------------------------
+
+5. Problem and first implementation
+The chapter problem
+
+SAY
+A model page-table entry is present and readable but not writable. Test a read and a write against the same entry.
+
+Begin with the complete chapter demonstration. It fixes the input so you can follow each change in state. After that trace is clear, the lab expands the contract: Represent a page entry with present, readable, and writable flags. A read and write request must use the corresponding permission, and an absent page denies both.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.01
+
+------------------------------------------------------------
+
+6. Where the simple approach fails
+The chapter problem
+
+SAY
+A translation that returns a frame without checking access permissions can break isolation.
+
+A related failure in the generalized operation is concrete: Return entry.present for every access. A present read-only mapping then accepts a write.
+
+The repair changes the operation at the point where the rule can be enforced: Pass the requested access type and check its matching permission after presence. Test the same entry with two different operations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.02
+
+------------------------------------------------------------
+
+7. Mechanism, guarantees, and limits
+The chapter problem
+
+SAY
+The entry groups flags that describe one mapping. Presence and permission answer different questions, so neither can replace the other. The pure allows function is easy to test and has no state changes. Architecture-specific user/supervisor and execute permissions are outside this limited model and would need explicit fields and checks.
+
+A plausible alternative: A flat table is easy to model; real multilevel tables reduce storage for sparse address spaces at the cost of more involved walks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.03
+
+------------------------------------------------------------
+
+8. Chapter 24 — Page Tables
+Systems mechanisms and source lecture
+
+SAY
+A page table describes mappings and their permissions. Large address spaces make a single fully populated flat table expensive, so many architectures use a hierarchy in which intermediate entries point to lower-level tables. Unused regions can then avoid allocating all possible lower-level structures. [ R3 , R10 ]
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.001, SP24.002
+
+------------------------------------------------------------
+
+9. Chapter Roadmap
+Systems mechanisms and source lecture
+
+SAY
+24.1 Page-table entries 24.2 Present bit 24.3 Writable bit 24.4 User-accessible bit ...plus 7 additional source topics
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.003
+
+------------------------------------------------------------
+
+10. Page-table entries
+Systems mechanisms and source lecture
+
+SAY
+A page-table entry encodes mapping information and control bits. Depending on its level and configuration, it can point to another table or describe a mapped page. It may include a physical address, presence information, access permissions, and status used by memory-management policy. An entry is not a portable C structure whose bit layout can be guessed from a diagram for another architecture. Kernel code must follow the architecture’s encoding and required update procedures. Ordinary user programs should reason about the behavior exposed by mapping APIs instead of attempting to manipulate active page tables.
+
+In plain English: The program uses a map of memory addresses. The operating system translates that map to where the data is actually stored.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.004, SP24.005
+
+------------------------------------------------------------
+
+11. Present bit
+Systems mechanisms and source lecture
+
+SAY
+A present indicator tells hardware whether an entry is valid for the corresponding translation step. An absent entry can cause a page fault. The kernel may use nonpresent encodings and its own metadata to remember whether the region is demand-paged, swapped, invalid, or associated with another policy. Therefore, “not present” does not automatically mean “read this page from disk.” The handler must first establish that the access is legitimate. A zero-filled anonymous page may require no file read at all. A completely invalid address must not be repaired by granting access merely because a fault occurred.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.006, SP24.007
+
+------------------------------------------------------------
+
+12. Writable bit
+Systems mechanisms and source lecture
+
+SAY
+A writable permission controls whether stores are allowed under the architecture’s access rules. A mapping can be readable without being writable. Copy-on-write commonly uses a temporarily nonwritable hardware mapping for a region that is logically permitted to become privately writable after a fault. Permission interpretation can involve multiple levels and processor controls. It is unsafe to inspect only one leaf bit and conclude that an access must succeed. The complete translation and protection state determines the result. This chapter’s exercises state a simplified combined-permission rule explicitly.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.008, SP24.009
+
+------------------------------------------------------------
+
+13. User-accessible bit
+Systems mechanisms and source lecture
+
+SAY
+A user/supervisor permission distinguishes mappings accessible to user-mode code from mappings reserved for privileged access. It helps prevent an application from treating kernel data as ordinary user memory even when some related address range exists in the broader translation structure. This hardware distinction does not replace file permissions, process credentials, or application authorization. A user-accessible buffer may still contain data that an application should not disclose to a particular network client. Memory-access enforcement and application-level information policy operate at different layers.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.010, SP24.011
+
+------------------------------------------------------------
+
+14. Multilevel page tables
+Systems mechanisms and source lecture
+
+SAY
+A multilevel design divides the virtual page number into several indexes. Each index selects an entry in the current table; that entry leads to the next level until a mapping is found. Large-page entries can terminate a walk earlier when the architecture supports them. A familiar x86-64 example uses four levels with 9 index bits per level and a 12-bit offset, describing a 48-bit virtual-address organization subject to canonical-address rules. Other configurations can add a fifth level and expand the address width. The exact layout is a platform fact, not a consequence of the C++ pointer type alone. [ R3 , R10 ]
+
+In plain English: The program uses a map of memory addresses. The operating system translates that map to where the data is actually stored.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.012, SP24.013
+
+------------------------------------------------------------
+
+15. Page-table walks
+Systems mechanisms and source lecture
+
+SAY
+A page-table walk follows the hierarchy to resolve a translation. Hardware performs walks on the reference architecture, potentially using internal caches for table information. The naive count of one ordinary memory access per level is a useful upper-level teaching model but not a complete performance prediction. A walk can stop because it finds a valid leaf mapping, encounters an absent entry, or detects a protection problem. Once a translation is cached in a TLB, later accesses can avoid repeating the full walk until the entry is evicted or invalidated. The next chapter separates translation caching from data caching.
+
+In plain English: The program uses a map of memory addresses. The operating system translates that map to where the data is actually stored.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.014, SP24.015
+
+------------------------------------------------------------
+
+16. Memory protection
+Systems mechanisms and source lecture
+
+SAY
+Protection checks combine the requested operation with the applicable mapping permissions and architectural state. Reading data, writing data, and fetching instructions are not necessarily governed by identical permissions. Non-executable mappings help separate data storage from executable code. Changing a page-table entry is not enough when processors retain cached translations based on the old state. The system must perform the required invalidation and coordination. On a multicore system, other cores may also hold relevant translations; this is the reason for translation invalidation mechanisms often discussed as TLB shootdowns.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.016, SP24.017
+
+------------------------------------------------------------
+
+17. A two-level address decomposition
+Systems mechanisms and source lecture
+
+SAY
+Use a 16-bit teaching address space with 256-byte pages and two levels of 16-entry tables. The address fields are: Address 0xABCD yields outer index 0xA , inner index 0xB , and offset 0xCD . Suppose outer entry A points to a valid inner table and inner entry B maps frame 0x34 . The translated address is 0x34CD in a physical model that supports that frame number. Now add permissions. The outer entry allows user reads and writes, but the inner entry allows only user reads. A user load succeeds; a user store fails. For this model, effective permissions are the intersection of the permissions along the path. Giving the outer entry more authority cannot override a restrictive leaf entry. A flat table for all 256 virtual pages needs 256 entries. The two-level arrangement needs one 16-entry outer table plus 16 entries for each allocated inner table. With only one populated inner table, it uses 32 entries; with all 16 inner tables allocated, it uses 272 entries. Hierarchy saves space for sparse mappings but is not automatically smaller for a fully populated tiny address space.
+
+In plain English: Think of an address written on a note: the note can tell you where to look, but it does not prove the thing is still there or that you are allowed to use it.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.018, SP24.019
+
+------------------------------------------------------------
+
+18. Walking a two-level table
+Systems mechanisms and source lecture
+
+SAY
+Suppose a simplified address uses 10 bits for level-1 index, 10 for level-2 index, and 12 offset bits. The hardware extracts the top index to locate a level-2 table, then uses the second index to locate the final PTE. If the present and permission bits allow the access, the physical frame number from the PTE is concatenated with the original 12-bit offset.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.020, SP24.021
+
+------------------------------------------------------------
+
+19. Permission check on a write
+Systems mechanisms and source lecture
+
+SAY
+A valid PTE can still reject an access. If the page is present and user-accessible but its writable bit is clear, a user-mode store raises a protection fault. A load from the same page may succeed. Presence and permission are separate dimensions of the mapping.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.022, SP24.023
+
+------------------------------------------------------------
+
+20. Guided lab and review
+Systems mechanisms and source lecture
+
+SAY
+Lab 24. Translate 0x27F0 in the teaching model when outer entry 2 selects a table whose entry 7 maps frame 0x19 . Calculate table-entry storage for three allocated inner tables. Review 1. Why can a permission change require work on other cores? Review 2. Does an absent entry identify the backing-storage policy by itself?
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.024, SP24.025
+
+------------------------------------------------------------
+
+21. Chapter Synthesis
+Systems mechanisms and source lecture
+
+SAY
+The chapter's central subject is page tables. Correct reasoning requires explicit assumptions, bounds, ownership, and interface contracts. Observed behavior is evidence about a run; it is not automatically a language or system guarantee. Use the worked examples and lab to test whether the model transfers to new cases.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.026
+
+------------------------------------------------------------
+
+22. Review and Transition
+Systems mechanisms and source lecture
+
+SAY
+Explain one mechanism from the chapter without relying on vocabulary alone. Identify one failure mode and the violated contract or invariant. State what evidence would support your diagnosis and what it would not prove. Next: Translation Hardware.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.027
+
+------------------------------------------------------------
+
+23. Sparse mappings motivate multiple table levels
+Reason about the implementation
+
+SAY
+Imagine a large virtual space where a process uses only a few separated regions. A flat table would reserve a slot for every virtual page even across unused gaps. A hierarchy groups pages under intermediate entries, allowing an unused group to have no allocated lower-level table. This trades some lookup structure for reduced metadata in sparse cases. The tradeoff is not a promise that all page-table walks cost one fixed number of memory loads. Hardware can cache intermediate information and support large-page leaves that end a walk early. Explain both why the hierarchy exists and which caches may hide some of its cost.
+
+DO
+Require a concrete mapping, access, or state example before revealing the answer.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.012: 24.5 Multilevel page tables
+
+------------------------------------------------------------
+
+24. User permission and application authorization are different
+Reason about the implementation
+
+SAY
+Suppose a server stores two clients’ records in the same user-accessible heap. Hardware allows the server’s thread to read those bytes. That permission does not authorize sending one client’s record to another client. Page-table user permissions separate execution privilege domains; the application still enforces account and data-access policy. Conversely, a correct account check cannot make a supervisor-only mapping readable from user mode. These are different boundaries with different evidence. In a review, name the subject of each permission: processor privilege, process credentials, or authenticated application identity. Calling all three access control without distinction makes debugging and security reasoning imprecise.
+
+DO
+Require a concrete mapping, access, or state example before revealing the answer.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.010: 24.4 User-accessible bit
+
+------------------------------------------------------------
+
+25. Execute permission applies to instruction fetch
+Reason about the implementation
+
+SAY
+A page can hold bytes that are readable as data without being permitted as instructions. This distinction supports separating writable storage from executable code. Do not model every operation with one Boolean called allowed and then assume the same result applies to reads, writes, and execution. Instead identify the requested access and combine the relevant permissions. Our short lab intentionally models only reads and writes, so it does not prove an execution policy. If instruction fetch is added, give it an explicit access kind and tests. This makes the omission visible and prevents a future feature from silently inheriting the wrong permission meaning.
+
+DO
+Require a concrete mapping, access, or state example before revealing the answer.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.016: 24.7 Memory protection
+
+------------------------------------------------------------
+
+26. Changing the table does not erase cached translations
+Reason about the implementation
+
+SAY
+Suppose the kernel changes a mapping from writable to read-only. If a processor still uses a cached translation with the older writable permission, merely updating memory does not complete the intended revocation. The architecture supplies invalidation mechanisms, and the kernel coordinates them with relevant processors and mapping changes. This is why table updates require a protocol, not just a store to a struct field. Our models omit actual translation caches unless explicitly introduced. When interpreting their output, remember that a successful model lookup cannot verify real invalidation ordering. The next chapter adds cached translation state so this dependency becomes visible.
+
+DO
+Require a concrete mapping, access, or state example before revealing the answer.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.016: 24.7 Memory protection
+
+------------------------------------------------------------
+
+27. Run the complete chapter demonstration
+Code, diagrams, and debugging
+
+SAY
+A model page-table entry is present and readable but not writable. Test a read and a write against the same entry.
+
+Check presence. entry has backing in this model. Presence alone does not authorize every kind of access.
+
+Request a read. true. The read permission satisfies this access.
+
+Request a write. false. The access type requires a different permission. A real processor may raise a protection fault.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch24/main.cpp
+
+------------------------------------------------------------
+
+28. Trace the observed output
+Code, diagrams, and debugging
+
+SAY
+Check presence. entry has backing in this model. Presence alone does not authorize every kind of access.
+
+Request a read. true. The read permission satisfies this access.
+
+Request a write. false. The access type requires a different permission. A real processor may raise a protection fault.
+
+DO
+Before each step, predict the next state and observable text.
+Separate what the demonstration verifies from what depends on a real platform.
+
+SOURCE
+systems_examples/ch24/main.cpp
+
+------------------------------------------------------------
+
+29. From starting state to observable result
+Code, diagrams, and debugging
+
+SAY
+Solid arrows show the selected execution path through this example, not ownership or inheritance. Blocks contain exact C++ excerpts plus // teaching comments; intervening declarations are in the complete program. Branches and loops within a block keep their C++ meaning. The focused panel explains the same operation line by line.
+
+The entry groups flags that describe one mapping. Presence and permission answer different questions, so neither can replace the other. The pure allows function is easy to test and has no state changes. Architecture-specific user/supervisor and execute permissions are outside this limited model and would need explicit fields and checks.
+
+Pass the requested access type and check its matching permission after presence. Test the same entry with two different operations.
+
+DO
+Follow the arrow labels and name the state changed by each block.
+Match the C++ in the blocks to the complete chapter program.
+
+SOURCE
+systems_examples/ch24/main.cpp:1-13
+
+------------------------------------------------------------
+
+30. Check permissions as well as presence
+Code, diagrams, and debugging
+
+SAY
+Check permissions as well as presence. [&] captures surrounding local objects by reference. The lambda accepts a Boolean indicating whether the requested access is a write.
+
+A model page-table entry is present and readable but not writable. Test a read and a write against the same entry.
+
+Presence alone does not authorize every kind of access. The read permission satisfies this access. The access type requires a different permission. A real processor may raise a protection fault.
+
+[&] captures surrounding local objects by reference. The lambda accepts a Boolean indicating whether the requested access is a write.
+
+Presence alone is insufficient. && also requires the permission selected by write ? writable : readable. A read is allowed here; a write is denied.
+
+The callable is defined but has not yet checked an access. The calls below test both paths.
+
+An access requires both a present mapping and the permission appropriate to that access. Read permission does not imply write permission.
+
+A translation that returns a frame without checking access permissions can break isolation. In the extended lab: Return entry.present for every access. A present read-only mapping then accepts a write.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+systems_examples/ch24/main.cpp:8-10
+
+------------------------------------------------------------
+
+31. Failure diagnosis and repair
+Code, diagrams, and debugging
+
+SAY
+Return entry.present for every access. A present read-only mapping then accepts a write.
+
+Pass the requested access type and check its matching permission after presence. Test the same entry with two different operations.
+
+The reference solution makes the contract executable with assertions. The entry groups flags that describe one mapping. Presence and permission answer different questions, so neither can replace the other. The pure allows function is easy to test and has no state changes. Architecture-specific user/supervisor and execute permissions are outside this limited model and would need explicit fields and checks.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.06
+
+------------------------------------------------------------
+
+32. Exercise 1: Guided modification
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch24/starter.cpp. Implement the first acceptance case for make page permissions part of a lookup. State the function inputs and result before adding code. First case: A present read-only entry accepts reads and rejects writes.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.07
+
+------------------------------------------------------------
+
+33. Exercise 2: Trace and predict
+Practice and extension
+
+SAY
+Without running systems_examples/ch24/main.cpp, predict its exact output and explain the state after each step. Work from the complete demonstration in “Execution trace and checked output.”
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.08
+
+------------------------------------------------------------
+
+34. Exercise 3: Diagnose a bug
+Practice and extension
+
+SAY
+An implementation makes this mistake: Return entry.present for every access. A present read-only mapping then accepts a write. Explain the failure and repair it. Identify one check that would expose the mistake.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.09
+
+------------------------------------------------------------
+
+35. Exercise 4: Choose a design
+Practice and extension
+
+SAY
+Could a denied write be part of normal copy-on-write behavior? Compare the selected design with this plausible alternative: A flat table is easy to model; real multilevel tables reduce storage for sparse address spaces at the cost of more involved walks.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.10
+
+------------------------------------------------------------
+
+36. Exercise 5: Extend without breaking tests
+Practice and extension
+
+SAY
+Start independently from systems_labs/ch24/starter.cpp. Represent a page entry with present, readable, and writable flags. A read and write request must use the corresponding permission, and an absent page denies both. Preserve the starter’s behavior where the contract still applies, and add every acceptance check listed below. Compare your completed result with systems_labs/ch24/solution.cpp.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.11
+
+------------------------------------------------------------
+
+37. Exercise 6: Justify the boundary
+Practice and extension
+
+SAY
+In plain English, explain why the checks or synchronization in Make page permissions part of a lookup belong where the solution puts them. Name an assumption that would need a new test if it changed.
+
+This exercise is independent: use the named source file and the chapter discussion; you do not need a previous exercise’s edits.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.12
+
+------------------------------------------------------------
+
+38. Implement the extension and preserve the checks
+Practice and extension
+
+SAY
+Represent a page entry with present, readable, and writable flags. A read and write request must use the corresponding permission, and an absent page denies both.
+
+The C++ tab contains three separate complete files: the chapter example, a starter that preserves its initial behavior, and the reference solution. The starter is not a completed extension.
+
+DO
+Allow an independent attempt before opening the hint.
+Reveal the explanation and compare the proposed change with the acceptance checks.
+
+SOURCE
+systems_labs/ch24/starter.cpp
+
+------------------------------------------------------------
+
+39. Review the extension solution
+Practice and extension
+
+SAY
+The entry groups flags that describe one mapping. Presence and permission answer different questions, so neither can replace the other. The pure allows function is easy to test and has no state changes. Architecture-specific user/supervisor and execute permissions are outside this limited model and would need explicit fields and checks. Repair principle: Pass the requested access type and check its matching permission after presence. Test the same entry with two different operations.
+
+Build the complete demonstration and compare every output character. The separate lab solution includes assertions for its named acceptance checks.
+
+Pass the requested access type and check its matching permission after presence. Test the same entry with two different operations.
+
+DO
+Compare your result with the exact expected output.
+Review a boundary test and a failure path before accepting the design.
+
+SOURCE
+systems_labs/ch24/solution.cpp
+
+------------------------------------------------------------
+
+40. Application case: Page Tables
+Practice and extension
+
+SAY
+A page-table entry grants read access but denies writes.
+
+What should a store require?
+
+DO
+Ask students to choose an option and name the requirement that decides it.
+Reveal the rationale for each alternative after discussion.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.CASE
+
+------------------------------------------------------------
+
+41. Chapter summary and maintenance
+Recall and transfer
+
+SAY
+The entry groups flags that describe one mapping. Presence and permission answer different questions, so neither can replace the other. The pure allows function is easy to test and has no state changes. Architecture-specific user/supervisor and execute permissions are outside this limited model and would need explicit fields and checks.
+
+Choose a simpler approach when its narrower contract is enough. A flat table is easy to model; real multilevel tables reduce storage for sparse address spaces at the cost of more involved walks.
+
+When this system changes, retain a check that exposes the known failure: Return entry.present for every access. A present read-only mapping then accepts a write. Pass the requested access type and check its matching permission after presence. Test the same entry with two different operations.
+
+DO
+Ask learners to identify the state, operation, and guarantee named on this page.
+Use the source panel to inspect the complete original lesson and its exact wording.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.14
+
+------------------------------------------------------------
+
+42. Test denied cases as complete paths
+Recall and transfer
+
+SAY
+A useful protection test suite should not stop after one successful read. Try an absent entry whose other flags are true, a present read-only entry with a write request, and a user request through a supervisor-only path. In the two-level model, vary the parent and leaf separately. These cases expose an implementation that accidentally reads only one field or one level. The compiler can verify enum types and function signatures, but it cannot infer the intended permission algebra. State that algebra beside the tests so a maintenance change cannot replace AND with OR while still looking syntactically reasonable.
+
+DO
+Require a concrete mapping, access, or state example before revealing the answer.
+
+SOURCE
+content/systems-programming/ch24.json → SYS24.12: Exercise 6: Justify the boundary
+
+------------------------------------------------------------
+
+43. Describe a walk as a sequence of justified steps
+Recall and transfer
+
+SAY
+To explain a page-table walk, begin with the address model rather than a memorized number of levels. Extract the next index, inspect that entry, and determine whether it is present, a pointer to another level, or an allowed leaf. Carry applicable permission restrictions forward. At the end, combine the selected frame with the original offset only if the requested operation is permitted. An absent or restrictive step changes the result. This reasoning transfers from our two-level exercise to more complex architectures without pretending their encodings match. A strong explanation identifies what was checked, not merely that the walk eventually found a number.
+
+DO
+Require a concrete mapping, access, or state example before revealing the answer.
+
+SOURCE
+content/systems-programming/ch24.json → SP24.020: Worked example — Walking a two-level table

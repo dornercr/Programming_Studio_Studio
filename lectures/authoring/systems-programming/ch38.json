@@ -1,0 +1,222 @@
+{
+  "chapter": 38,
+  "title": "Program Execution — replacing an image without losing the contract",
+  "opening": [
+    {
+      "title": "Replace the program without creating another process",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "fork creates a process",
+        "exec replaces the calling process image",
+        "Successful replacement does not return to the old code"
+      ],
+      "narration": "A launcher often creates a child and then replaces what that child is running. Those are two operations. fork creates the child; exec installs a new program image in the calling process. On success, the same process identity continues with new code, data, and startup state, and the old call does not return. Think of replacing the work inside an existing process rather than calling another ordinary function. The parent remains available to supervise because it did not replace itself. A standalone program can also exec directly if it intends to become the new program and has no remaining old-image responsibilities.",
+      "actions": [
+        "Separate the creation step from the replacement step on the board."
+      ],
+      "sourceRef": "content/systems-programming/ch38.json → SP38.008 · 38.3 Program replacement",
+      "question": {
+        "prompt": "Does exec itself create a second process?",
+        "answer": "No. It replaces the calling process’s program image while preserving its process identity under the interface’s rules."
+      }
+    },
+    {
+      "title": "A successful replacement skips the fallback exit",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "code",
+      "keyPoints": [
+        "The child executes the explicit path /bin/true",
+        "Only failure reaches the child’s fallback _exit",
+        "The parent validates normal exit zero"
+      ],
+      "narration": "The child supplies an explicit executable path, a terminated argument vector, and a small controlled environment. If execve succeeds, the child runs /bin/true, which exits successfully. The following _exit with status ninety-one belongs only to the failure path. The parent waits for that specific child and prints that replacement succeeded only after verifying ordinary exit zero. This example assumes the reference Linux environment provides /bin/true; if it does not, the test fails rather than claiming success. The parent-only output is deterministic. It proves the controlled launch completed, without printing variable process IDs or pretending the old child code continued after successful replacement.",
+      "actions": [
+        "Predict which child statement is unreachable on success."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch38.json → SP38.006 · 38.2 execve",
+      "question": {
+        "prompt": "Why can the fallback _exit(91) remain directly after execve?",
+        "answer": "It runs only when execve returns failure; success replaces the image and never reaches that statement."
+      },
+      "code": {
+        "filename": "sys_ch38_baseline.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cerrno>\n#include <iostream>\n#include <sys/wait.h>\n#include <unistd.h>\nint main() {\n    const pid_t child = fork();\n    if (child < 0) return 1;\n    if (child == 0) {\n        char name[] = \"true\";\n        char locale[] = \"LC_ALL=C\";\n        char* args[]{name, nullptr};\n        char* environment[]{locale, nullptr};\n        execve(\"/bin/true\", args, environment);\n        _exit(91); // Reached only if replacement failed.\n    }\n    int status = 0; pid_t result;\n    do { result = waitpid(child, &status, 0); } while (result < 0 && errno == EINTR);\n    if (result != child || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return 1;\n    std::cout << \"replacement completed=true\\n\";\n    std::cout << \"fallback path reached=false\\n\";\n}\n",
+        "expectedStdout": "replacement completed=true\nfallback path reached=false\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    },
+    {
+      "title": "Argument boundaries are data, not shell punctuation",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Each argv element is one argument string",
+        "The pointer array ends with a null pointer",
+        "Spaces inside an element do not split it"
+      ],
+      "narration": "The argument vector for a tool with one filename containing a space should contain that filename as one string. execve does not ask a shell to split words or interpret redirection symbols. That makes direct argument passing easier to reason about than building a shell command string. It does not mean the target program treats every string as harmless data: a leading dash may still name an option according to that program's own rules. Keep the strings and the pointer array alive until the call completes, and include the final null pointer. A terminating zero byte inside each string is different from the null pointer ending the array.",
+      "actions": [
+        "Contrast the end of a C string with the end of the argv pointer array."
+      ],
+      "sourceRef": "content/systems-programming/ch38.json → SP38.010 · 38.4 Arguments",
+      "question": {
+        "prompt": "Does one argv element containing two words become two arguments automatically?",
+        "answer": "No. It stays one argument; execve performs no shell word splitting."
+      }
+    },
+    {
+      "title": "Replacement failure returns to the existing program",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "code",
+      "keyPoints": [
+        "An empty executable path fails on the stated platform",
+        "errno is captured immediately",
+        "Old code continues and must choose a safe next action"
+      ],
+      "narration": "This program deliberately requests an empty executable path. On the stated Linux/POSIX environment it fails with ENOENT, and execve returns minus one. The next statements therefore run in the old program and print that failure occurred and old code continues. We save errno immediately, before output or cleanup could alter it. No child is needed to demonstrate this return contract, and no external executable is launched by the failing call. In an exec-bound child, the same return would need a short diagnostic and an intentional termination path. Falling through into the parent's usual command loop would create behavior the launcher never intended.",
+      "actions": [
+        "Predict both true values and explain which control path makes them possible."
+      ],
+      "sourceRef": "Lecture demonstration for content/systems-programming/ch38.json → SP38.006 · 38.2 execve",
+      "question": {
+        "prompt": "Why must failure handling remain after execve even though success never returns?",
+        "answer": "Failure does return in the original image, so the program must handle the error and choose whether to stop or recover."
+      },
+      "code": {
+        "filename": "sys_ch38_failure_return.cpp",
+        "language": "cpp",
+        "runAllowed": true,
+        "text": "#include <cerrno>\n#include <iostream>\n#include <unistd.h>\nint main() {\n    char name[] = \"unused\";\n    char* args[]{name, nullptr};\n    char* environment[]{nullptr};\n    const int result = execve(\"\", args, environment);\n    const int saved_error = errno;\n    if (result != -1 || saved_error != ENOENT) return 1;\n    std::cout << \"exec failed=true\\n\";\n    std::cout << \"old code continues=true\\n\";\n}\n",
+        "expectedStdout": "exec failed=true\nold code continues=true\n",
+        "expectedStderr": "",
+        "expectedExitCode": 0,
+        "expectedPhase": "run",
+        "platform": "Linux/POSIX"
+      }
+    }
+  ],
+  "mechanism": [
+    {
+      "title": "The environment is an input to execution",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "NAME=value entries can alter program behavior",
+        "Inherited variables may be surprising or untrusted",
+        "A controlled launcher chooses what to retain"
+      ],
+      "narration": "Two launches of the same binary can behave differently because of locale, configuration, search paths, or other environment inputs. Passing every inherited variable is convenient but gives the launching context influence over the new program. A controlled tool can construct a small environment explicitly, as the success demo does with LC_ALL. That choice may also remove variables the target genuinely needs, so it belongs in the launcher contract rather than an unexplained cleanup step. Environment strings and their pointer array need valid storage until execve completes. Do not assume data is trusted merely because it came from a parent process; identify who controlled that parent's environment.",
+      "actions": [
+        "Name one behavior affected by locale or search-path settings."
+      ],
+      "sourceRef": "content/systems-programming/ch38.json → SP38.012 · 38.5 Environment",
+      "question": {
+        "prompt": "What risk does an uncontrolled inherited environment add?",
+        "answer": "It can change target or library behavior through settings whose origin and trust have not been reviewed."
+      }
+    },
+    {
+      "title": "Executable selection deserves an explicit policy",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Some exec variants search a path",
+        "execve uses the supplied pathname",
+        "A fixed path still relies on filesystem permissions and identity"
+      ],
+      "narration": "An exec variant that searches a path can find a different executable when the path changes. That may be desirable for an interactive shell but inappropriate for a tightly controlled launcher. execve lets the caller state a pathname and environment explicitly. This narrows the selection problem without making filesystem identity irrelevant: permissions and mutable namespace entries still matter. Choose the interface from the intended trust and deployment model rather than from the shortest function name. Direct arguments avoid shell interpretation, while executable selection and target-option validation remain separate responsibilities. Security comes from those concrete boundaries, not from treating any one exec spelling as universally safe.",
+      "actions": [
+        "Separate shell interpretation from choosing the intended executable."
+      ],
+      "sourceRef": "content/systems-programming/ch38.json → SP38.004 · 38.1 exec",
+      "question": {
+        "prompt": "Does avoiding the shell eliminate all execution-selection risks?",
+        "answer": "No. Executable path identity, permissions, environment, and the target’s own option semantics still need policy."
+      }
+    },
+    {
+      "title": "Selected descriptors survive image replacement",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Inherited standard streams enable redirection",
+        "Unwanted descriptors can leak access",
+        "Close-on-exec controls release during replacement"
+      ],
+      "narration": "A new program usually inherits open descriptors that were not marked close-on-exec or otherwise affected by the interface rules. This is useful: a shell can connect standard output to a file before exec, and the replacement program writes normally. It is also a possible access leak. A sensitive file or an extra pipe writer left open can reach code that never requested it, and the pipe writer can keep another process waiting for EOF. Review the intended descriptor set before replacement. The old C++ objects disappear on successful exec, so their destructors are not a reliable plan for closing unwanted inherited descriptors afterward.",
+      "actions": [
+        "List the descriptors the new program should receive and reject extras."
+      ],
+      "sourceRef": "content/systems-programming/ch38.json → SP38.008 · 38.3 Program replacement",
+      "question": {
+        "prompt": "Why cannot a C++ destructor after successful exec close an unintended inherited descriptor?",
+        "answer": "The old program image is replaced and its normal continuation/destructors do not run there."
+      }
+    },
+    {
+      "title": "Signal state also crosses a documented boundary",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Caught dispositions are reset in the ordinary case",
+        "The signal mask is preserved",
+        "Setup-time blocking must not accidentally persist"
+      ],
+      "narration": "Replacing code does not reset every process attribute in the same way. In the ordinary case, caught signal dispositions are reset, while the signal mask remains. A launcher that temporarily blocked signals during setup can therefore start a program with those signals still blocked unless it restores the intended mask first. The new program may then appear unresponsive to events it expects. This is another reason to view exec as a defined state transition rather than a vague fresh start. Keep a checklist of the specific state the launch policy intends to preserve, replace, or clear, and test the externally visible behavior of that policy.",
+      "actions": [
+        "Contrast the two signal-state categories without treating them as one setting."
+      ],
+      "sourceRef": "content/systems-programming/ch38.json → SP38.014 · 38.6 Process images",
+      "question": {
+        "prompt": "Why can a program start with signals blocked even after its old handlers are gone?",
+        "answer": "Signal mask and dispositions have different exec rules; the mask is preserved."
+      }
+    }
+  ],
+  "closing": [
+    {
+      "title": "Launch failure is part of the program’s result",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Report setup failure before pretending the target ran",
+        "Keep child failure handling small and intentional",
+        "The parent decodes the actual termination category"
+      ],
+      "narration": "A launcher has at least two sources of failure: preparing the child's resources and replacing its image. If opening a redirected output fails, executing the target anyway with the old destination may violate the user's request. If exec returns, the child must not drift into unrelated parent logic. A minimal failure path preserves the relevant error, reports it through an intended channel, and exits with a documented result. The parent then distinguishes normal exit from signal termination before interpreting the status. Tests should include a known successful target and a guaranteed failure path, because only the first misses the most dangerous continuation mistake.",
+      "actions": [
+        "Ask learners to trace a failure before the replacement and one at the replacement."
+      ],
+      "sourceRef": "content/systems-programming/ch38.json → SP38.006 · 38.2 execve",
+      "question": {
+        "prompt": "Why is a success-only launcher test incomplete?",
+        "answer": "It never exercises the old-image continuation after exec failure, where accidental fallthrough and incorrect cleanup occur."
+      }
+    },
+    {
+      "title": "Recall identity, image, inputs, and inherited state",
+      "eyebrow": "SYSTEMS 38 / PROGRAM REPLACEMENT",
+      "kind": "concept",
+      "keyPoints": [
+        "Process identity remains while the image changes",
+        "Arguments and environment define startup inputs",
+        "Descriptors and selected attributes cross the boundary"
+      ],
+      "narration": "To explain exec clearly, name what stays and what changes. The calling process retains its identity, while its old program image is replaced. Arguments and environment supply explicit inputs to the new startup. Selected process state, including intended descriptors and the signal mask, follows documented inheritance rules. A successful call never returns, while a failed call returns into old code that still needs a plan. The two runnable demonstrations make that contrast visible without relying on unstable process IDs. These ideas let a launcher remain predictable as it grows from one harmless target to redirection, pipelines, and supervised child programs.",
+      "actions": [
+        "Explain the success and failure demos using those four facts."
+      ],
+      "sourceRef": "content/systems-programming/ch38.json → SP38.018 · Worked example — Exec does not create a second process",
+      "question": {
+        "prompt": "What four facts would you state when reviewing an exec call?",
+        "answer": "The intended executable, argument/environment boundaries, inherited process state, and the failure continuation."
+      }
+    }
+  ]
+}
