@@ -12,6 +12,12 @@ await import('./build-design-patterns-slides.mjs');
 await import('./build-systems-slides.mjs');
 
 await import('./build-systems-discussion-aids.mjs');
+
+await import('./build-design-patterns-discussion-aids.mjs');
+
+await import('./build-book1-discussion-aids.mjs');
+
+await import('./build-book2-discussion-aids.mjs');
 const entries=JSON.parse(await fs.readFile('lectures/manifest.json','utf8'));
 for(const e of entries)if(!/^lectures\/[a-z0-9-]+\/ch-?\d+\.json$/.test(e.path))throw Error('Invalid lecture shard path');
 const renderer=(await fs.readFile('src/slides.js','utf8')).replace('/*__SLIDES_CATALOG__*/[]',()=>JSON.stringify(entries));

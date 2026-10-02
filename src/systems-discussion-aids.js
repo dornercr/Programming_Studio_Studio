@@ -25,15 +25,47 @@
   document.addEventListener('click', event => {
     const zoom = event.target.closest('[data-action="systems-aid-zoom"]');
     if (zoom) {
-      const img = zoom.closest('.systems-discussion-aid').querySelector('.systems-aid-figure img');
-      const enlarged = img.classList.toggle('expanded');
-      zoom.setAttribute('aria-pressed', String(enlarged));
-      zoom.textContent = enlarged ? 'Normal diagram size' : 'Enlarge diagram';
+      const source = zoom.closest('.systems-discussion-aid').querySelector('.systems-aid-figure img');
+      let viewer = document.querySelector('.systems-aid-viewer');
+      if (!viewer) {
+        viewer = document.createElement('dialog');
+        viewer.className = 'systems-aid-viewer';
+        viewer.setAttribute('aria-label', 'Full-screen diagram viewer');
+        const frame = document.createElement('div');
+        frame.className = 'systems-aid-viewer-frame';
+        const header = document.createElement('div');
+        header.className = 'systems-aid-viewer-header';
+        const title = document.createElement('h2');
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'slides-btn';
+        close.dataset.action = 'systems-aid-viewer-close';
+        close.textContent = 'Close';
+        header.append(title, close);
+        const image = document.createElement('img');
+        image.className = 'systems-aid-viewer-image';
+        frame.append(header, image);
+        viewer.append(frame);
+        document.body.append(viewer);
+      }
+      viewer.querySelector('h2').textContent = source.alt;
+      const image = viewer.querySelector('.systems-aid-viewer-image');
+      image.src = source.currentSrc || source.src;
+      image.alt = source.alt;
+      if (!viewer.open) viewer.showModal();
+      return;
+    }
+    const close = event.target.closest('[data-action="systems-aid-viewer-close"]');
+    if (close) {
+      close.closest('.systems-aid-viewer')?.close();
       return;
     }
     const button = event.target.closest('[data-action="systems-aid-example"]');
     if (!button || state.mode !== 'slides') return;
     const index = slidesDeck()?.slides.findIndex(s => s.id === button.dataset.slideId);
     if (index >= 0) slidesGo(index);
+  });
+  document.addEventListener('click', event => {
+    if (event.target.matches('.systems-aid-viewer')) event.target.close();
   });
   // END SYSTEMS DISCUSSION AIDS

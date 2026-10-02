@@ -13,6 +13,11 @@ diagram nodes; pages without a specific match explicitly label the figure as
 chapter context. A shared chapter example is not presented as a new independent
 program for every topic.
 
+**Enlarge diagram** opens a full-screen viewer. The complete image uses
+`object-fit: contain` within the current viewport, so wide or tall diagrams stay
+visible without panning inside the discussion pane. Close it with the button,
+Escape, or a click on the dark backdrop.
+
 The diagrams are new explanatory models, not screenshots of the original
 presentations or measurements of real hardware. For example, page translation,
 cache indexing, signal coalescing, pointer bounds, process states, and concurrent

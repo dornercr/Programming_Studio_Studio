@@ -177,7 +177,7 @@
         <div class="sidebar-bottom" id="sidebar-progress"></div>
       </aside>
       <main class="app-main"><div class="main-inner">
-        <header class="topline"><div class="flex items-center gap-2"><button class="icon-button mobile-only" data-action="open-menu" aria-label="Open curriculum and topics">${icon('menu')}</button><span class="desktop-breadcrumb">My workspace <span class="mx-2 text-line">/</span></span><span class="text-muted" id="breadcrumb-course">Study room</span></div><div class="flex items-center gap-3 top-actions"><span id="save-status" class="local-indicator"></span><button class="icon-button" data-action="sources" aria-label="Sources and content notes" title="Sources and content notes">${icon('source')}</button><button class="icon-button" data-action="settings" aria-label="Backup, import, and settings" title="Backup, import, and settings">${icon('settings')}</button></div></header>
+        <header class="topline"><div class="flex items-center gap-2"><button class="icon-button sidebar-menu-toggle" data-action="open-menu" aria-controls="sidebar" aria-expanded="true" aria-label="Open curriculum and topics">${icon('menu')}</button><span class="desktop-breadcrumb">My workspace <span class="mx-2 text-line">/</span></span><span class="text-muted" id="breadcrumb-course">Study room</span></div><div class="flex items-center gap-3 top-actions"><span id="save-status" class="local-indicator"></span><button class="icon-button" data-action="sources" aria-label="Sources and content notes" title="Sources and content notes">${icon('source')}</button><button class="icon-button" data-action="settings" aria-label="Backup, import, and settings" title="Backup, import, and settings">${icon('settings')}</button></div></header>
         <div id="storage-warning"></div>
         <section class="mb-6"><div class="flex items-center gap-2 mb-3"><span class="pill bg-brand-soft text-brand">YOUR STUDY SPACE</span><span class="text-[10px] text-muted" id="course-domain-count"></span></div><h1 class="course-title text-[34px] font-bold tracking-tight leading-tight mb-2">Make it make sense.</h1><p class="text-[13px] text-muted leading-relaxed" id="course-description">Read it. Recall it. Put it into practice.</p></section>
         <div class="grid gap-3 mb-6 mode-tabs" id="mode-tabs" role="group" aria-label="Choose study material"></div>
@@ -250,7 +250,37 @@
     const s=stats(),t=totals();
     $('#sidebar-progress').innerHTML=`<div class="flex items-center justify-between mb-2"><span class="text-[11px] font-semibold text-ink">Your progress</span><span class="text-[11px] font-semibold text-brand">${fraction(s.reviewed,t.topics)}%</span></div><div class="progress-track" role="progressbar" aria-label="Topics reviewed" aria-valuenow="${s.reviewed}" aria-valuemin="0" aria-valuemax="${Math.max(t.topics,1)}"><div class="progress-fill" style="width:${fraction(s.reviewed,t.topics)}%"></div></div><div class="flex items-center justify-between mt-2"><span class="text-[10px] text-muted">${s.reviewed} of ${t.topics} topics reviewed</span><span class="text-muted icon-sm" title="Stored in this browser">${icon('lock')}</span></div>`;
   }
-  function renderDrawer() {$('#sidebar').classList.toggle('open',state.sidebarOpen);$('#drawer-overlay').classList.toggle('show',state.sidebarOpen);}
+  // BEGIN DESKTOP SIDEBAR TOGGLE
+  function studioDesktopSidebarCollapsed() {
+    if(typeof studioDesktopSidebarCollapsed.value!=='boolean'){
+      try{studioDesktopSidebarCollapsed.value=localStorage.getItem('study-studio:desktop-sidebar-collapsed')==='1';}
+      catch{studioDesktopSidebarCollapsed.value=false;}
+    }
+    return studioDesktopSidebarCollapsed.value;
+  }
+  function studioDesktopSidebarSetCollapsed(value) {
+    studioDesktopSidebarCollapsed.value=Boolean(value);
+    try{localStorage.setItem('study-studio:desktop-sidebar-collapsed',value?'1':'0');}catch{}
+  }
+  function studioDesktopSidebarSync() {
+    const desktop=matchMedia('(min-width:801px)').matches;
+    const collapsed=desktop&&studioDesktopSidebarCollapsed();
+    const sidebar=$('#sidebar'),button=$('[data-action="open-menu"]');
+    if(!sidebar||!button)return;
+    if(collapsed&&sidebar.contains(document.activeElement))button.focus();
+    document.body.classList.toggle('desktop-sidebar-collapsed',collapsed);
+    sidebar.hidden=collapsed;
+    sidebar.inert=collapsed;
+    button.setAttribute('aria-controls','sidebar');
+    button.setAttribute('aria-expanded',String(desktop?!collapsed:state.sidebarOpen));
+    const label=desktop?(collapsed?'Show sidebar':'Hide sidebar'):'Open curriculum and topics';
+    button.setAttribute('aria-label',label);
+    button.title=label;
+  }
+  window.addEventListener('resize',()=>renderDrawer());
+  // END DESKTOP SIDEBAR TOGGLE
+
+  function renderDrawer() {$('#sidebar').classList.toggle('open',state.sidebarOpen);$('#drawer-overlay').classList.toggle('show',state.sidebarOpen);studioDesktopSidebarSync();}
   function bookmarkButton(t) {const saved=progress().bookmarks.includes(t.id);return `<button class="icon-button ${saved?'active':''}" data-action="bookmark" aria-label="${saved?'Remove bookmark':'Bookmark this topic'}" aria-pressed="${saved}" title="${saved?'Remove bookmark':'Bookmark topic'}">${icon('star')}</button>`;}
   function topicBadge(t) {if(isBook())return bookTopicBadge(t);return `<span class="pill bg-brand-soft text-brand">DOMAIN ${escape(t.domain)}</span><span class="text-[10px] text-muted">${escape(t.id)}</span>`;}
   function renderWorkspace() {
@@ -486,7 +516,7 @@
     switch(action){
       case 'retry-load':renderAll();break;
       case 'personal-material':openBookDropdown('my-material','resume');break;
-      case 'open-menu':state.sidebarOpen=true;renderDrawer();break;
+      case 'open-menu':if(matchMedia('(min-width:801px)').matches)studioDesktopSidebarSetCollapsed(!studioDesktopSidebarCollapsed());else state.sidebarOpen=true;renderDrawer();break;
       case 'close-menu':state.sidebarOpen=false;renderDrawer();break;
       case 'mode':switchMode(el.dataset.mode);break;
       case 'topic':chooseTopic(el.dataset.id);break;
@@ -532,7 +562,7 @@
     if(interactive)return;
     if(state.mode==='slides'&&event.target.id==='slides-splitter')return;
     const key=event.key.toLowerCase();
-    if(key==='/'){event.preventDefault();if(innerWidth<=800){state.sidebarOpen=true;renderDrawer();}$('#topic-search').focus();}
+    if(key==='/'){event.preventDefault();if(innerWidth>800&&studioDesktopSidebarCollapsed()){studioDesktopSidebarSetCollapsed(false);renderDrawer();}if(innerWidth<=800){state.sidebarOpen=true;renderDrawer();}$('#topic-search').focus();}
     else if(key==='arrowleft'){event.preventDefault();navigate(-1);}
     else if(key==='arrowright'){event.preventDefault();navigate(1);}
     else if(['o','f','s'].includes(key)){event.preventDefault();switchMode({o:'outline',f:'flashcards',s:'scenarios'}[key]);}

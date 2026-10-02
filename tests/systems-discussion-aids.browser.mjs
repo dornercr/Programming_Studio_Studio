@@ -46,9 +46,23 @@ try {
     const first = [...samples.values()][0];
     await go(chapter, first);
     await page.locator('[data-action="systems-aid-zoom"]').click();
-    assert.equal(await page.locator('.systems-aid-figure img.expanded').count(),1);
+    const viewer = page.locator('.systems-aid-viewer');
+    await viewer.waitFor({state:'visible'});
+    const fit = await page.locator('.systems-aid-viewer-image').evaluate(img => {
+      const rect = img.getBoundingClientRect();
+      return {width:rect.width,height:rect.height,viewportWidth:innerWidth,viewportHeight:innerHeight,
+        naturalWidth:img.naturalWidth,naturalHeight:img.naturalHeight,objectFit:getComputedStyle(img).objectFit};
+    });
+    assert.ok(fit.width <= fit.viewportWidth && fit.height <= fit.viewportHeight, `Diagram must fit viewport: chapter ${chapter}`);
+    assert.equal(fit.objectFit,'contain');
+    assert.ok(fit.naturalWidth > 0 && fit.naturalHeight > 0);
     await bounded(`Zoom overflow: chapter ${chapter}`);
-    await page.locator('[data-action="systems-aid-zoom"]').click();
+    if (chapter % 2) {
+      await page.keyboard.press('Escape');
+    } else {
+      await viewer.locator('[data-action="systems-aid-viewer-close"]').click();
+    }
+    await viewer.waitFor({state:'hidden'});
     for (const index of samples.values()) {
       await page.locator('#slides-jump').selectOption(String(index));
       await imageReady();

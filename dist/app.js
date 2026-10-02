@@ -177,7 +177,7 @@
         <div class="sidebar-bottom" id="sidebar-progress"></div>
       </aside>
       <main class="app-main"><div class="main-inner">
-        <header class="topline"><div class="flex items-center gap-2"><button class="icon-button mobile-only" data-action="open-menu" aria-label="Open curriculum and topics">${icon('menu')}</button><span class="desktop-breadcrumb">My workspace <span class="mx-2 text-line">/</span></span><span class="text-muted" id="breadcrumb-course">Study room</span></div><div class="flex items-center gap-3 top-actions"><span id="save-status" class="local-indicator"></span><button class="icon-button" data-action="sources" aria-label="Sources and content notes" title="Sources and content notes">${icon('source')}</button><button class="icon-button" data-action="settings" aria-label="Backup, import, and settings" title="Backup, import, and settings">${icon('settings')}</button></div></header>
+        <header class="topline"><div class="flex items-center gap-2"><button class="icon-button sidebar-menu-toggle" data-action="open-menu" aria-controls="sidebar" aria-expanded="true" aria-label="Open curriculum and topics">${icon('menu')}</button><span class="desktop-breadcrumb">My workspace <span class="mx-2 text-line">/</span></span><span class="text-muted" id="breadcrumb-course">Study room</span></div><div class="flex items-center gap-3 top-actions"><span id="save-status" class="local-indicator"></span><button class="icon-button" data-action="sources" aria-label="Sources and content notes" title="Sources and content notes">${icon('source')}</button><button class="icon-button" data-action="settings" aria-label="Backup, import, and settings" title="Backup, import, and settings">${icon('settings')}</button></div></header>
         <div id="storage-warning"></div>
         <section class="mb-6"><div class="flex items-center gap-2 mb-3"><span class="pill bg-brand-soft text-brand">YOUR STUDY SPACE</span><span class="text-[10px] text-muted" id="course-domain-count"></span></div><h1 class="course-title text-[34px] font-bold tracking-tight leading-tight mb-2">Make it make sense.</h1><p class="text-[13px] text-muted leading-relaxed" id="course-description">Read it. Recall it. Put it into practice.</p></section>
         <div class="grid gap-3 mb-6 mode-tabs" id="mode-tabs" role="group" aria-label="Choose study material"></div>
@@ -250,7 +250,37 @@
     const s=stats(),t=totals();
     $('#sidebar-progress').innerHTML=`<div class="flex items-center justify-between mb-2"><span class="text-[11px] font-semibold text-ink">Your progress</span><span class="text-[11px] font-semibold text-brand">${fraction(s.reviewed,t.topics)}%</span></div><div class="progress-track" role="progressbar" aria-label="Topics reviewed" aria-valuenow="${s.reviewed}" aria-valuemin="0" aria-valuemax="${Math.max(t.topics,1)}"><div class="progress-fill" style="width:${fraction(s.reviewed,t.topics)}%"></div></div><div class="flex items-center justify-between mt-2"><span class="text-[10px] text-muted">${s.reviewed} of ${t.topics} topics reviewed</span><span class="text-muted icon-sm" title="Stored in this browser">${icon('lock')}</span></div>`;
   }
-  function renderDrawer() {$('#sidebar').classList.toggle('open',state.sidebarOpen);$('#drawer-overlay').classList.toggle('show',state.sidebarOpen);}
+  // BEGIN DESKTOP SIDEBAR TOGGLE
+  function studioDesktopSidebarCollapsed() {
+    if(typeof studioDesktopSidebarCollapsed.value!=='boolean'){
+      try{studioDesktopSidebarCollapsed.value=localStorage.getItem('study-studio:desktop-sidebar-collapsed')==='1';}
+      catch{studioDesktopSidebarCollapsed.value=false;}
+    }
+    return studioDesktopSidebarCollapsed.value;
+  }
+  function studioDesktopSidebarSetCollapsed(value) {
+    studioDesktopSidebarCollapsed.value=Boolean(value);
+    try{localStorage.setItem('study-studio:desktop-sidebar-collapsed',value?'1':'0');}catch{}
+  }
+  function studioDesktopSidebarSync() {
+    const desktop=matchMedia('(min-width:801px)').matches;
+    const collapsed=desktop&&studioDesktopSidebarCollapsed();
+    const sidebar=$('#sidebar'),button=$('[data-action="open-menu"]');
+    if(!sidebar||!button)return;
+    if(collapsed&&sidebar.contains(document.activeElement))button.focus();
+    document.body.classList.toggle('desktop-sidebar-collapsed',collapsed);
+    sidebar.hidden=collapsed;
+    sidebar.inert=collapsed;
+    button.setAttribute('aria-controls','sidebar');
+    button.setAttribute('aria-expanded',String(desktop?!collapsed:state.sidebarOpen));
+    const label=desktop?(collapsed?'Show sidebar':'Hide sidebar'):'Open curriculum and topics';
+    button.setAttribute('aria-label',label);
+    button.title=label;
+  }
+  window.addEventListener('resize',()=>renderDrawer());
+  // END DESKTOP SIDEBAR TOGGLE
+
+  function renderDrawer() {$('#sidebar').classList.toggle('open',state.sidebarOpen);$('#drawer-overlay').classList.toggle('show',state.sidebarOpen);studioDesktopSidebarSync();}
   function bookmarkButton(t) {const saved=progress().bookmarks.includes(t.id);return `<button class="icon-button ${saved?'active':''}" data-action="bookmark" aria-label="${saved?'Remove bookmark':'Bookmark this topic'}" aria-pressed="${saved}" title="${saved?'Remove bookmark':'Bookmark topic'}">${icon('star')}</button>`;}
   function topicBadge(t) {if(isBook())return bookTopicBadge(t);return `<span class="pill bg-brand-soft text-brand">DOMAIN ${escape(t.domain)}</span><span class="text-[10px] text-muted">${escape(t.id)}</span>`;}
   function renderWorkspace() {
@@ -486,7 +516,7 @@
     switch(action){
       case 'retry-load':renderAll();break;
       case 'personal-material':openBookDropdown('my-material','resume');break;
-      case 'open-menu':state.sidebarOpen=true;renderDrawer();break;
+      case 'open-menu':if(matchMedia('(min-width:801px)').matches)studioDesktopSidebarSetCollapsed(!studioDesktopSidebarCollapsed());else state.sidebarOpen=true;renderDrawer();break;
       case 'close-menu':state.sidebarOpen=false;renderDrawer();break;
       case 'mode':switchMode(el.dataset.mode);break;
       case 'topic':chooseTopic(el.dataset.id);break;
@@ -532,7 +562,7 @@
     if(interactive)return;
     if(state.mode==='slides'&&event.target.id==='slides-splitter')return;
     const key=event.key.toLowerCase();
-    if(key==='/'){event.preventDefault();if(innerWidth<=800){state.sidebarOpen=true;renderDrawer();}$('#topic-search').focus();}
+    if(key==='/'){event.preventDefault();if(innerWidth>800&&studioDesktopSidebarCollapsed()){studioDesktopSidebarSetCollapsed(false);renderDrawer();}if(innerWidth<=800){state.sidebarOpen=true;renderDrawer();}$('#topic-search').focus();}
     else if(key==='arrowleft'){event.preventDefault();navigate(-1);}
     else if(key==='arrowright'){event.preventDefault();navigate(1);}
     else if(['o','f','s'].includes(key)){event.preventDefault();switchMode({o:'outline',f:'flashcards',s:'scenarios'}[key]);}
@@ -1092,7 +1122,7 @@ function labCheckWorkedResult(result, check) {
   function slidesDeck(){return slideDecks.get(slidesKey());}
   function slidesIndex(){const n=Number(slidesState().index);return Number.isInteger(n)?Math.max(0,Math.min(n,(slidesDeck()?.slides.length||1)-1)):0;}
   function slidesCurrent(){return slidesDeck()?.slides[slidesIndex()];}
-  function slidesDraft(){const s=slidesCurrent();if(!s?.code)return null;const drafts=slidesState().drafts;if(!isObject(drafts[s.id]))drafts[s.id]={};const d=drafts[s.id];if(typeof d.code!=='string')d.code=s.code.text;if(typeof d.input!=='string')d.input='';if(!['c++17','c++20'].includes(d.standard))d.standard='c++20';d.code=d.code.slice(0,60000);d.input=d.input.slice(0,20000);return d;}
+  function slidesDraft(){const s=slidesCurrent();if(!s?.code)return null;const drafts=slidesState().drafts;if(!isObject(drafts[s.id]))drafts[s.id]={};const d=drafts[s.id];if(typeof d.code!=='string')d.code=s.code.text;if(typeof d.input!=='string'&&s.id.startsWith('b02-discussion-program-'))d.input=s.code.input||'';if(typeof d.input!=='string')d.input=s.id.startsWith('b01-discussion-program-')?(s.code.input||''):'';if(!['c++17','c++20'].includes(d.standard))d.standard='c++20';d.code=d.code.slice(0,60000);d.input=d.input.slice(0,20000);return d;}
   function slidesSession(){const key=slidesKey()+'/'+slidesCurrent()?.id;if(!slideSessions.has(key))slideSessions.set(key,{message:'Ready. Predict the result before running.',result:null,code:null,undo:null});return slideSessions.get(key);}
   async function ensureSlides(){const entry=slidesEntry();if(!entry||slideDecks.has(slidesKey()))return;const inline=document.getElementById('study-slides');const data=inline?parseJSON(inline.textContent)[entry.path]:await Library.json(entry.path);if(!data||data.courseId!==state.courseId||String(data.chapter)!==String(topic()?.chapter)||!Array.isArray(data.slides)||!data.slides.length)throw Error('The lecture file is missing or invalid.');slideDecks.set(entry.courseId+'/'+entry.chapter,data);}
   function slidesStop(message='Stopped waiting. The submitted run may still finish remotely.'){
@@ -1109,7 +1139,7 @@ function labCheckWorkedResult(result, check) {
     const bundle=course().diagrams?.[String(s.diagram.chapter)];if(!bundle)return '<p class="slides-network">The chapter diagram could not be found.</p>';
     if(s.diagram.view==='focus'){const f=bundle.focus[s.diagram.index];return `<div class="slides-focus-block"><span class="slides-eyebrow">IMPLEMENTATION BLOCK</span><h3>${escape(f.title)}</h3>${slidesExcerpt({text:f.code,filename:'companion/'+f.file,lineStart:f.lineStart,lineEnd:f.lineEnd,explain:f.explain})}</div>`;}
     const d=s.diagram.view==='extra'?bundle.extra_overviews[s.diagram.index]:bundle.overview;
-    return `<span class="slides-eyebrow">${escape(d.kind)} DIAGRAM</span><h3>${escape(d.title)}</h3><p class="slides-network">Scroll horizontally to follow the full diagram at readable text size.</p><div class="slides-diagram-scroll"><img class="slides-diagram" src="${safeImage(d.image)}" alt="${escape(d.title+'. '+d.explanation)}"></div><p class="slides-diagram-caption">${escape(d.explanation)}</p><button class="slides-btn" data-action="slides-diagram">Enlarge diagram</button><p class="slides-network">Code comments and theory captions are teaching annotations. The caption explains the actual relationship arrows.</p>`;
+    return `<span class="slides-eyebrow">${escape(d.kind)} DIAGRAM</span><h3>${escape(d.title)}</h3>${['cpp-book-01','cpp-book-02'].includes(slidesDeck()?.courseId)?'':'<p class="slides-network">Scroll horizontally to follow the full diagram at readable text size.</p>'}<div class="slides-diagram-scroll"><img class="slides-diagram" src="${safeImage(d.image)}" alt="${escape(d.title+'. '+d.explanation)}"></div><p class="slides-diagram-caption">${escape(d.explanation)}</p><button class="slides-btn" data-action="slides-diagram">Enlarge diagram</button><p class="slides-network">Code comments and theory captions are teaching annotations. The caption explains the actual relationship arrows.</p>`;
   }
   function slidesSourceArchive(s){
     if(!s.sourceLessons?.length)return '';
@@ -1118,13 +1148,20 @@ function labCheckWorkedResult(result, check) {
   }
   function slidesStageHTML(s){
     const choices=(s.stages||[]);const selected=Math.max(0,Math.min(Number(slidesState().stage)||0,choices.length-1));
-    return `<span class="slides-eyebrow">${escape(s.eyebrow||slidesDeck()?.courseTitle||'Chapter lecture')}</span><h2 class="${s.kind==='cover'?'slides-cover-title':'slides-title'}" id="slides-title" tabindex="-1">${escape(s.title)}</h2>${s.kind==='cover'?`<p class="slides-lead">${escape(slidesDeck()?.courseTitle||'C++ Foundations')}<br>${escape(slidesDeck()?.author||'Dr. Charles Dorner')}</p>`:''}<ul class="slides-points">${(s.keyPoints||[]).map(x=>`<li>${escape(x)}</li>`).join('')}</ul>${s.comparisons?`<div class="slides-comparisons">${s.comparisons.map(x=>`<div><strong>${escape(x.label)}</strong><p>${escape(x.text)}</p></div>`).join('')}</div>`:''}${choices.length?`<div class="slides-stages" aria-label="Build stages">${choices.map((x,i)=>`<button class="slides-btn" data-action="slides-stage" data-index="${i}" aria-pressed="${i===selected}">${i+1}. ${escape(x.label)}</button>`).join('')}</div>${s.code?slidesInlineStage(choices[selected]):''}`:''}${(s.checks||[]).map(x=>slidesQuestion(x,'slides-check')).join('')}${s.hint?`<details class="slides-check"><summary>Hint</summary><p>${escape(s.hint)}</p></details>`:''}${s.scenario?`<ol class="slides-options">${s.scenario.options.map(o=>`<li>${escape(o)}</li>`).join('')}</ol><details class="slides-check"><summary>Discuss every alternative</summary>${s.scenario.options.map((o,i)=>`<p><strong>${escape(o)}</strong><br>${escape(s.scenario.rationales[i])}</p>`).join('')}</details>`:''}${slidesQuestion(s.question)}${s.excerpt?slidesExcerpt(s.excerpt):''}${(s.excerpts||[]).map(slidesExcerpt).join('')}${slidesTheory(s)}`;
+    return `<span class="slides-eyebrow">${escape(s.eyebrow||slidesDeck()?.courseTitle||'Chapter lecture')}</span><h2 class="${s.kind==='cover'?'slides-cover-title':'slides-title'}" id="slides-title" tabindex="-1">${escape(s.title)}</h2>${s.kind==='cover'?`<p class="slides-lead">${escape(bookTwoCourseLabel(slidesDeck(),'C++ Foundations'))}<br>${escape(slidesDeck()?.author||'Dr. Charles Dorner')}</p>`:''}<ul class="slides-points">${(s.keyPoints||[]).map(x=>`<li>${escape(x)}</li>`).join('')}</ul>${s.comparisons?`<div class="slides-comparisons">${s.comparisons.map(x=>`<div><strong>${escape(x.label)}</strong><p>${escape(x.text)}</p></div>`).join('')}</div>`:''}${choices.length?`<div class="slides-stages" aria-label="Build stages">${choices.map((x,i)=>`<button class="slides-btn" data-action="slides-stage" data-index="${i}" aria-pressed="${i===selected}">${i+1}. ${escape(x.label)}</button>`).join('')}</div>${s.code?slidesInlineStage(choices[selected]):''}`:''}${(s.checks||[]).map(x=>slidesQuestion(x,'slides-check')).join('')}${s.hint?`<details class="slides-check"><summary>Hint</summary><p>${escape(s.hint)}</p></details>`:''}${s.scenario?`<ol class="slides-options">${s.scenario.options.map(o=>`<li>${escape(o)}</li>`).join('')}</ol><details class="slides-check"><summary>Discuss every alternative</summary>${s.scenario.options.map((o,i)=>`<p><strong>${escape(o)}</strong><br>${escape(s.scenario.rationales[i])}</p>`).join('')}</details>`:''}${slidesQuestion(s.question)}${s.excerpt?slidesExcerpt(s.excerpt):''}${(s.excerpts||[]).map(slidesExcerpt).join('')}${slidesTheory(s)}`;
   }
   function slidesInlineStage(stage){return `<div class="slides-stage-detail"><strong>${escape(stage.artifact)}</strong><p>${escape(stage.description)}</p><pre>${escape(stage.command)}</pre><p class="slides-network">Illustrative observation, not a live build</p><p>${escape(stage.recordedOutput||'')}</p></div>`;}
-  function slidesExpected(s){if(s.code.expectedPhase==='build')return `<details class="slides-expected"><summary>Expected behavior of the original example</summary><p>Expected build failure. The program is not executed. This is a representative diagnostic, not live output.</p><pre>${escape(s.code.expectedStderr||'Build rejected')}</pre><p>Build status: nonzero. There is no program exit status.</p></details>`;return `<details class="slides-expected"><summary>Expected behavior of the original example</summary><p>This is the chapter expectation, not a live run of your edited code.</p><pre>${escape('stdout:\n'+(s.code.expectedStdout||'(empty)')+'\nstderr:\n'+(s.code.expectedStderr||'(empty)')+'\nProgram exit: '+(s.code.expectedExitCode??'see explanation'))}</pre></details>`;}
+  function slidesExpected(s){if(s.code.bookTwoRecordedObservation)return bookTwoRecordedOutput(s);if(s.code.recordedObservation)return bookOneRecordedOutput(s);if(s.code.expectedPhase==='build')return `<details class="slides-expected"><summary>Expected behavior of the original example</summary><p>Expected build failure. The program is not executed. This is a representative diagnostic, not live output.</p><pre>${escape(s.code.expectedStderr||'Build rejected')}</pre><p>Build status: nonzero. There is no program exit status.</p></details>`;return `<details class="slides-expected"><summary>Expected behavior of the original example</summary><p>This is the chapter expectation, not a live run of your edited code.</p><pre>${escape('stdout:\n'+(s.code.expectedStdout||'(empty)')+'\nstderr:\n'+(s.code.expectedStderr||'(empty)')+'\nProgram exit: '+(s.code.expectedExitCode??'see explanation'))}</pre></details>`;}
   function slidesWorkbench(s){
+    if(s.bookTwoDiscussionAid)return bookTwoDiscussionWorkbench(s);
+    if(s.bookTwoDiagram)return bookTwoDiagramWorkbench(s);
+    if(s.bookTwoProjectExample)return bookTwoProjectWorkbench(s);
+    if(s.bookOneDiscussionAid)return bookOneDiscussionWorkbench(s);
+    if(s.bookOneDiagram)return bookOneDiagramWorkbench(s);
+    if(s.bookOneProjectExample)return bookOneProjectWorkbench(s);
+    if(s.designPatternsDiscussionAid)return designPatternsDiscussionWorkbench(s);
     if(s.discussionAid)return systemsDiscussionWorkbench(s);
-    if(s.visual){const image=s.visual.image||(/^lectures\/diagrams\/[a-z0-9-]+\.svg$/.test(s.visual.path)?s.visual.path:'');return `<span class="slides-eyebrow">CLASS AND OWNERSHIP DIAGRAM</span><h3>${escape(s.visual.title)}</h3><p class="slides-network">Scroll horizontally to follow the full diagram at readable text size.</p><div class="slides-diagram-scroll"><img class="slides-diagram" src="${escape(image)}" alt="${escape(s.visual.caption)}"></div><p class="slides-diagram-caption">${escape(s.visual.caption)}</p><button class="slides-btn" data-action="slides-diagram">Enlarge diagram</button>`;}
+    if(s.visual){const image=s.visual.image||(/^lectures\/diagrams\/[a-z0-9-]+\.svg$/.test(s.visual.path)?s.visual.path:'');return `<span class="slides-eyebrow">CLASS AND OWNERSHIP DIAGRAM</span><h3>${escape(s.visual.title)}</h3>${['cpp-book-01','cpp-book-02'].includes(slidesDeck()?.courseId)?'':'<p class="slides-network">Scroll horizontally to follow the full diagram at readable text size.</p>'}<div class="slides-diagram-scroll"><img class="slides-diagram" src="${escape(image)}" alt="${escape(s.visual.caption)}"></div><p class="slides-diagram-caption">${escape(s.visual.caption)}</p><button class="slides-btn" data-action="slides-diagram">Enlarge diagram</button>`;}
     if(s.diagram)return slidesDiagram(s);
     if(s.code){const d=slidesDraft(),runnable=s.code.language==='cpp'&&s.code.runAllowed;
       return `<div class="slides-code-head"><strong>${escape(s.code.filename||'main.cpp')}</strong><span>${runnable?'EDITABLE C++':'LOCAL TERMINAL COMMANDS'}</span></div>${s.code.variants?.length?`<label class="slides-variant-label" for="slides-variant">Experiment</label><select class="slides-select" id="slides-variant"><option value="original" ${!d.variant||d.variant==='original'?'selected':''}>Original example</option>${s.code.variants.map(v=>`<option value="${escape(v.id)}" ${d.variant===v.id?'selected':''}>${escape(v.label)}</option>`).join('')}</select>`:''}${runnable?`<textarea id="slides-editor" class="slides-editor" aria-label="Slide C++ code" spellcheck="false" autocapitalize="off" wrap="off" maxlength="60000">${escape(d.code)}</textarea><div class="slides-code-tools"><button class="slides-btn primary" data-action="slides-run">Run online</button><button class="slides-btn" data-action="slides-stop" disabled>Stop waiting</button><label>Language <select id="slides-standard" class="slides-select" aria-label="C++ language standard"><option value="c++20" ${d.standard==='c++20'?'selected':''}>C++20</option><option value="c++17" ${d.standard==='c++17'?'selected':''}>C++17</option></select></label><button class="slides-btn quiet" data-action="slides-reset">Reset code</button><button class="slides-btn quiet" data-action="slides-undo" ${slidesSession().undo?'':'disabled'}>Undo replace</button><button class="slides-btn quiet" data-action="slides-download-code">Download .cpp</button></div><p class="slides-network">Run online sends this editor’s code and input to Compiler Explorer. Internet required. Ctrl/⌘ + Enter runs. Intermediate shell commands remain local walkthroughs.</p><details class="slides-stdin"><summary>Program input (stdin)</summary><textarea id="slides-input" aria-label="Slide program input" rows="2" maxlength="20000">${escape(d.input)}</textarea></details><div id="slides-results" class="slides-output" aria-live="polite"></div>${slidesExpected(s)}${s.code.buildCommand?`<details class="slides-expected"><summary>Build and run locally</summary><p>Download this complete source, open a terminal in its folder, and run:</p><pre>${escape(s.code.buildCommand)}</pre><p>Requires a compiler with C++20 support. These commands use GCC on a Unix-like shell.</p></details>`:''}`:`<pre class="slides-code-preview">${escape(s.code.text)}</pre><button class="slides-btn" data-action="slides-copy">Copy commands</button><p class="slides-network">Run these commands in your own Bash/GCC terminal. For main.cpp examples, first download main.cpp from slide 14 into a working folder and run mkdir -p build there. This page does not run an operating-system shell.</p>`}`;
@@ -1137,10 +1174,10 @@ function labCheckWorkedResult(result, check) {
     return `<span class="slides-eyebrow">YOUR TURN</span><h3>${s.kind==='cover'?'A lecture you can explore':'Explain it before revealing it'}</h3><p class="slides-lead">${s.kind==='cover'?'Advance through the lesson. Edit its programs, compare the results, and open the presenter script when you need it.':'Use the question on the slide to check your reasoning. The code and build demonstrations appear here as you move through the chapter.'}</p><div class="slides-shortcuts"><p><kbd>←</kbd> <kbd>→</kbd> Previous / next slide</p><p><kbd>Home</kbd> <kbd>End</kbd> First / last slide</p><p><kbd>P</kbd> Presentation view</p><p><kbd>N</kbd> Presenter script</p></div><p class="slides-network">Your position and code drafts stay in this browser. Use Export lecture work for a portable copy.</p>`;
   }
   function renderSlides(){const deck=slidesDeck();if(!deck)return `<div class="slides-room slides-empty"><span class="slides-eyebrow">SLIDES</span><h2>No lecture for this chapter yet</h2><p>Select an available lecture for this course. Your existing chapter material remains in the other study views.</p><button class="slides-btn primary" data-action="slides-open-first">Open first available lecture</button></div>`;
-    const s=slidesCurrent(),i=slidesIndex();return `<div class="slides-toolbar"><div class="slides-meta"><span class="slides-eyebrow">${escape(deck.courseTitle||'Book I · C++ Foundations')} · ${deck.chapter===0?'Class 0':'Chapter '+deck.chapter}</span><strong>${escape(deck.title)}</strong></div><div class="slides-toolbar-actions"><label class="sr-only" for="slides-chapter">Lecture chapter</label><select id="slides-chapter" class="slides-select">${SLIDES_CATALOG.filter(e=>e.courseId===state.courseId).map(e=>`<option value="${e.chapter}" ${e.chapter===deck.chapter?'selected':''}>${e.chapter===0?'Class 0':'Ch '+e.chapter} · ${escape(e.title)}</option>`).join('')}</select><label class="sr-only" for="slides-jump">Choose a slide</label><select id="slides-jump" class="slides-select">${deck.slides.map((x,n)=>`<option value="${n}" ${n===i?'selected':''}>${String(n+1).padStart(2,'0')} · ${x.section?escape(x.section)+' / ':''}${escape(x.title)}</option>`).join('')}</select><button class="slides-btn" data-action="slides-present">${document.body.classList.contains('slides-presenting')?'Exit presentation':'Present'}</button><button class="slides-btn quiet" data-action="slides-export">Export lecture work</button><button class="slides-btn quiet" data-action="slides-import">Import lecture work</button><input type="file" id="slides-import-file" accept="application/json,.json" hidden><button class="slides-btn quiet" data-action="slides-transcript">Download transcript</button></div></div><div class="slides-progress" role="progressbar" aria-label="Slide position" aria-valuenow="${i+1}" aria-valuemin="1" aria-valuemax="${deck.slides.length}"><span style="width:${(i+1)/deck.slides.length*100}%"></span></div><div class="slides-layout"><section class="slides-stage" aria-labelledby="slides-title">${slidesStageHTML(s)}</section><button class="slides-splitter" id="slides-splitter" aria-label="Resize slide and code panes" role="separator" aria-orientation="vertical" aria-valuemin="35" aria-valuemax="70" aria-valuenow="${slidesRatio()}" title="Drag, or use left/right arrows to resize"></button><aside class="slides-workbench" aria-label="Slide example and output">${slidesWorkbench(s)}</aside></div>${slidesSourceArchive(s)}<details class="slides-presenter" id="slides-presenter" ${slidesPresenterOpen?'open':''}><summary>Presenter script and directions</summary><div class="slides-notes"><div><h3>SAY · verbatim narration</h3><p>${escape(s.narration)}</p></div><div><h3>DO · presenter directions</h3><ol>${(s.actions||[]).map(x=>`<li>${escape(x)}</li>`).join('')}</ol><p class="slides-network">${escape(s.sourceRef||deck.title)}</p></div></div></details><nav class="slides-footer" aria-label="Lecture navigation"><button class="slides-btn" data-action="slides-prev" ${i===0?'disabled':''}>← Previous</button><span aria-live="polite">${i+1} / ${deck.slides.length}${slidesStorageOK?'':' · storage unavailable: export your work'}</span><button class="slides-btn primary" data-action="slides-next" ${i===deck.slides.length-1?'disabled':''}>Next →</button></nav>`;
+    const s=slidesCurrent(),i=slidesIndex();return `<div class="slides-toolbar"><div class="slides-meta"><span class="slides-eyebrow">${escape(bookTwoCourseLabel(deck,'Book I · C++ Foundations'))} · ${deck.chapter===0?'Class 0':'Chapter '+deck.chapter}</span><strong>${escape(deck.title)}</strong></div><div class="slides-toolbar-actions"><label class="sr-only" for="slides-chapter">Lecture chapter</label><select id="slides-chapter" class="slides-select">${SLIDES_CATALOG.filter(e=>e.courseId===state.courseId).map(e=>`<option value="${e.chapter}" ${e.chapter===deck.chapter?'selected':''}>${e.chapter===0?'Class 0':'Ch '+e.chapter} · ${escape(e.title)}</option>`).join('')}</select><label class="sr-only" for="slides-jump">Choose a slide</label><select id="slides-jump" class="slides-select">${deck.slides.map((x,n)=>`<option value="${n}" ${n===i?'selected':''}>${String(n+1).padStart(2,'0')} · ${x.section?escape(x.section)+' / ':''}${escape(x.title)}</option>`).join('')}</select><button class="slides-btn" data-action="slides-present">${document.body.classList.contains('slides-presenting')?'Exit presentation':'Present'}</button><button class="slides-btn quiet" data-action="slides-export">Export lecture work</button><button class="slides-btn quiet" data-action="slides-import">Import lecture work</button><input type="file" id="slides-import-file" accept="application/json,.json" hidden><button class="slides-btn quiet" data-action="slides-transcript">Download transcript</button></div></div><div class="slides-progress" role="progressbar" aria-label="Slide position" aria-valuenow="${i+1}" aria-valuemin="1" aria-valuemax="${deck.slides.length}"><span style="width:${(i+1)/deck.slides.length*100}%"></span></div><div class="slides-layout"><section class="slides-stage" aria-labelledby="slides-title">${slidesStageHTML(s)}</section><button class="slides-splitter" id="slides-splitter" aria-label="Resize slide and code panes" role="separator" aria-orientation="vertical" aria-valuemin="35" aria-valuemax="70" aria-valuenow="${slidesRatio()}" title="Drag, or use left/right arrows to resize"></button><aside class="slides-workbench" aria-label="Slide example and output">${slidesWorkbench(s)}</aside></div>${slidesSourceArchive(s)}<details class="slides-presenter" id="slides-presenter" ${slidesPresenterOpen?'open':''}><summary>Presenter script and directions</summary><div class="slides-notes"><div><h3>SAY · verbatim narration</h3><p>${escape(s.narration)}</p></div><div><h3>DO · presenter directions</h3><ol>${(s.actions||[]).map(x=>`<li>${escape(x)}</li>`).join('')}</ol><p class="slides-network">${escape(s.sourceRef||deck.title)}</p></div></div></details><nav class="slides-footer" aria-label="Lecture navigation"><button class="slides-btn" data-action="slides-prev" ${i===0?'disabled':''}>← Previous</button><span aria-live="polite">${i+1} / ${deck.slides.length}${slidesStorageOK?'':' · storage unavailable: export your work'}</span><button class="slides-btn primary" data-action="slides-next" ${i===deck.slides.length-1?'disabled':''}>Next →</button></nav>`;
   }
   function slidesRatio(){return Math.max(35,Math.min(70,Number(slidesState().ratio)||56));}
-  function renderSlidesWorkspace(){document.body.classList.add('slides-active');let room=$('#slides-room');if(!room){$('#workspace').innerHTML='<article class="slides-room" id="slides-room" aria-label="Interactive chapter lecture"></article>';room=$('#slides-room');}room.innerHTML=renderSlides();room.style.setProperty('--slides-ratio',slidesRatio()+'%');slidesRefreshOutput();}
+  function renderSlidesWorkspace(){document.body.classList.add('slides-active');let room=$('#slides-room');if(!room){$('#workspace').innerHTML='<article class="slides-room" id="slides-room" aria-label="Interactive chapter lecture"></article>';room=$('#slides-room');}room.dataset.slidesCourse=state.courseId;room.innerHTML=renderSlides();room.style.setProperty('--slides-ratio',slidesRatio()+'%');slidesRefreshOutput();}
   function slidesGo(n){if(!slidesDeck())return;slidesStop('Stopped waiting because you moved to another slide.');slidesState().index=Math.max(0,Math.min(n,slidesDeck().slides.length-1));slidesState().stage=0;slidesSave();renderSlidesWorkspace();if(Library)writeRoute();$('#slides-title')?.focus({preventScroll:true});}
   function slidesRefreshOutput(){const host=$('#slides-results');if(!host||state.mode!=='slides'||!slidesCurrent()?.code?.runAllowed)return;const s=slidesSession(),d=slidesDraft(),r=s.result;const stale=s.code!==null&&(s.code!==d.code||s.input!==d.input||s.standard!==d.standard);host.innerHTML=`<div class="slides-output-head"><strong>LIVE OUTPUT</strong><span>${s.busy?'Running…':r?'Last run':'Not run'}</span></div><p class="slides-status" role="status">${escape(stale?'Edited since this result. Run again to test the current code.':s.message)}</p>${r?`${r.diagnostics?`<strong>${r.compiled?'Build diagnostics':'Build failed'}</strong><pre>${escape(r.diagnostics)}</pre>`:''}${r.executed?`<p>Process exit: ${escape(r.code)}${r.timedOut?' · time limit reached':''}${r.truncated?' · output truncated':''}</p><strong>stdout</strong><pre>${escape(r.stdout||'(empty)')}</pre><strong>stderr</strong><pre>${escape(r.stderr||'(empty)')}</pre>`:''}`:''}`;for(const b of document.querySelectorAll('[data-action="slides-run"]'))b.disabled=!!s.busy;const stop=$('[data-action="slides-stop"]');if(stop)stop.disabled=!s.busy;}
   async function slidesRun(){if(slidesActive||state.mode!=='slides'||!slidesCurrent()?.code?.runAllowed)return;const d=slidesDraft(),s=slidesSession(),controller=new AbortController(),key=slidesKey()+'/'+slidesCurrent().id,request={key,controller,session:s};slidesActive=request;Object.assign(s,{busy:true,result:null,code:d.code,input:d.input,standard:d.standard,message:'Compiling and running…'});slidesRefreshOutput();const timeout=setTimeout(()=>{if(slidesActive===request)slidesStop('The compiler took too long. Your draft is saved; try again later.');},60000);
@@ -1152,7 +1189,7 @@ function labCheckWorkedResult(result, check) {
   async function slidesPresent(){const room=$('#slides-room');if(!room)return;const on=document.body.classList.toggle('slides-presenting');slidesPresenterOpen=false;renderSlidesWorkspace();if(on&&room.requestFullscreen){try{await room.requestFullscreen();}catch{/* CSS presentation mode remains available. */}}else if(!on&&document.fullscreenElement){try{await document.exitFullscreen();}catch{}}}
   document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&document.body.classList.contains('slides-presenting')){document.body.classList.remove('slides-presenting');if(state.mode==='slides')renderSlidesWorkspace();}});
   document.addEventListener('click',async event=>{const el=event.target.closest('[data-action^="slides-"]');if(!el||el.disabled)return;switch(el.dataset.action){
-    case 'slides-diagram':{const img=$('.slides-diagram');img?.classList.toggle('expanded');el.textContent=img?.classList.contains('expanded')?'Fit diagram':'Enlarge diagram';break;}
+    case 'slides-diagram':{if(slidesDeck()?.courseId==='cpp-book-02'){bookTwoOpenDiagram($('.slides-diagram'),el);break;}if(slidesDeck()?.courseId==='cpp-book-01'){bookOneOpenDiagram($('.slides-diagram'),el);break;}const img=$('.slides-diagram');img?.classList.toggle('expanded');el.textContent=img?.classList.contains('expanded')?'Fit diagram':'Enlarge diagram';break;}
     case 'slides-next':slidesGo(slidesIndex()+1);break;case 'slides-prev':slidesGo(slidesIndex()-1);break;
     case 'slides-open-first':{const e=SLIDES_CATALOG.find(x=>x.courseId===state.courseId);if(e){await openBookDropdown(e.courseId,String(e.chapter));switchMode('slides');}break;}
     case 'slides-present':slidesPresent();break;case 'slides-run':slidesRun();break;case 'slides-stop':slidesStop();break;
@@ -1169,7 +1206,7 @@ function labCheckWorkedResult(result, check) {
   document.addEventListener('input',event=>{if(state.mode!=='slides')return;if(event.target.id==='slides-editor'||event.target.id==='slides-input'){const d=slidesDraft();d[event.target.id==='slides-editor'?'code':'input']=event.target.value;slidesSave();slidesRefreshOutput();}});
   document.addEventListener('change',async event=>{if(state.mode!=='slides')return;const e=event.target;if(e.id==='slides-chapter'){slidesStop();await openBookDropdown(state.courseId,e.value);switchMode('slides');return;}if(e.id==='slides-import-file'){await slidesImport(e.files?.[0]);return;}if(e.id==='slides-jump')slidesGo(Number(e.value));if(e.id==='slides-standard'){slidesDraft().standard=e.value==='c++17'?'c++17':'c++20';slidesSave();slidesRefreshOutput();}if(e.id==='slides-variant'){const v=slidesCurrent().code.variants?.find(x=>x.id===e.value);slidesReplace(v?.text??slidesCurrent().code.text,v?.standard||'c++20',v?.id||'original');}});
   document.addEventListener('toggle',event=>{if(event.target.id==='slides-presenter')slidesPresenterOpen=event.target.open;},true);
-  document.addEventListener('keydown',event=>{if(state.mode!=='slides'||DIALOG.open||event.altKey||event.isComposing)return;if(event.key==='Escape'&&document.body.classList.contains('slides-presenting')){event.preventDefault();document.body.classList.remove('slides-presenting');if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});renderSlidesWorkspace();return;}const edit=['TEXTAREA','INPUT','SELECT'].includes(event.target.tagName)||event.target.isContentEditable;if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&event.target.id==='slides-editor'){event.preventDefault();slidesRun();return;}if(edit||event.ctrlKey||event.metaKey)return;if(event.target.id==='slides-splitter'&&['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();slidesSetRatio(slidesRatio()+(event.key==='ArrowRight'?2:-2));return;}if(event.key==='Home'){event.preventDefault();slidesGo(0);}if(event.key==='End'){event.preventDefault();slidesGo((slidesDeck()?.slides.length||1)-1);}if(event.key.toLowerCase()==='p'){event.preventDefault();slidesPresent();}if(event.key.toLowerCase()==='n'){event.preventDefault();const notes=$('#slides-presenter');if(notes)notes.open=!notes.open;}if(event.key==='Escape'&&document.body.classList.contains('slides-presenting')){document.body.classList.remove('slides-presenting');if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});renderSlidesWorkspace();}});
+  document.addEventListener('keydown',event=>{if(state.mode!=='slides'||DIALOG.open||document.querySelector('.b2-aid-viewer[open]')||document.querySelector('.b1-aid-viewer[open]')||document.querySelector('.dp-aid-viewer[open]')||event.altKey||event.isComposing)return;if(event.key==='Escape'&&document.body.classList.contains('slides-presenting')){event.preventDefault();document.body.classList.remove('slides-presenting');if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});renderSlidesWorkspace();return;}const edit=['TEXTAREA','INPUT','SELECT'].includes(event.target.tagName)||event.target.isContentEditable;if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&event.target.id==='slides-editor'){event.preventDefault();slidesRun();return;}if(edit||event.ctrlKey||event.metaKey)return;if(event.target.id==='slides-splitter'&&['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();slidesSetRatio(slidesRatio()+(event.key==='ArrowRight'?2:-2));return;}if(event.key==='Home'){event.preventDefault();slidesGo(0);}if(event.key==='End'){event.preventDefault();slidesGo((slidesDeck()?.slides.length||1)-1);}if(event.key.toLowerCase()==='p'){event.preventDefault();slidesPresent();}if(event.key.toLowerCase()==='n'){event.preventDefault();const notes=$('#slides-presenter');if(notes)notes.open=!notes.open;}if(event.key==='Escape'&&document.body.classList.contains('slides-presenting')){document.body.classList.remove('slides-presenting');if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});renderSlidesWorkspace();}});
   async function slidesImport(file){
     if(!file)return;
     try{
@@ -1211,10 +1248,39 @@ function labCheckWorkedResult(result, check) {
   document.addEventListener('click', event => {
     const zoom = event.target.closest('[data-action="systems-aid-zoom"]');
     if (zoom) {
-      const img = zoom.closest('.systems-discussion-aid').querySelector('.systems-aid-figure img');
-      const enlarged = img.classList.toggle('expanded');
-      zoom.setAttribute('aria-pressed', String(enlarged));
-      zoom.textContent = enlarged ? 'Normal diagram size' : 'Enlarge diagram';
+      const source = zoom.closest('.systems-discussion-aid').querySelector('.systems-aid-figure img');
+      let viewer = document.querySelector('.systems-aid-viewer');
+      if (!viewer) {
+        viewer = document.createElement('dialog');
+        viewer.className = 'systems-aid-viewer';
+        viewer.setAttribute('aria-label', 'Full-screen diagram viewer');
+        const frame = document.createElement('div');
+        frame.className = 'systems-aid-viewer-frame';
+        const header = document.createElement('div');
+        header.className = 'systems-aid-viewer-header';
+        const title = document.createElement('h2');
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'slides-btn';
+        close.dataset.action = 'systems-aid-viewer-close';
+        close.textContent = 'Close';
+        header.append(title, close);
+        const image = document.createElement('img');
+        image.className = 'systems-aid-viewer-image';
+        frame.append(header, image);
+        viewer.append(frame);
+        document.body.append(viewer);
+      }
+      viewer.querySelector('h2').textContent = source.alt;
+      const image = viewer.querySelector('.systems-aid-viewer-image');
+      image.src = source.currentSrc || source.src;
+      image.alt = source.alt;
+      if (!viewer.open) viewer.showModal();
+      return;
+    }
+    const close = event.target.closest('[data-action="systems-aid-viewer-close"]');
+    if (close) {
+      close.closest('.systems-aid-viewer')?.close();
       return;
     }
     const button = event.target.closest('[data-action="systems-aid-example"]');
@@ -1222,7 +1288,227 @@ function labCheckWorkedResult(result, check) {
     const index = slidesDeck()?.slides.findIndex(s => s.id === button.dataset.slideId);
     if (index >= 0) slidesGo(index);
   });
+  document.addEventListener('click', event => {
+    if (event.target.matches('.systems-aid-viewer')) event.target.close();
+  });
   // END SYSTEMS DISCUSSION AIDS
+
+  // BEGIN DESIGN PATTERNS DISCUSSION AIDS
+  function designPatternsDiscussionWorkbench(s) {
+    const context = slidesDeck()?.designPatternsDiscussionAids;
+    const example = context?.examples?.[s.designPatternsDiscussionAid?.example];
+    if (!context?.graph || !example) return '';
+    const graph = context.graph;
+    return `<section class="dp-discussion-aid" aria-label="Design Patterns discussion diagram and C++ example">
+      <span class="slides-eyebrow">DISCUSSION DIAGRAM</span>
+      <h3>${escape(graph.title)}</h3>
+      <div class="dp-aid-figure"><img src="${safeImage(graph.image)}" alt="${escape(graph.title + '. ' + graph.caption)}"></div>
+      <button class="slides-btn" type="button" data-action="dp-aid-zoom">Enlarge diagram</button>
+      <p class="slides-diagram-caption">${escape(graph.caption)}</p>
+      <div class="dp-aid-example"><h4>${escape(example.title)}</h4>
+        ${slidesExcerpt(example)}
+        <button class="slides-btn primary" type="button" data-action="dp-aid-example" data-slide-id="${escape(example.fullSlideId)}">Edit and run the complete example</button>
+        <details class="slides-expected"><summary>Expected output of the complete original program</summary><pre><code>${escape(example.output)}</code></pre><p>${escape(example.invariant)}</p></details>
+      </div>
+      ${s.reading?.length ? `<details class="slides-check dp-aid-reading" open><summary>The chapter discussion</summary><div class="slides-reading">${s.reading.map(p => `<p>${escape(p)}</p>`).join('')}</div></details>` : ''}
+    </section>`;
+  }
+  document.addEventListener('click', event => {
+    if (!(event.target instanceof Element)) return;
+    const zoom = event.target.closest('[data-action="dp-aid-zoom"]');
+    if (zoom) {
+      const source = zoom.closest('.dp-discussion-aid')?.querySelector('.dp-aid-figure img');
+      if (!source) return;
+      let viewer = document.querySelector('.dp-aid-viewer');
+      if (!viewer) {
+        viewer = document.createElement('dialog');
+        viewer.className = 'dp-aid-viewer';
+        viewer.setAttribute('aria-label', 'Full-screen Design Patterns diagram');
+        const frame = document.createElement('div');
+        frame.className = 'dp-aid-viewer-frame';
+        const header = document.createElement('div');
+        header.className = 'dp-aid-viewer-header';
+        const title = document.createElement('h2');
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'slides-btn';
+        close.dataset.action = 'dp-aid-close';
+        close.textContent = 'Close';
+        header.append(title, close);
+        const image = document.createElement('img');
+        image.className = 'dp-aid-viewer-image';
+        frame.append(header, image);
+        viewer.append(frame);
+        viewer.addEventListener('close', () => viewer._opener?.isConnected && viewer._opener.focus());
+        document.body.append(viewer);
+      }
+      viewer._opener = zoom;
+      (document.fullscreenElement || document.body).append(viewer);
+      viewer.querySelector('h2').textContent = slidesDeck()?.designPatternsDiscussionAids?.graph.title || source.alt;
+      const image = viewer.querySelector('img');
+      image.src = source.currentSrc || source.src;
+      image.alt = source.alt;
+      if (!viewer.open) viewer.showModal();
+      return;
+    }
+    const close = event.target.closest('[data-action="dp-aid-close"]');
+    if (close) { close.closest('.dp-aid-viewer')?.close(); return; }
+    if (event.target.matches('.dp-aid-viewer')) { event.target.close(); return; }
+    const button = event.target.closest('[data-action="dp-aid-example"]');
+    if (!button || state.mode !== 'slides') return;
+    const index = slidesDeck()?.slides.findIndex(s => s.id === button.dataset.slideId);
+    if (index >= 0) slidesGo(index);
+  });
+  // END DESIGN PATTERNS DISCUSSION AIDS
+
+  // BEGIN BOOK I DISCUSSION AIDS
+  function bookOneProjectWorkbench(s) {
+    const e=slidesDeck()?.bookOneDiscussionAids?.examples?.[s.bookOneProjectExample];
+    return `<section class="b1-discussion-aid"><h3>Original multi-file source</h3>${slidesExcerpt({text:s.code.text,filename:s.code.filename})}<p>${escape(e.adaptationNote)}</p><button type="button" class="slides-btn primary" data-action="b1-aid-example" data-slide-id="${escape(e.fullSlideId)}">Edit and run the verified single-file adaptation</button><button type="button" class="slides-btn" data-action="b1-aid-download">Download original source</button></section>`;
+  }
+  function bookOneDiagramWorkbench(s) {
+    const graph=slidesDeck()?.bookOneDiscussionAids?.graphs?.[s.bookOneDiagram];
+    if(!graph)return '';
+    return `<section class="b1-discussion-aid" aria-label="Book I original chapter diagram">
+      <span class="slides-eyebrow">CHAPTER DIAGRAM</span><h3>${escape(graph.title)}</h3>
+      <div class="b1-aid-figure"><img src="${safeImage(graph.image)}" data-diagram-title="${escape(graph.title)}" alt="${escape(graph.title+'. '+graph.caption)}"></div>
+      <button type="button" class="slides-btn" data-action="b1-aid-zoom">Enlarge diagram</button>
+      <p class="slides-diagram-caption">${escape(graph.caption)}</p></section>`;
+  }
+  function bookOneDiscussionWorkbench(s) {
+    const context=slidesDeck()?.bookOneDiscussionAids;
+    const example=context?.examples?.[s.bookOneDiscussionAid?.example];
+    const graph=context?.graphs?.[s.bookOneDiscussionAid?.graph];
+    if(!graph||!example)return '';
+    return `<section class="b1-discussion-aid" aria-label="Book I discussion diagram and C++ example">
+      <span class="slides-eyebrow">DISCUSSION DIAGRAM</span><h3>${escape(graph.title)}</h3>
+      <div class="b1-aid-figure"><img src="${safeImage(graph.image)}" data-diagram-title="${escape(graph.title)}" alt="${escape(graph.title+'. '+graph.caption)}"></div>
+      <button type="button" class="slides-btn" data-action="b1-aid-zoom">Enlarge diagram</button>
+      <p class="slides-diagram-caption">${escape(graph.caption)}</p>
+      <div class="b1-aid-example"><h4>${escape(example.title)}</h4>${slidesExcerpt(example)}
+      ${example.adaptationNote?`<p>${escape(example.adaptationNote)}</p>`:''}
+      ${example.fullSlideId?`<button type="button" class="slides-btn primary" data-action="b1-aid-example" data-slide-id="${escape(example.fullSlideId)}">${example.adaptationNote?'Edit and run the single-file adaptation':'Edit and run the complete example'}</button>`:`<button type="button" class="slides-btn" data-action="b1-aid-download">Download original source</button>`}
+      ${example.output!==null?`<details class="slides-expected"><summary>${example.recordedObservation?'Recorded reference output (toolchain-dependent)':'Expected output with the supplied sample input'}</summary>${example.sampleInput?`<strong>Sample input</strong><pre><code>${escape(example.sampleInput)}</code></pre>`:''}<strong>Output</strong><pre><code>${escape(example.output)}</code></pre><p>${escape(example.invariant)}</p></details>`:''}</div>
+      ${s.reading?.length?`<details class="slides-check b1-aid-reading" open><summary>The chapter discussion</summary><div class="slides-reading">${s.reading.map(p=>`<p>${escape(p)}</p>`).join('')}</div></details>`:''}
+    </section>`;
+  }
+  function bookOneRecordedOutput(s) {
+    return `<details class="slides-expected"><summary>Recorded reference output (toolchain-dependent)</summary><p>This is an observation from the supplied source verification, not live output. Compiler versions, numeric limits, and addresses can vary.</p><pre>${escape('stdout:\n'+(s.code.expectedStdout||'(empty)')+'\nstderr:\n'+(s.code.expectedStderr||'(empty)'))}</pre></details>`;
+  }
+  function bookOneOpenDiagram(source,opener) {
+    if(!source)return;
+    let viewer=document.querySelector('.b1-aid-viewer');
+    if(!viewer){
+      viewer=document.createElement('dialog');viewer.className='b1-aid-viewer';
+      viewer.setAttribute('aria-label','Full-screen Book I diagram');
+      const frame=document.createElement('div');frame.className='b1-aid-viewer-frame';
+      const header=document.createElement('div');header.className='b1-aid-viewer-header';
+      const title=document.createElement('h2'),close=document.createElement('button');
+      close.type='button';close.className='slides-btn';close.dataset.action='b1-aid-close';close.textContent='Close';
+      const image=document.createElement('img');image.className='b1-aid-viewer-image';
+      header.append(title,close);frame.append(header,image);viewer.append(frame);
+      viewer.addEventListener('close',()=>viewer._opener?.isConnected&&viewer._opener.focus());
+    }
+    (document.fullscreenElement||document.body).append(viewer);
+    viewer._opener=opener;
+    viewer.querySelector('h2').textContent=source.dataset.diagramTitle||slidesCurrent()?.title||'Book I diagram';
+    const image=viewer.querySelector('img');image.src=source.currentSrc||source.src;image.alt=source.alt;
+    if(!viewer.open)viewer.showModal();
+  }
+  document.addEventListener('click',event=>{
+    if(!(event.target instanceof Element))return;
+    const zoom=event.target.closest('[data-action="b1-aid-zoom"]');
+    if(zoom){bookOneOpenDiagram(zoom.closest('.b1-discussion-aid')?.querySelector('img'),zoom);return;}
+    const close=event.target.closest('[data-action="b1-aid-close"]');
+    if(close){close.closest('.b1-aid-viewer')?.close();return;}
+    if(event.target.matches('.b1-aid-viewer')){event.target.close();return;}
+    const button=event.target.closest('[data-action="b1-aid-example"]');
+    if(button&&state.mode==='slides'){
+      const index=slidesDeck()?.slides.findIndex(s=>s.id===button.dataset.slideId);
+      if(index>=0)slidesGo(index);return;
+    }
+    if(event.target.closest('[data-action="b1-aid-download"]')&&state.mode==='slides'){
+      const s=slidesCurrent(),example=slidesDeck()?.bookOneDiscussionAids?.examples?.[s.bookOneProjectExample||s.bookOneDiscussionAid?.example];
+      if(example?.sourceText)slidesDownload(example.filename.split('/').pop(),example.sourceText);
+    }
+  });
+  // END BOOK I DISCUSSION AIDS
+
+  // BEGIN BOOK II DISCUSSION AIDS
+  function bookTwoCourseLabel(deck,fallback) {
+    return deck?.courseTitle||(deck?.courseId==='cpp-book-02'?'Book II · Modern C++ Programming':fallback);
+  }
+  function bookTwoProjectWorkbench(s) {
+    const e=slidesDeck()?.bookTwoDiscussionAids?.examples?.[s.bookTwoProjectExample];
+    return `<section class="b2-discussion-aid"><h3>Original multi-file source</h3>${slidesExcerpt({text:s.code.text,filename:s.code.filename})}<p>${escape(e.adaptationNote)}</p><button type="button" class="slides-btn primary" data-action="b2-aid-example" data-slide-id="${escape(e.fullSlideId)}">Edit and run the verified single-file adaptation</button><button type="button" class="slides-btn" data-action="b2-aid-download">Download original source</button></section>`;
+  }
+  function bookTwoDiagramWorkbench(s) {
+    const graph=slidesDeck()?.bookTwoDiscussionAids?.graphs?.[s.bookTwoDiagram];
+    if(!graph)return '';
+    return `<section class="b2-discussion-aid" aria-label="Book II original chapter diagram">
+      <span class="slides-eyebrow">CHAPTER DIAGRAM</span><h3>${escape(graph.title)}</h3>
+      <div class="b2-aid-figure"><img src="${safeImage(graph.image)}" data-diagram-title="${escape(graph.title)}" alt="${escape(graph.title+'. '+graph.caption)}"></div>
+      <button type="button" class="slides-btn" data-action="b2-aid-zoom">Enlarge diagram</button>
+      <p class="slides-diagram-caption">${escape(graph.caption)}</p></section>`;
+  }
+  function bookTwoDiscussionWorkbench(s) {
+    const context=slidesDeck()?.bookTwoDiscussionAids;
+    const example=context?.examples?.[s.bookTwoDiscussionAid?.example];
+    const graph=context?.graphs?.[s.bookTwoDiscussionAid?.graph];
+    if(!graph)return '';
+    return `<section class="b2-discussion-aid" aria-label="Book II discussion diagram and C++ example">
+      <span class="slides-eyebrow">DISCUSSION DIAGRAM</span><h3>${escape(graph.title)}</h3>
+      <div class="b2-aid-figure"><img src="${safeImage(graph.image)}" data-diagram-title="${escape(graph.title)}" alt="${escape(graph.title+'. '+graph.caption)}"></div>
+      <button type="button" class="slides-btn" data-action="b2-aid-zoom">Enlarge diagram</button>
+      <p class="slides-diagram-caption">${escape(graph.caption)}</p>
+      ${example?`<div class="b2-aid-example"><h4>${escape(example.title)}</h4>${slidesExcerpt(example)}
+      ${example.adaptationNote?`<p>${escape(example.adaptationNote)}</p>`:''}
+      ${example.fullSlideId?`<button type="button" class="slides-btn primary" data-action="b2-aid-example" data-slide-id="${escape(example.fullSlideId)}">${example.adaptationNote?'Edit and run the single-file adaptation':'Edit and run the complete example'}</button>`:`<button type="button" class="slides-btn" data-action="b2-aid-download">Download original source</button>`}
+      ${example.output!==null?`<details class="slides-expected"><summary>${example.recordedObservation?'Recorded reference output (toolchain-dependent)':'Expected output with the supplied sample input'}</summary>${example.sampleInput?`<strong>Sample input</strong><pre><code>${escape(example.sampleInput)}</code></pre>`:''}<strong>Output</strong><pre><code>${escape(example.output)}</code></pre><p>${escape(example.invariant)}</p></details>`:''}</div>`:''}
+      ${s.reading?.length?`<details class="slides-check b2-aid-reading" open><summary>The chapter discussion</summary><div class="slides-reading">${s.reading.map(p=>`<p>${escape(p)}</p>`).join('')}</div></details>`:''}
+    </section>`;
+  }
+  function bookTwoRecordedOutput(s) {
+    return `<details class="slides-expected"><summary>Recorded reference output (toolchain-dependent)</summary><p>This is an observation from the supplied source verification, not live output. Compiler versions, numeric limits, and addresses can vary.</p><pre>${escape('stdout:\n'+(s.code.expectedStdout||'(empty)')+'\nstderr:\n'+(s.code.expectedStderr||'(empty)'))}</pre></details>`;
+  }
+  function bookTwoOpenDiagram(source,opener) {
+    if(!source)return;
+    let viewer=document.querySelector('.b2-aid-viewer');
+    if(!viewer){
+      viewer=document.createElement('dialog');viewer.className='b2-aid-viewer';
+      viewer.setAttribute('aria-label','Full-screen Book II diagram');
+      const frame=document.createElement('div');frame.className='b2-aid-viewer-frame';
+      const header=document.createElement('div');header.className='b2-aid-viewer-header';
+      const title=document.createElement('h2'),close=document.createElement('button');
+      close.type='button';close.className='slides-btn';close.dataset.action='b2-aid-close';close.textContent='Close';
+      const image=document.createElement('img');image.className='b2-aid-viewer-image';
+      header.append(title,close);frame.append(header,image);viewer.append(frame);
+      viewer.addEventListener('close',()=>viewer._opener?.isConnected&&viewer._opener.focus());
+    }
+    (document.fullscreenElement||document.body).append(viewer);
+    viewer._opener=opener;
+    viewer.querySelector('h2').textContent=source.dataset.diagramTitle||slidesCurrent()?.title||'Book II diagram';
+    const image=viewer.querySelector('img');image.src=source.currentSrc||source.src;image.alt=source.alt;
+    if(!viewer.open)viewer.showModal();
+  }
+  document.addEventListener('click',event=>{
+    if(!(event.target instanceof Element))return;
+    const zoom=event.target.closest('[data-action="b2-aid-zoom"]');
+    if(zoom){bookTwoOpenDiagram(zoom.closest('.b2-discussion-aid')?.querySelector('img'),zoom);return;}
+    const close=event.target.closest('[data-action="b2-aid-close"]');
+    if(close){close.closest('.b2-aid-viewer')?.close();return;}
+    if(event.target.matches('.b2-aid-viewer')){event.target.close();return;}
+    const button=event.target.closest('[data-action="b2-aid-example"]');
+    if(button&&state.mode==='slides'){
+      const index=slidesDeck()?.slides.findIndex(s=>s.id===button.dataset.slideId);
+      if(index>=0)slidesGo(index);return;
+    }
+    if(event.target.closest('[data-action="b2-aid-download"]')&&state.mode==='slides'){
+      const s=slidesCurrent(),example=slidesDeck()?.bookTwoDiscussionAids?.examples?.[s.bookTwoProjectExample||s.bookTwoDiscussionAid?.example];
+      if(example?.sourceText)slidesDownload(example.filename.split('/').pop(),example.sourceText);
+    }
+  });
+  // END BOOK II DISCUSSION AIDS
 
   function writeRoute(){
     const url=new URL(location.href);url.searchParams.set('course',state.courseId);
