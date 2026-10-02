@@ -1,3 +1,4 @@
+import {withoutLinuxAdministration} from '../scripts/linux-admin-original.mjs';
 import {withoutDesignPatternsExpansion,withoutDesignPatternsCoding} from '../scripts/design-patterns-expansion.mjs';
 import {withoutBookOneExpansion,withoutBookOneQuestions} from '../scripts/book-one-expansion.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import {gunzipSync} from 'node:zlib';
@@ -8,7 +9,7 @@ for(const entry of catalog.courses){const c=await readJSON('dist/'+entry.catalog
 for(const key of ['questions','workedPrograms']){const order=new Map(coding[key].map((q,i)=>[q.id,i]));labs[key].sort((a,b)=>order.get(a.id)-order.get(b.id));}
 const restored=await expandAssets(rebuilt,'dist');
 test('Every source field survives migration and generated chapter hydration exactly',async()=>{
- assert.equal(hash(withoutBookOneExpansion(withoutDesignPatternsExpansion(original))),before.contentHash);
+ assert.equal(hash(withoutLinuxAdministration(withoutBookOneExpansion(withoutDesignPatternsExpansion(original)))),before.contentHash);
  const editorial=await readJSON('docs/book-three-baseline.json');
  const prior={...coding};for(const key of ['questions','workedPrograms']){
   const ids=new Set(editorial[key].map(x=>x.id));prior[key]=withoutDesignPatternsCoding(coding)[key].filter(x=>ids.has(x.id));
@@ -17,7 +18,7 @@ test('Every source field survives migration and generated chapter hydration exac
  }
  assert.equal(hash(prior),before.codingHash,'Original coding catalog must remain exactly reconstructible');
  assert.equal(canonical(restored),canonical(original));assert.equal(canonical(labs),canonical(coding));
- assert.deepEqual(counts(withoutBookOneExpansion(withoutDesignPatternsExpansion(restored)),prior),before.counts);
+ assert.deepEqual(counts(withoutLinuxAdministration(withoutBookOneExpansion(withoutDesignPatternsExpansion(restored))),prior),before.counts);
  assert.equal(withoutBookOneQuestions(withoutDesignPatternsCoding(coding)).questions.length-prior.questions.length,19);
  assert.equal(withoutDesignPatternsCoding(coding).workedPrograms.length-prior.workedPrograms.length,66);
 });

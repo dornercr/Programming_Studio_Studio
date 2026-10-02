@@ -63,7 +63,7 @@
   modes.push({id:'coding',label:'Coding Lab',icon:'edit',color:'bg-mint text-mint-ink'});
   modes.push({id:'book',label:'Book',icon:'book',color:'bg-brand-soft text-brand'});
   function normalizeLectureMode(mode){return mode==='lectures'&&slidesHasCourse(state.courseId)?'slides':mode;}
-  function availableModes(){const hasSlides=slidesHasCourse(state.courseId);return modes.filter(m=>m.id==='slides'?hasSlides:m.id==='lectures'&&hasSlides?false:!['uml','code','lectures','book'].includes(m.id)||(m.id==='book'&&course().series)||(m.id==='uml'&&Object.keys(course().diagrams||{}).length)||(m.id==='code'&&(Object.keys(course().examples||{}).length||course().series?.listings.length))||(m.id==='lectures'&&Object.keys(course().lectures||{}).length));}
+  function availableModes(){if(linuxCourse())return linuxModes();const hasSlides=slidesHasCourse(state.courseId);return modes.filter(m=>m.id==='slides'?hasSlides:m.id==='lectures'&&hasSlides?false:!['uml','code','lectures','book'].includes(m.id)||(m.id==='book'&&course().series)||(m.id==='uml'&&Object.keys(course().diagrams||{}).length)||(m.id==='code'&&(Object.keys(course().examples||{}).length||course().series?.listings.length))||(m.id==='lectures'&&Object.keys(course().lectures||{}).length));}
   function courses() {
     return seed.courses.map(c => c.id === 'my-material' ? {...c,topics:store.customTopics} : c).concat(store.courses);
   }
@@ -229,11 +229,12 @@
     $('#topic-search').value=state.query;
     $('#domain-select').innerHTML=`<option value="all">${c.familyLabel?'All subject areas':'All families'}</option>`+c.domains.map(d=>`<option value="${escape(d.id)}" ${state.domain===d.id?'selected':''}>${escape(d.id)} · ${escape(d.title)}</option>`).join('');
     $('#mode-tabs').style.setProperty('--mode-count',availableModes().length);
-    $('#mode-tabs').innerHTML=availableModes().map(m=>`<button class="mode-tab ${state.mode===m.id?'active':''}" data-action="mode" data-mode="${m.id}" aria-pressed="${state.mode===m.id}"><span class="mode-icon ${m.color}">${icon(m.icon)}</span><span class="min-w-0"><span class="mode-label block text-[13px] font-semibold ${state.mode===m.id?'text-brand':'text-ink'}">${c.series&&m.id==='scenarios'?'Practice':c.series&&m.id==='code'?'Code & labs':m.label}</span><span class="mode-count block mt-1 text-[10px] text-muted">${m.id==='slides'?'Interactive lecture':m.id==='coding'?`${labQuestions().length} questions · run C++`:m.id==='outline'?(c.teaching?`${c.chapters.length} ${c.series?'reading maps':'chapter maps'}`:`${t.topics} lessons`):m.id==='flashcards'?`${t.cards} cards`:m.id==='scenarios'?`${t.scenarios} ${c.series?'prompts':'cases'}`:m.id==='lectures'?`${Object.keys(c.lectures||{}).length} chapters`:m.id==='uml'?`${Object.values(c.diagrams||{}).reduce((n,d)=>n+1+(d.extra_overviews||[]).length,0)} diagram views`:m.id==='book'?`${c.series.counts.chapters} chapters · PDF & EPUB`:c.series?`${c.series.listings.length} source listings`:`${Object.keys(c.examples||{}).length} working examples`}</span></span></button>`).join('');
+    $('#mode-tabs').innerHTML=availableModes().map(m=>`<button class="mode-tab ${state.mode===m.id?'active':''}" data-action="mode" data-mode="${m.id}" aria-pressed="${state.mode===m.id}"><span class="mode-icon ${m.color}">${icon(m.icon)}</span><span class="min-w-0"><span class="mode-label block text-[13px] font-semibold ${state.mode===m.id?'text-brand':'text-ink'}">${c.series&&m.id==='scenarios'?'Practice':c.series&&m.id==='code'?'Code & labs':m.label}</span><span class="mode-count block mt-1 text-[10px] text-muted">${linuxCourse()?linuxModeCount(m.id,t,c):m.id==='slides'?'Interactive lecture':m.id==='coding'?`${labQuestions().length} questions · run C++`:m.id==='outline'?(c.teaching?`${c.chapters.length} ${c.series?'reading maps':'chapter maps'}`:`${t.topics} lessons`):m.id==='flashcards'?`${t.cards} cards`:m.id==='scenarios'?`${t.scenarios} ${c.series?'prompts':'cases'}`:m.id==='lectures'?`${Object.keys(c.lectures||{}).length} chapters`:m.id==='uml'?`${Object.values(c.diagrams||{}).reduce((n,d)=>n+1+(d.extra_overviews||[]).length,0)} diagram views`:m.id==='book'?`${c.series.counts.chapters} chapters · PDF & EPUB`:c.series?`${c.series.listings.length} source listings`:`${Object.keys(c.examples||{}).length} working examples`}</span></span></button>`).join('');
     $('#workspace-label').textContent={slides:'PRESENT. EXPLORE. RUN THE CODE.',outline:'READ, UNDERSTAND, AND DISCUSS',flashcards:'TRAIN YOUR RECALL',scenarios:'PUT IT INTO PRACTICE',uml:'FOLLOW THE RELATIONSHIPS',code:'READ THE WORKING C++',lectures:'LECTURE MATERIALS',book:'THE COMPLETE BOOK',coding:'BUILD IT. TEST IT. UNDERSTAND IT.'}[state.mode];
     $('#filter-status').innerHTML=state.query||state.bookmarksOnly?`<button class="filter-chip" data-action="clear-filters">${escape(state.query?`“${state.query.length>22?state.query.slice(0,22)+'…':state.query}”`:'Saved topics')} ${icon('close')}</button>`:'';
     $('#pack-notice').textContent=isBook()?`${c.title} · ${c.author||'Dr. Charles Dorner'} · Offline reading · online Coding Lab`:'Your study material · Stored locally in this browser.';
     $('#storage-warning').innerHTML=storageOK?'':'<div class="storage-warning">Browser storage is unavailable. Your work is usable in this session; export a backup to keep your progress.</div>';
+    if(linuxCourse()){$('#workspace-label').textContent='READ. OBSERVE. VERIFY. RECOVER.';$('#pack-notice').textContent='Linux System Administration · Complete reading · Local Linux labs';}
     renderBookControls();renderSidebar();renderWorkspace();renderSidebarProgress();renderDrawer();remember();
   }
   function renderSidebar() {
@@ -284,6 +285,7 @@
   function bookmarkButton(t) {const saved=progress().bookmarks.includes(t.id);return `<button class="icon-button ${saved?'active':''}" data-action="bookmark" aria-label="${saved?'Remove bookmark':'Bookmark this topic'}" aria-pressed="${saved}" title="${saved?'Remove bookmark':'Bookmark topic'}">${icon('star')}</button>`;}
   function topicBadge(t) {if(isBook())return bookTopicBadge(t);return `<span class="pill bg-brand-soft text-brand">DOMAIN ${escape(t.domain)}</span><span class="text-[10px] text-muted">${escape(t.id)}</span>`;}
   function renderWorkspace() {
+    if(linuxCourse()&&visibleTopics().length&&['outline','uml','code','book','linuxlabs'].includes(state.mode)){const t=topic();if(t){slidesBeforeRender();$('#workspace').innerHTML=`<div class="wide-workspace">${linuxWorkspace(t)}</div>`;return;}}
     labBeforeRender();
     slidesBeforeRender();
     if(state.mode==='slides'){renderSlidesWorkspace();return;}
@@ -477,6 +479,7 @@
       clean.coding[id]={code:text(d.code,60000),input:text(d.input,20000),title:text(d.title,200),updatedAt:text(d.updatedAt,60),checkedCode:text(d.checkedCode,60000),passed:d.passed===true,checkedAt:text(d.checkedAt,60)};
       if(typeof d.initialCode==='string')clean.coding[id].initialCode=text(d.initialCode,60000);
     }
+    clean.linuxDrafts=linuxCleanDrafts(p.linuxDrafts);
     clean.codingSelected=validId(p.codingSelected)?p.codingSelected:null;
     return clean;
   }
@@ -487,7 +490,7 @@
     if(Array.isArray(value.courses)){if(value.courses.length>30)throw new Error('Too many curricula.');clean.courses=value.courses.map(validateCourse);}
     const ids=new Set(seed.courses.map(c=>c.id));for(const c of clean.courses){if(ids.has(c.id))throw new Error('Duplicate curriculum ID in backup.');ids.add(c.id);}
     for(const [id,p] of Object.entries(isObject(value.progress)?value.progress:{}))if(ids.has(id))clean.progress[id]=cleanProgress(p);
-    const ui=isObject(value.ui)?value.ui:{};clean.ui.courseId=ids.has(ui.courseId)?ui.courseId:'design-patterns-cpp';clean.ui.mode=['outline','flashcards','scenarios','uml','code','lectures','book','coding','slides'].includes(ui.mode)?ui.mode:'outline';clean.ui.large=!!ui.large;
+    const ui=isObject(value.ui)?value.ui:{};clean.ui.courseId=ids.has(ui.courseId)?ui.courseId:'design-patterns-cpp';clean.ui.mode=['outline','flashcards','scenarios','uml','code','lectures','book','coding','slides','linuxlabs'].includes(ui.mode)?ui.mode:'outline';clean.ui.large=!!ui.large;
     for(const [id,p] of Object.entries(isObject(ui.positions)?ui.positions:{}))if(ids.has(id)&&isObject(p))clean.ui.positions[id]={topicId:validId(p.topicId)?p.topicId:null,cardId:validId(p.cardId)?p.cardId:null,scenarioId:validId(p.scenarioId)?p.scenarioId:null};
     return clean;
   }
@@ -539,7 +542,7 @@
       case 'export-backup':exportBackup();break;case 'export-pack':exportPack();break;
       case 'import':$('#import-file').click();break;
       case 'add-topic':showEditor(false);break;case 'edit-topic':if(course().id!=='design-patterns-cpp'&&!isBook())showEditor(true);break;
-      case 'reset-progress':if(confirm(`Reset learning progress for “${course().title}”? Your notes, bookmarks, coding drafts, and material will be kept.`)){const p=progress();store.progress[state.courseId]={...blankProgress(),bookmarks:p.bookmarks,notes:p.notes,coding:Object.fromEntries(Object.entries(p.coding||{}).map(([id,d])=>[id,{...d,passed:false,checkedCode:'',checkedAt:''}])),codingSelected:p.codingSelected};state.drafts={};state.retries.clear();renderAll();showSettings();toast('Learning progress reset. Notes and bookmarks were kept.');}break;
+      case 'reset-progress':if(confirm(`Reset learning progress for “${course().title}”? Your notes, bookmarks, coding drafts, and material will be kept.`)){const p=progress();store.progress[state.courseId]={...blankProgress(),bookmarks:p.bookmarks,notes:p.notes,linuxDrafts:p.linuxDrafts,coding:Object.fromEntries(Object.entries(p.coding||{}).map(([id,d])=>[id,{...d,passed:false,checkedCode:'',checkedAt:''}])),codingSelected:p.codingSelected};state.drafts={};state.retries.clear();renderAll();showSettings();toast('Learning progress reset. Notes and bookmarks were kept.');}break;
     }
   });
   document.addEventListener('input',event=>{
@@ -573,15 +576,15 @@
   // Clicking the native dialog's backdrop closes it; clicks within its bounds do not.
   DIALOG.addEventListener('click',event=>{if(event.target===DIALOG){const r=DIALOG.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)DIALOG.close();}});
   let glossaryQuery='', codeKind='examples';
-  function isBook(){return course().kind==='textbook';}
+  function isBook(){return course().kind==='textbook'||course().kind==='linux-admin';}
   function cleanPages(){return undefined;}
   function cleanBlocks(v){if(Array.isArray(v)&&v.some(b=>b?.kind))return cleanSeriesBlocks(v);return (Array.isArray(v)?v:[]).slice(0,100).filter(isObject).map(b=>({type:['paragraph','code','list','reveal'].includes(b.type)?b.type:'paragraph',text:text(b.text,30000),title:text(b.title,1500),code:text(b.code,100000),items:Array.isArray(b.items)?b.items.slice(0,100).map(x=>text(x,15000)):[]}));}
   function cleanBookMetadata(c){
-    if(c.kind!=='textbook')return {};
+    if(c.kind!=='textbook'&&c.kind!=='linux-admin')return {};
     const chapters=(c.chapters||[]).filter(x=>Number.isInteger(x.number)&&x.number>=0&&x.number<=100).map(x=>({number:x.number,title:text(x.title,400),part:Number(x.part)||0,partTitle:text(x.partTitle,400),role:['chapter','front','reference'].includes(x.role)?x.role:undefined}));
     const glossary=(c.glossary||[]).slice(0,1000).filter(x=>validId(x.id)).map(x=>({id:x.id,term:text(x.term,500),definition:text(x.definition,20000),chapter:Number(x.chapter)}));
     // Extra study payloads render as escaped text or inert image data, never executable HTML.
-    return {kind:'textbook',series:isObject(c.series)?c.series:undefined,chapters,glossary,teaching:isObject(c.teaching)?c.teaching:undefined,readingOrder:Array.isArray(c.readingOrder)?c.readingOrder.filter(validId):undefined,author:text(c.author,400),coverageLabel:text(c.coverageLabel,600),familyLabel:text(c.familyLabel,100),lectures:isObject(c.lectures)?c.lectures:{},examples:isObject(c.examples)?c.examples:{},diagrams:isObject(c.diagrams)?c.diagrams:{}};
+    return {kind:c.kind,...(c.kind==='linux-admin'?{linuxBook:c.linuxBook}:{}),series:isObject(c.series)?c.series:undefined,chapters,glossary,teaching:isObject(c.teaching)?c.teaching:undefined,readingOrder:Array.isArray(c.readingOrder)?c.readingOrder.filter(validId):undefined,author:text(c.author,400),coverageLabel:text(c.coverageLabel,600),familyLabel:text(c.familyLabel,100),lectures:isObject(c.lectures)?c.lectures:{},examples:isObject(c.examples)?c.examples:{},diagrams:isObject(c.diagrams)?c.diagrams:{}};
   }
   function renderBlocks(blocks){return (blocks||[]).map(b=>b.type==='code'?`<section class="code-excerpt"><h3>${escape(b.title)}</h3><pre><code>${escape(b.code)}</code></pre></section>`:b.type==='list'?`<section class="text-block"><h3>${escape(b.title)}</h3><ul>${(b.items||[]).map(x=>`<li>${escape(x)}</li>`).join('')}</ul></section>`:b.type==='reveal'?`<details class="answer-reveal"><summary>${escape(b.title)}</summary><p>${escape(b.text)}</p></details>`:`<p class="reader-paragraph">${escape(b.text)}</p>`).join('');}
   function bookTopicBadge(t){if(course().series)return `<span class="pill bg-brand-soft text-brand">BOOK ${escape(course().series.roman)} · ${escape(seriesLabel(t.chapter).toUpperCase())}</span>`;return `<span class="pill bg-brand-soft text-brand">${t.chapter===-1?'GLOSSARY':t.chapter===0?'FOUNDATIONS':'CHAPTER '+t.chapter}</span><span class="text-[10px] text-muted">${escape(t.id)}</span>`;}
@@ -629,7 +632,60 @@
   document.addEventListener('input',e=>{if(e.target.id==='glossary-search'){glossaryQuery=e.target.value;$('#glossary-results').innerHTML=glossaryResults();}});
   document.addEventListener('change',e=>{if(e.target.id==='chapter-select'){state.chapter=e.target.value;state.domain='all';state.query='';state.cardId=null;state.scenarioId=null;state.flipped=false;state.scope='chapter';state.lessonView='map';if(state.chapter!=='all'){const first=course().teaching?.[state.chapter]?.startTopicId;if(first)state.topicId=first;}renderAll();window.scrollTo({top:0,behavior:'instant'});}});
 
-  /*__TEACHING_JS__*/
+  // BEGIN LINUX ADMIN COURSE
+// Linux course views share the existing navigation, notes and review progress.
+function linuxCourse(){return course().id==='linux-system-administration';}
+function linuxCleanDrafts(value){return Object.fromEntries(Object.entries(value&&typeof value==='object'?value:{}).filter(([key,code])=>/^\d{1,2}$/.test(key)&&typeof code==='string').map(([key,code])=>[key,code.slice(0,60000)]));}
+function linuxImage(value){
+  if(value?.$asset&&/^assets\/linux-admin\/ch\d+\.svg$/.test(value.$asset))return value.$asset;
+  return typeof value==='string'&&value.startsWith('data:image/svg+xml;base64,')?value:'';
+}
+function linuxModes(){return modes.filter(m=>!['lectures','coding'].includes(m.id)).map(m=>({...m,label:({code:'Commands',uml:'Diagrams',book:'Book',scenarios:'Cases'})[m.id]||m.label})).concat({id:'linuxlabs',label:'Linux labs',icon:'edit',color:'bg-mint text-mint-ink'});}
+function linuxModeCount(id,t,c){return ({slides:'Interactive chapter lecture',outline:`${c.chapters.length} chapter maps`,code:`${c.linuxBook.originalCodeBlocks} original examples`,uml:'Fit-to-pane operational diagrams',book:'Complete original EPUB',linuxlabs:'33 local Bash fixture labs',flashcards:`${t.cards} cards`,scenarios:`${t.scenarios} cases`})[id]||'';}
+function linuxBlocks(t){return (t.blocks||[]).map(b=>b.type==='code'?`<section class="linux-command"><span class="teaching-kicker">ORIGINAL COMMAND / CONFIGURATION / TRACE</span><pre><code>${escape(b.code)}</code></pre><p class="teaching-caption">${escape(t.sourceRef)} · Read the surrounding preconditions before use.</p><button class="btn" data-action="linux-source-download" data-block="${escape(b.id)}">Download exact source text</button></section>`:`<p class="reader-paragraph linux-prose">${escape(b.text)}</p>`).join('');}
+function linuxFigure(m){return `<figure class="linux-figure"><img class="linux-diagram" src="${escape(linuxImage(m.image))}" alt="${escape(m.title+'. '+m.contract)}"><figcaption>${escape(m.contract)}<br>Arrows show an inspection sequence, not a kernel data flow.</figcaption><button class="btn" data-action="linux-diagram-open">Open diagram full screen</button></figure>`;}
+function linuxLab(lab){if(!lab)return '<p>This reference chapter has no executable fixture lab. Use its original procedures and worksheets.</p>';const draft=progress().linuxDrafts?.[String(topic().chapter)]??lab.starter;return `<section class="linux-lab"><h3>${escape(lab.title)}</h3><p>${escape(lab.scope)}</p><p>Run with Bash on GNU/Linux without sudo. The solution creates and removes its own temporary directory. Fixture results demonstrate the stated contract; they do not configure a production service.</p><label for="linux-lab-editor">Your solution · saved in this browser</label><textarea id="linux-lab-editor" spellcheck="false" wrap="off" maxlength="60000">${escape(draft)}</textarea><div class="linux-tools"><button class="btn" data-action="linux-lab-download">Download my .sh</button><button class="btn" data-action="linux-lab-reset">Reset starter</button></div><pre><code>bash -n linux-lab.sh &amp;&amp; bash linux-lab.sh</code></pre><details class="answer-reveal"><summary>Compare the verified solution and expected output</summary><pre><code>${escape(lab.code)}</code></pre><strong>Expected stdout · exit 0 · empty stderr</strong><pre>${escape(lab.output)}</pre><p>The installer does not execute the book’s original privileged commands. These local fixture solutions are checked by the added test suite.</p><button class="btn" data-action="linux-lab-solution">Download verified solution .sh</button></details></section>`;}
+function linuxWorked(g){return (g.workedTopicIds||[]).map(id=>course().topics.find(t=>t.id===id)).filter(Boolean).map(t=>`<section><h3>${escape(t.title)}</h3>${linuxBlocks(t)}</section>`).join('');}
+function linuxBookView(){return `<article class="panel teaching-reader"><h2 class="lesson-heading">Linux System Administration</h2><p>The complete supplied EPUB: 33 main chapters, introductory material, four appendices and primary references. All 490 numbered section examples and 735 original command, configuration and trace blocks are retained.</p><button class="btn btn-primary" data-action="linux-epub">Download original EPUB</button><button class="btn" data-action="coverage">Browse all chapters</button><p>Read inside Study Studio with Outline, open the chapter’s interactive Slides, or use Commands for every original example in the selected chapter.</p></article>`;}
+function linuxWorkspace(t){
+  const g=chapterGuide(t.chapter);if(!g)return '<p>Choose a chapter.</p>';
+  if(state.mode==='book')return linuxBookView();
+  if(state.mode==='linuxlabs')return `<article class="panel teaching-reader"><h2 class="lesson-heading">${escape(g.title)} · local lab</h2>${linuxLab(g.labs?.[0])}</article>`;
+  if(state.mode==='uml')return `<article class="panel teaching-reader"><h2 class="lesson-heading">${escape(g.model.title)}</h2>${linuxFigure(g.model)}<h3>What can go wrong?</h3><p>${escape(g.model.failure)}</p><details class="answer-reveal"><summary>Explain the operational contract</summary><p>${escape(g.model.contract)}</p></details></article>`;
+  if(state.mode==='code')return `<article class="panel teaching-reader"><h2 class="lesson-heading">${escape(g.title)} · original examples</h2><p>These are exact examples from the book, including configuration and illustrative traces. They are displayed as text and are not submitted to the C++ compiler. Use the full section instructions for requirements and verification.</p>${course().topics.filter(x=>x.chapter===t.chapter&&x.blocks?.some(b=>b.type==='code')).map(x=>`<section><h3>${escape(x.title)}</h3><button class="source-link" data-action="read-topic" data-id="${escape(x.id)}">Open full source context</button>${(x.blocks||[]).filter(b=>b.type==='code').map(b=>`<pre class="linux-code"><code>${escape(b.code)}</code></pre>`).join('')}</section>`).join('')}</article>`;
+  const map=state.lessonView==='map'||(state.lessonView!=='lesson'&&t.id===g.startTopicId);
+  return `<article class="panel teaching-reader linux-reader">${guideTrail(t,g)}<div class="linux-heading"><h2 class="lesson-heading">${escape(map?g.title:t.title)}</h2>${bookmarkButton(t)}</div>${map?`<div class="linux-discussion-grid"><div><h3>${escape(g.model.title)}</h3><p>${escape(g.workshop.problem)}</p><p>${escape(g.model.contract)}</p><ul>${g.objectives.map(x=>`<li>${escape(x)}</li>`).join('')}</ul><div class="linux-tools"><button class="btn btn-primary" data-action="read-topic" data-id="${escape(g.firstLessonId)}">Read first lesson</button><button class="btn" data-action="mode" data-mode="slides">Open chapter slides</button><button class="btn" data-action="mode" data-mode="linuxlabs">Open local lab</button></div></div><aside>${linuxFigure(g.model)}</aside></div><details class="answer-reveal"><summary>Chapter sections · ${g.sections.length} reading entries</summary>${chapterMapCards(g)}</details><section id="chapter-workshop"><h3>Original worked example and chapter discussion</h3>${linuxWorked(g)||linuxBlocks(t)}</section>${linuxLab(g.labs?.[0])}`:`<div class="linux-discussion-grid"><section>${linuxBlocks(t)}</section><aside>${linuxFigure(g.model)}<details class="answer-reveal"><summary>Discuss the evidence</summary><p>${escape(g.model.contract)}</p><p>${escape(g.model.failure)}</p></details><button class="btn" data-action="chapter-map">Chapter discussion and worked example</button></aside></div>`}${teachingNotes(t)}${readingFooter(t)}</article>`;
+}
+function linuxSlidesWorkbench(s){
+  if(s.linuxModel)return linuxFigure(s.linuxModel)+`<p>${escape(s.linuxModel.failure)}</p>`;
+  if(s.linuxCommand)return `<span class="slides-eyebrow">EXACT LINUX SOURCE EXAMPLE</span><pre class="linux-code"><code>${escape(s.linuxCommand.text)}</code></pre><p>${escape(s.linuxCommand.interpretation)}</p><p class="slides-network">${escape(s.linuxCommand.source)}. Run only with the book’s stated lab preconditions. This page does not run a host shell.</p><button class="slides-btn" data-action="linux-slide-copy">Copy source text</button>`;
+  if(s.linuxLab)return linuxLab(s.linuxLab);
+  return `<section class="slides-reading"><span class="slides-eyebrow">ORIGINAL CHAPTER DISCUSSION</span>${(s.linuxReading||[]).map(p=>`<p class="linux-prose">${escape(p)}</p>`).join('')}</section>`;
+}
+function linuxCurrentLab(){return state.mode==='slides'?slidesCurrent()?.linuxLab:chapterGuide()?.labs?.[0];}
+function linuxZoom(value){const viewer=document.querySelector('.linux-zoom-view');if(!viewer)return;const zoom=Math.max(1,Math.min(4,value));viewer.dataset.zoom=String(zoom);viewer.style.setProperty('--linux-zoom',zoom);const status=document.querySelector('#linux-zoom-status');if(status)status.textContent=Math.round(zoom*100)+'%';}
+document.addEventListener('input',e=>{if(!linuxCourse()||e.target.id!=='linux-lab-editor')return;const p=progress();p.linuxDrafts??={};p.linuxDrafts[String(topic().chapter)]=e.target.value;remember();});
+document.addEventListener('click',async e=>{
+  const el=e.target.closest('[data-action^="linux-"]');if(!el||!linuxCourse())return;
+  const lab=linuxCurrentLab();
+  switch(el.dataset.action){
+    case 'linux-source-download':{const b=course().topics.flatMap(t=>t.blocks||[]).find(b=>b.id===el.dataset.block&&b.type==='code');if(b)slidesDownload(b.id+'.txt',b.code);break;}
+    case 'linux-lab-download':if(lab)slidesDownload('linux-lab.sh',progress().linuxDrafts?.[String(topic().chapter)]??lab.starter);break;
+    case 'linux-lab-solution':if(lab)slidesDownload('linux-lab.sh',lab.code);break;
+    case 'linux-lab-reset':if(lab){progress().linuxDrafts??={};delete progress().linuxDrafts[String(topic().chapter)];remember();if(state.mode==='slides')renderSlidesWorkspace();else renderWorkspace();}break;
+    case 'linux-slide-copy':if(slidesCurrent()?.linuxCommand)slidesCopy(slidesCurrent().linuxCommand.text);break;
+    case 'linux-epub':{const book=course().linuxBook.epub;const a=document.createElement('a');const value=typeof book==='string'?book:book?.$asset;if(!value||!(value.startsWith('data:application/epub+zip;base64,')||value==='assets/linux-admin/Linux_System_Administration.epub'))break;a.href=value;a.download='Linux_System_Administration.epub';a.click();break;}
+    case 'linux-diagram-open':{const m=state.mode==='slides'&&slidesCurrent()?.linuxModel?slidesCurrent().linuxModel:chapterGuide()?.model;if(!m)break;modal(m.title,`<div class="linux-tools"><button class="btn" data-action="linux-fit">Fit screen</button><button class="btn" data-action="linux-zoom-out" aria-label="Zoom out">−</button><span id="linux-zoom-status" aria-live="polite">100%</span><button class="btn" data-action="linux-zoom-in" aria-label="Zoom in">+</button></div><div class="linux-zoom-view" data-zoom="1"><div class="linux-zoom-sheet"><img src="${escape(linuxImage(m.image))}" alt="${escape(m.title+'. '+m.contract)}"></div></div>`);DIALOG.classList.add('linux-diagram-dialog');break;}
+    case 'linux-fit':linuxZoom(1);break;
+    case 'linux-zoom-in':linuxZoom(Number(document.querySelector('.linux-zoom-view')?.dataset.zoom||1)+.25);break;
+    case 'linux-zoom-out':linuxZoom(Number(document.querySelector('.linux-zoom-view')?.dataset.zoom||1)-.25);break;
+  }
+});
+DIALOG.addEventListener('close',()=>DIALOG.classList.remove('linux-diagram-dialog'));
+DIALOG.addEventListener('wheel',e=>{const viewer=e.target.closest('.linux-zoom-view');if(!viewer||!linuxCourse())return;e.preventDefault();linuxZoom(Number(viewer.dataset.zoom)+(e.deltaY<0?.15:-.15));},{passive:false});
+
+// END LINUX ADMIN COURSE
+/*__TEACHING_JS__*/
   /*__SERIES_JS__*/
   /*__CODING_CORE__*/
   /*__CODING_JS__*/

@@ -1,3 +1,4 @@
+import {withoutLinuxAdministration} from '../scripts/linux-admin-original.mjs';
 import {withoutDesignPatternsExpansion,withoutDesignPatternsCoding} from '../scripts/design-patterns-expansion.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
 import {sourceData,sourceCoding} from '../scripts/read-source.mjs';import {bookOneExpansion as pack,withoutBookOneExpansion,withoutBookOneQuestions} from '../scripts/book-one-expansion.mjs';import {hash} from '../scripts/content-store.mjs';
@@ -19,7 +20,7 @@ test('Every new question has a full contract, guide, hints, sample and boundary 
  for(const q of qs){assert.deepEqual(q,pack.questions.find(x=>x.id===q.id));for(const key of ['problem','design','invariant','trace','failure','maintenance'])assert.ok(q.guide[key].length>20);assert.ok(q.tests.length>=4);for(const name of ['starter','solution'])assert.equal(fs.readFileSync(`coding_lab/book_one_expansion/ch${String(q.chapter).padStart(2,'0')}/${name}.cpp`,'utf8'),q[name]+'\n'+q.driver);}
 });
 test('Removing only these additions reconstructs the exact historical content and prior coding catalog',()=>{
- const baseline=JSON.parse(fs.readFileSync('docs/book-three-baseline.json','utf8'));assert.equal(hash(withoutBookOneExpansion(withoutDesignPatternsExpansion(data))),baseline.contentHash);
+ const baseline=JSON.parse(fs.readFileSync('docs/book-three-baseline.json','utf8'));assert.equal(hash(withoutLinuxAdministration(withoutBookOneExpansion(withoutDesignPatternsExpansion(data)))),baseline.contentHash);
  const prior=withoutBookOneQuestions(withoutDesignPatternsCoding(coding));for(const key of ['questions','workedPrograms'])for(const old of baseline[key])assert.equal(hash(prior[key].find(x=>x.id===old.id)),old.hash,old.id);
  assert.equal(withoutBookOneExpansion(withoutDesignPatternsExpansion(data)).courses.find(c=>c.id===book.id).topics.flatMap(t=>t.cards).length,119);
 });

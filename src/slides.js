@@ -44,6 +44,7 @@
   function slidesInlineStage(stage){return `<div class="slides-stage-detail"><strong>${escape(stage.artifact)}</strong><p>${escape(stage.description)}</p><pre>${escape(stage.command)}</pre><p class="slides-network">Illustrative observation, not a live build</p><p>${escape(stage.recordedOutput||'')}</p></div>`;}
   function slidesExpected(s){if(s.code.bookTwoRecordedObservation)return bookTwoRecordedOutput(s);if(s.code.recordedObservation)return bookOneRecordedOutput(s);if(s.code.expectedPhase==='build')return `<details class="slides-expected"><summary>Expected behavior of the original example</summary><p>Expected build failure. The program is not executed. This is a representative diagnostic, not live output.</p><pre>${escape(s.code.expectedStderr||'Build rejected')}</pre><p>Build status: nonzero. There is no program exit status.</p></details>`;return `<details class="slides-expected"><summary>Expected behavior of the original example</summary><p>This is the chapter expectation, not a live run of your edited code.</p><pre>${escape('stdout:\n'+(s.code.expectedStdout||'(empty)')+'\nstderr:\n'+(s.code.expectedStderr||'(empty)')+'\nProgram exit: '+(s.code.expectedExitCode??'see explanation'))}</pre></details>`;}
   function slidesWorkbench(s){
+    if(s.linuxAdmin)return linuxSlidesWorkbench(s);
     if(s.bookTwoDiscussionAid)return bookTwoDiscussionWorkbench(s);
     if(s.bookTwoDiagram)return bookTwoDiagramWorkbench(s);
     if(s.bookTwoProjectExample)return bookTwoProjectWorkbench(s);
